@@ -1,0 +1,13 @@
+config_trends.json
+config.json
+client_secret.json
+youtube_token.json
+pipeline_state/
+guion.txt
+resultado_lote.json
+video_maestro.log
+*.mp4
+*.m4a
+*.png
+__pycache__/
+*.pyc
