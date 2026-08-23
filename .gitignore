@@ -8,6 +8,9 @@ resultado_lote.json
 video_maestro.log
 *.mp4
 *.m4a
+*.mp3
+*.wav
+*.aac
 *.png
 __pycache__/
 *.pyc

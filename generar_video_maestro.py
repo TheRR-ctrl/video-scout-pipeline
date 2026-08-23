@@ -387,21 +387,26 @@ def seleccionar_fondo_video(es_short):
     return next((f for p in ["fondo_vertical" if es_short else "fondo_horizontal", "fondo_gameplay"] for ext in ['.webm', '.mp4', '.mkv'] if os.path.exists(p+ext)), next((f for f in os.listdir('.') if f.endswith(('.webm', '.mp4', '.mkv'))), None))
 
 def seleccionar_musica_fondo(emocion='fondo'):
+    """Elige al azar entre todas las pistas disponibles para la emoción (p.ej.
+    musica_drama_artista_123.mp3, descargadas por actualizar_musica.py), para
+    no repetir siempre la misma canción. Si no hay ninguna con ese prefijo
+    exacto, cae a musica_fondo_*, y si tampoco hay, a cualquier musica_*."""
     exts = ('.m4a', '.mp3', '.wav', '.aac')
+
+    def candidatas(prefijo):
+        return [
+            f for f in os.listdir('.')
+            if f.startswith(prefijo) and f.endswith(exts) and archivo_valido(f)
+        ]
+
     for prefijo in (f"musica_{emocion}", "musica_fondo"):
-        for ext in exts:
-            candidato = prefijo + ext
-            if archivo_valido(candidato):
-                return candidato
+        opciones = candidatas(prefijo)
+        if opciones:
+            return random.choice(opciones)
 
     # Fallback estricto: solamente archivos que empiecen por musica_.
-    return next(
-        (
-            f for f in os.listdir('.')
-            if f.startswith("musica_") and f.endswith(exts) and archivo_valido(f)
-        ),
-        None
-    )
+    opciones = candidatas("musica_")
+    return random.choice(opciones) if opciones else None
 
 def extraer_fuente_y_autor(texto_raw):
     """Extrae la atribución (# Fuente: / # Autor:) que escribe script_writer.py,
@@ -727,6 +732,7 @@ def renderizar_una_historia(contenido, num=1):
             "es_short": es_short,
             "fuente_url": fuente_url,
             "autor_original": autor_original,
+            "musica_archivo": os.path.basename(musica) if musica else None,
         }
     finally:
         gestor.limpiar()
