@@ -114,12 +114,30 @@ up where it left off.
 
 **Option A — local cron / Termux (simplest, uses your own machine/phone):**
 run `python pipeline.py` on a schedule with cron (Linux/macOS) or
-Termux:Boot + `termux-job-scheduler` (Android), e.g. once daily. Your
-background footage/music files stay local, no upload needed.
+`cronie` + `termux-services` (Android). Your background footage/music files
+stay local, no upload needed.
+
+**Recommended split — generate in batches, publish daily.** Uploading an
+entire batch (10-20 videos) at once, a few times a week, floods anyone
+following the channel and gives the algorithm a spiky, inconsistent signal.
+Shorts channels grow better with **one video going public per day, at a
+consistent time** — that's what `publisher.py`'s `max_subidas_por_corrida`
+(default: 1) enforces: each run uploads just one video from the backlog and
+leaves the rest queued in `resultado_lote.json` for the next run. So split
+generation (heavier, less often) from publishing (light, daily):
 
 ```cron
-# crontab -e — once a day at 09:00
-0 9 * * * cd /path/to/video-scout-pipeline && /usr/bin/python3 pipeline.py >> pipeline.log 2>&1
+# crontab -e
+# Generate a backlog: scout + script + render, twice a week
+0 6 * * 1,4 bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python pipeline.py --hasta video >> pipeline.log 2>&1'
+
+# Publish one video/day from the backlog — buffer_horas_revision in
+# publisher.py's config controls how many hours later it actually goes
+# public (tune it so that lands near your audience's peak hours)
+0 9 * * * bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python pipeline.py --desde publicar >> pipeline.log 2>&1'
+
+# Refresh background music once a month (optional, doesn't need to be frequent)
+0 8 1 * * bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python actualizar_musica.py >> musica.log 2>&1'
 ```
 
 **Option B — GitHub Actions (cloud, no device needs to stay on):** see

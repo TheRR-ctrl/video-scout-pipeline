@@ -71,7 +71,16 @@ CARPETA_SALIDA_DEFAULT = (
 
 CONFIG_DEFAULT = {
     "carpeta_salida": CARPETA_SALIDA_DEFAULT,
-    "buffer_horas_revision": 12,
+    # Con crond corriendo publisher.py a diario (ver README), esto deja el
+    # video en revisión hasta ~6pm hora local el mismo día — buena hora pico
+    # para Shorts en español. Súbelo si el cron de publicar corre más tarde.
+    "buffer_horas_revision": 9,
+    # Un video público por día es mejor para el crecimiento del canal que
+    # publicar el lote entero de una sola vez (evita saturar a quien sigue
+    # el canal y da una señal más constante al algoritmo). El resto del lote
+    # ya renderizado queda esperando en resultado_lote.json para el día
+    # siguiente.
+    "max_subidas_por_corrida": 1,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
     "categoria_youtube": "24",  # Entertainment
@@ -293,8 +302,17 @@ def main():
 
     client = genai.Client()
     servicio_yt = None
+    max_subidas = cfg.get("max_subidas_por_corrida")
+    subidas_en_esta_corrida = 0
 
     for video in pendientes:
+        if max_subidas and subidas_en_esta_corrida >= max_subidas:
+            logger.info(
+                f"Tope de {max_subidas} subida(s) por corrida alcanzado — "
+                f"el resto del lote queda pendiente para la próxima corrida."
+            )
+            break
+
         ruta = video["ruta"]
         logger.info(f"Procesando: {os.path.basename(ruta)}")
 
@@ -342,6 +360,7 @@ def main():
             "url_revision": f"https://studio.youtube.com/video/{video_id}/edit",
         })
         guardar_json(RUTA_PUBLICADOS, publicados)
+        subidas_en_esta_corrida += 1
 
 
 if __name__ == "__main__":
