@@ -9,9 +9,9 @@
   ],
   "time_filter": "day",
   "limite_por_subreddit": 15,
-  "min_score": 500,
-  "min_comentarios": 100,
   "min_palabras_texto": 80,
   "max_palabras_texto": 1800,
-  "max_candidatos_salida": 20
+  "max_candidatos_salida": 20,
+  "umbral_palabras_historia_larga": 400,
+  "min_candidatos_largos": 3
 }
