@@ -661,8 +661,9 @@ def renderizar_una_historia(contenido, num=1):
         w, h = (1080, 1920) if es_short else (1920, 1080)
         f_ass = s_ass.replace('\\', '\\\\').replace(':', '\\:')
         if musica:
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.08[am];[av][am]amix=inputs=2:duration=first[aout]"
-            cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
+            fade_inicio = max(0.0, dur_sec - 2.0)
+            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.08,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
+            cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-stream_loop", "-1", "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
         else:
             fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0"]
