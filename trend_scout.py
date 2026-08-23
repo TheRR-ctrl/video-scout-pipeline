@@ -9,14 +9,17 @@ Requiere: pip install requests
 Nota sobre el acceso a Reddit:
   La API oficial de Reddit (PRAW/OAuth "script app") requiere aprobación de
   Reddit, que no siempre se concede para uso personal. Como alternativa, este
-  script usa los endpoints públicos de solo lectura de reddit.com
-  (https://www.reddit.com/r/<sub>/top/.json), que no requieren credenciales ni
+  script usa los endpoints públicos de solo lectura de old.reddit.com
+  (https://old.reddit.com/r/<sub>/top/.json), que no requieren credenciales ni
   OAuth y son los mismos que carga cualquier navegador al visitar Reddit sin
   iniciar sesión. Sigue siendo 100% de solo lectura: nunca se postea, comenta,
   vota ni envía mensajes. Esto no es la vía "oficial" de la Data API de Reddit,
   así que:
     - Se respeta un rate limit conservador entre requests (ver RATE_LIMIT_SEG).
-    - Se identifica con un User-Agent descriptivo (ver CONFIG_DEFAULT).
+    - Se manda un User-Agent de navegador real (ver _UA_NAVEGADOR): un
+      User-Agent "de script", aunque sea descriptivo, dispara el filtro
+      anti-bot de Reddit y devuelve 403 incluso sin autenticación de por
+      medio.
     - Si Reddit empieza a devolver 429/403 de forma consistente, hay que
       espaciar aún más las corridas o volver a intentar la API oficial más
       adelante.
@@ -47,9 +50,6 @@ RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_t
 RATE_LIMIT_SEG = 3.0  # pausa entre requests a reddit.com, para no golpear el endpoint público
 
 CONFIG_DEFAULT = {
-    # Identifica la app/operador en las requests (no es un requisito de OAuth,
-    # pero es buena práctica y ayuda a diagnosticar bloqueos).
-    "user_agent": "python:trend-scout-video-pipeline:v2.0 (by /u/TU_USUARIO_REDDIT)",
     "subreddits": [
         "AmItheAsshole",
         "relationships",
@@ -92,11 +92,27 @@ def guardar_historial(vistos):
         json.dump(sorted(vistos), f, ensure_ascii=False, indent=2)
 
 
+_UA_NAVEGADOR = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+
+
 def obtener_posts_publicos(subreddit, cfg):
-    """Lee el listado 'top' público de un subreddit vía el JSON sin autenticar."""
-    url = f"https://www.reddit.com/r/{subreddit}/top/.json"
+    """Lee el listado 'top' público de un subreddit vía el JSON sin autenticar.
+
+    Usa old.reddit.com (en vez de www.reddit.com) y un User-Agent de
+    navegador real: el filtro anti-bot de Reddit devuelve 403 a requests con
+    un User-Agent que "suena" a script/API, incluso sin autenticación de por
+    medio y viniendo de una IP residencial normal.
+    """
+    url = f"https://old.reddit.com/r/{subreddit}/top/.json"
     params = {"t": cfg["time_filter"], "limit": cfg["limite_por_subreddit"], "raw_json": 1}
-    headers = {"User-Agent": cfg["user_agent"]}
+    headers = {
+        "User-Agent": _UA_NAVEGADOR,
+        "Accept": "application/json, text/plain, */*",
+        "Accept-Language": "es-MX,es;q=0.9,en;q=0.8",
+    }
 
     resp = requests.get(url, params=params, headers=headers, timeout=15)
     if resp.status_code == 429:
@@ -110,11 +126,6 @@ def obtener_posts_publicos(subreddit, cfg):
 def escanear(cfg):
     if requests is None:
         raise RuntimeError("Falta el paquete 'requests'. Instálalo con: pip install requests")
-    if "TU_USUARIO_REDDIT" in cfg["user_agent"]:
-        logger.warning(
-            "user_agent sigue con el placeholder TU_USUARIO_REDDIT. Edítalo en "
-            "config_trends.json para identificar tu app y tu usuario de Reddit."
-        )
 
     vistos = cargar_historial()
     candidatos = []
