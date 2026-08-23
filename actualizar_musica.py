@@ -35,13 +35,19 @@ JAMENDO_API = "https://api.jamendo.com/v3.0/tracks/"
 PISTAS_POR_EMOCION = 3  # cuántas pistas mantener por categoría
 
 # Tags de Jamendo por emoción (ver detectar_emocion_historia en
-# generar_video_maestro.py para las mismas 4 categorías).
+# generar_video_maestro.py para las mismas 4 categorías). Jamendo combina
+# varios tags a la vez con lógica "Y" (casi nunca hay resultados), así que
+# se consulta un tag a la vez y se van juntando resultados de varios.
 TAGS_POR_EMOCION = {
-    "drama": "sad,dramatic,emotional",
-    "venganza": "dark,intense,epic",
-    "suspenso": "dark,ambient,cinematic",
-    "comedia": "happy,funny,upbeat",
+    "drama": ["sad", "dramatic", "emotional", "melancholic", "piano"],
+    "venganza": ["dark", "intense", "epic", "angry", "action"],
+    "suspenso": ["dark", "ambient", "cinematic", "tension", "mysterious"],
+    "comedia": ["happy", "funny", "upbeat", "comedy", "fun"],
 }
+
+# Licencias Creative Commons que sí permiten uso comercial y derivados
+# (necesario para poder mezclar la pista con la narración/voiceover).
+LICENCIAS_PERMITIDAS = ["by", "by-sa"]
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("actualizar_musica")
@@ -60,42 +66,47 @@ def guardar_json(ruta, data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 
-def _licencia_permite_uso(license_ccurl):
-    """Solo licencias que permiten uso comercial y no exigen 'sin derivados'
-    (necesitamos poder mezclar la pista con narración/voiceover)."""
-    l = (license_ccurl or "").lower()
-    if "publicdomain" in l or "/p/" in l:
-        return True
-    return "/by" in l and "-nc" not in l and "-nd" not in l
-
-
 def buscar_pistas(client_id, tags, cantidad, ya_descargadas):
-    params = {
-        "client_id": client_id,
-        "format": "json",
-        "limit": cantidad * 4,  # margen para filtrar por licencia y duplicados
-        "fuzzytags": tags,
-        "audioformat": "mp32",
-        "include": "musicinfo",
-        "order": "popularity_total",
-        "speed": "medium",
-    }
-    resp = requests.get(JAMENDO_API, params=params, timeout=20)
-    resp.raise_for_status()
-    data = resp.json()
-
+    """Prueba un tag y una licencia a la vez (Jamendo combina varios tags con
+    lógica "Y", que casi nunca da resultados) hasta juntar suficientes pistas
+    nuevas, válidas y no repetidas."""
     elegidas = []
-    for track in data.get("results", []):
-        if len(elegidas) >= cantidad:
-            break
-        track_id = str(track.get("id"))
-        if track_id in ya_descargadas:
-            continue
-        if not track.get("audiodownload_allowed"):
-            continue
-        if not _licencia_permite_uso(track.get("license_ccurl")):
-            continue
-        elegidas.append(track)
+    vistas_en_esta_busqueda = set()
+
+    for tag in tags:
+        for licencia in LICENCIAS_PERMITIDAS:
+            if len(elegidas) >= cantidad:
+                return elegidas
+
+            params = {
+                "client_id": client_id,
+                "format": "json",
+                "limit": 10,
+                "tags": tag,
+                "license_cc": licencia,
+                "audioformat": "mp32",
+                "include": "musicinfo",
+                "order": "popularity_total",
+            }
+            try:
+                resp = requests.get(JAMENDO_API, params=params, timeout=20)
+                resp.raise_for_status()
+                data = resp.json()
+            except Exception as exc:
+                logger.warning(f"    fallo consultando tag={tag} licencia={licencia}: {exc}")
+                continue
+
+            for track in data.get("results", []):
+                if len(elegidas) >= cantidad:
+                    break
+                track_id = str(track.get("id"))
+                if track_id in ya_descargadas or track_id in vistas_en_esta_busqueda:
+                    continue
+                if not track.get("audiodownload_allowed"):
+                    continue
+                vistas_en_esta_busqueda.add(track_id)
+                elegidas.append(track)
+
     return elegidas
 
 
