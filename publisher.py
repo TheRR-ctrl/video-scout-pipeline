@@ -4,8 +4,8 @@ y una ventana de revisión antes de que se vuelvan públicos.
 
 Flujo por video:
   1. Chequeo técnico (ffprobe): duración razonable, audio presente, archivo válido.
-  2. Chequeo de contenido (Claude): detecta clickbait engañoso, texto roto o
-     contenido inapropiado en título/descripción antes de subir.
+  2. Chequeo de contenido (Gemini, capa gratuita): detecta clickbait engañoso,
+     texto roto o contenido inapropiado en título/descripción antes de subir.
   3. Si pasa ambos: sube como privado con publishAt = ahora + BUFFER_HORAS.
      Tienes esa ventana para revisar/cancelar en YouTube Studio antes de que
      se publique solo.
