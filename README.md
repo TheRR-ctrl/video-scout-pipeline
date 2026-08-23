@@ -107,8 +107,9 @@ from wherever you host them.
 ### Generating the `YOUTUBE_TOKEN` secret
 
 `YOUTUBE_TOKEN` is the contents of `youtube_token.json`, produced by a
-one-time OAuth login **on your own machine** (GitHub Actions has no browser
-to do this itself):
+one-time OAuth login **on your own device** (GitHub Actions has no browser
+to do this itself). This works from a phone via Termux just as well as from
+a PC — see the Termux note in step 3.
 
 1. In [Google Cloud Console](https://console.cloud.google.com/), create (or
    reuse) a project, enable the **YouTube Data API v3**, then go to
@@ -123,13 +124,18 @@ to do this itself):
    workflow every week. "In production" (unverified) tokens don't expire on
    a timer — you'll just see a one-time "Google hasn't verified this app"
    warning during step 3, click *Advanced → Go to (app name)* to continue.
-3. Run the one-time login locally:
+3. Run the one-time login:
    ```bash
    pip install -r requirements.txt
    python generar_youtube_token.py
    ```
-   This opens a browser, you sign in and grant the YouTube upload
-   permission, and it writes `youtube_token.json` next to the script.
+   It prints an authorization link — open it (Chrome or any browser). On a
+   PC it's on the same machine; **on a phone with Termux**, open the link in
+   your phone's browser app (not inside Termux) — it still works because the
+   callback server listens on `localhost`, which the browser reaches even
+   though it's a different app, as long as it's the same device. Sign in,
+   grant the YouTube upload permission, and switch back to Termux: it
+   detects the callback and writes `youtube_token.json` next to the script.
 4. In the GitHub repo, go to *Settings → Secrets and variables → Actions →
    New repository secret* and create:
    - `YOUTUBE_CLIENT_SECRET` — paste the full contents of `client_secret.json`

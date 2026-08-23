@@ -1,13 +1,20 @@
 """
-Genera youtube_token.json mediante el flujo OAuth de Google, una sola vez,
-en tu máquina local (necesita navegador). El archivo resultante es el que
-copias al secret YOUTUBE_TOKEN de GitHub Actions — no se sube nunca al repo.
+Genera youtube_token.json mediante el flujo OAuth de Google, una sola vez.
+El archivo resultante es el que copias al secret YOUTUBE_TOKEN de GitHub
+Actions — no se sube nunca al repo.
 
 Uso:
   python generar_youtube_token.py
 
 Requiere client_secret.json en esta misma carpeta (ver README.md, sección
 "Setup").
+
+Funciona igual en PC que en Termux (Android): en vez de intentar abrir un
+navegador automáticamente (falla en Termux, que no tiene uno integrado),
+imprime el link de autorización para que lo abras a mano en Chrome/el
+navegador del teléfono. Como el servidor de callback escucha en
+localhost y Chrome corre en el mismo dispositivo, sí lo alcanza aunque
+esté en otra app.
 """
 import os
 
@@ -27,7 +34,8 @@ def main():
         )
 
     flow = InstalledAppFlow.from_client_secrets_file(RUTA_CLIENT_SECRET, SCOPES)
-    creds = flow.run_local_server(port=0)
+    print("Abre este link en tu navegador (Chrome) y autoriza el acceso:\n")
+    creds = flow.run_local_server(port=0, open_browser=False)
 
     with open(RUTA_TOKEN, "w", encoding="utf-8") as f:
         f.write(creds.to_json())
