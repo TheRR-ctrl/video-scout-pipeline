@@ -67,9 +67,10 @@ Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
 For YouTube uploads, download an OAuth "Desktop app" client from Google Cloud
-Console as `client_secret.json`. The first run of `publisher.py` opens a
-browser to authorize once; after that, `youtube_token.json` is reused and
-refreshed automatically — no further manual login needed.
+Console as `client_secret.json`. The first run of `publisher.py` (or
+`generar_youtube_token.py`, see below) opens a browser to authorize once;
+after that, `youtube_token.json` is reused and refreshed automatically — no
+further manual login needed locally.
 
 ## Running it
 
@@ -98,9 +99,46 @@ background footage/music files stay local, no upload needed.
 **Option B — GitHub Actions (cloud, no device needs to stay on):** see
 `.github/workflows/pipeline.yml`, which runs the same `pipeline.py` on a
 daily schedule using GitHub's free runner minutes. It needs three repo
-secrets (`GEMINI_API_KEY`, `YOUTUBE_CLIENT_SECRET`, `YOUTUBE_TOKEN` — the
-contents of your local `client_secret.json`/`youtube_token.json` after the
-one-time OAuth login) and your background video/music assets available to
-the runner — either committed to the repo (simplest, if you have the rights
-to redistribute them) or downloaded in the workflow's "Descargar assets"
-step from wherever you host them.
+secrets and your background video/music assets available to the runner —
+either committed to the repo (simplest, if you have the rights to
+redistribute them) or downloaded in the workflow's "Descargar assets" step
+from wherever you host them.
+
+### Generating the `YOUTUBE_TOKEN` secret
+
+`YOUTUBE_TOKEN` is the contents of `youtube_token.json`, produced by a
+one-time OAuth login **on your own machine** (GitHub Actions has no browser
+to do this itself):
+
+1. In [Google Cloud Console](https://console.cloud.google.com/), create (or
+   reuse) a project, enable the **YouTube Data API v3**, then go to
+   *APIs & Services → Credentials → Create Credentials → OAuth client ID*,
+   type **Desktop app**. Download the JSON and save it as `client_secret.json`
+   in the repo folder (it's gitignored — never commit it).
+2. In *APIs & Services → OAuth consent screen*, add your own Google account
+   as a **test user**, then set **Publishing status to "In production"**
+   (you can do this without going through Google's verification review).
+   This matters: apps left in "Testing" status get refresh tokens that
+   **expire after 7 days**, which would silently break the scheduled
+   workflow every week. "In production" (unverified) tokens don't expire on
+   a timer — you'll just see a one-time "Google hasn't verified this app"
+   warning during step 3, click *Advanced → Go to (app name)* to continue.
+3. Run the one-time login locally:
+   ```bash
+   pip install -r requirements.txt
+   python generar_youtube_token.py
+   ```
+   This opens a browser, you sign in and grant the YouTube upload
+   permission, and it writes `youtube_token.json` next to the script.
+4. In the GitHub repo, go to *Settings → Secrets and variables → Actions →
+   New repository secret* and create:
+   - `YOUTUBE_CLIENT_SECRET` — paste the full contents of `client_secret.json`
+   - `YOUTUBE_TOKEN` — paste the full contents of `youtube_token.json`
+   - `GEMINI_API_KEY` — your Gemini free-tier key
+
+The workflow writes these back to `client_secret.json`/`youtube_token.json`
+on the runner before each run. Because `youtube_token.json` contains a
+refresh token, it keeps renewing itself automatically — you only repeat
+steps 3-4 if you ever revoke access or the secret gets out of sync (e.g.
+after running `publisher.py` locally, which rewrites the file — re-copy it
+to the secret if you do).
