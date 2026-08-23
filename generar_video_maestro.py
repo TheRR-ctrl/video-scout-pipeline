@@ -528,14 +528,16 @@ def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, e
 
 def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
     """Genera TTS con reintentos y nunca reporta éxito si no hay archivo válido."""
+    comando_principal = [
+        sys.executable, "-m", "edge_tts",
+        f"--rate={rate}", f"--pitch={pitch}",
+        "--file", txt, "--voice", voz,
+        "--write-media", audio_out,
+        "--write-subtitles", srt_out
+    ]
     comandos = [
-        [
-            sys.executable, "-m", "edge_tts",
-            f"--rate={rate}", f"--pitch={pitch}",
-            "--file", txt, "--voice", voz,
-            "--write-media", audio_out,
-            "--write-subtitles", srt_out
-        ],
+        comando_principal,
+        comando_principal,  # un segundo intento con la misma voz cubre la mayoría de los cortes por red
         [
             sys.executable, "-m", "edge_tts",
             "--rate=+15%", "--pitch=+0Hz",
@@ -550,10 +552,10 @@ def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
             num_palabras = len(f.read().split())
     except Exception:
         num_palabras = 0
-    # Cota mínima muy conservadora (ninguna voz de edge-tts llega ni de cerca
-    # a 4 palabras/seg); si sale más corto, el audio quedó truncado a medio
-    # camino (típico de una red inestable cortando el websocket de edge-tts).
-    duracion_minima_esperada = num_palabras / 4.0
+    # Cota mínima conservadora: textos cortos (como el título) se hablan
+    # proporcionalmente más rápido, así que se usa un margen amplio
+    # (palabras/6.0) para no rechazar tomas válidas por falsos positivos.
+    duracion_minima_esperada = num_palabras / 6.0
 
     for intento, cmd in enumerate(comandos, 1):
         try:
