@@ -545,6 +545,16 @@ def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
         ],
     ]
 
+    try:
+        with open(txt, "r", encoding="utf-8") as f:
+            num_palabras = len(f.read().split())
+    except Exception:
+        num_palabras = 0
+    # Cota mínima muy conservadora (ninguna voz de edge-tts llega ni de cerca
+    # a 4 palabras/seg); si sale más corto, el audio quedó truncado a medio
+    # camino (típico de una red inestable cortando el websocket de edge-tts).
+    duracion_minima_esperada = num_palabras / 4.0
+
     for intento, cmd in enumerate(comandos, 1):
         try:
             if os.path.exists(audio_out):
@@ -560,7 +570,12 @@ def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
                 errors="replace"
             )
             if res.returncode == 0 and archivo_valido(audio_out):
-                return True
+                if medir_duracion_media(audio_out) >= duracion_minima_esperada:
+                    return True
+                logger.warning(
+                    f"Audio TTS sospechosamente corto para {os.path.basename(txt)} "
+                    f"(intento {intento}/{len(comandos)}); reintentando."
+                )
 
             if intento < len(comandos):
                 time.sleep(1)
