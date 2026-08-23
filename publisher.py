@@ -43,6 +43,27 @@ RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 # Misma detección y carpeta por defecto que generar_video_maestro.py: en
 # Android/Termux no existe "Desktop", los videos se guardan en DCIM.
 ES_ANDROID = 'PREFIX' in os.environ or os.path.exists('/sdcard')
+
+
+def conectado_a_wifi():
+    """En Android (con Termux:API instalado, paquete termux-api) revisa si
+    hay una conexión WiFi activa, para no gastar datos móviles subiendo
+    videos. Si no es Android, o termux-api no está instalado, no bloquea
+    (se asume que el usuario administra su propia conexión en PC)."""
+    if not ES_ANDROID:
+        return True
+    try:
+        res = subprocess.run(
+            ["termux-wifi-connectioninfo"],
+            capture_output=True, text=True, timeout=5
+        )
+        if res.returncode != 0:
+            # termux-api no instalado o falló: no bloquear la subida por esto.
+            return True
+        info = json.loads(res.stdout)
+        return info.get("supplicant_state") == "COMPLETED"
+    except Exception:
+        return True
 CARPETA_SALIDA_DEFAULT = (
     "/sdcard/DCIM/Videos creados" if ES_ANDROID
     else os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados")
@@ -242,6 +263,10 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
 # ORQUESTACIÓN
 # ---------------------------------------------------------
 def main():
+    if not conectado_a_wifi():
+        logger.info("Sin WiFi activo — se aplaza la subida a YouTube para no gastar datos móviles.")
+        return
+
     cfg = cargar_config()
     ruta_resultado = os.path.join(cfg["carpeta_salida"], "resultado_lote.json")
 
