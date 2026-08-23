@@ -172,6 +172,9 @@ def obtener_servicio_youtube():
     return build("youtube", "v3", credentials=creds)
 
 
+RUTA_ATRIBUCION_MUSICA = os.path.join(CARPETA_ESTADO, "musica_atribucion.json")
+
+
 def construir_descripcion(metadata, video):
     """Arma la descripción final: lo que genera el modelo + atribución fija a la
     fuente y aviso de adaptación con IA. Esto no depende del modelo (que puede
@@ -187,6 +190,15 @@ def construir_descripcion(metadata, video):
             linea_fuente += f" de {autor}"
         linea_fuente += f", adaptada con fines narrativos. Fuente: {fuente_url}"
         partes.append(linea_fuente)
+
+    musica_archivo = video.get("musica_archivo")
+    if musica_archivo:
+        atribucion = cargar_json(RUTA_ATRIBUCION_MUSICA, {}).get(musica_archivo)
+        if atribucion and atribucion.get("artista"):
+            linea_musica = f"Música: \"{atribucion.get('titulo', '')}\" por {atribucion['artista']} (Jamendo, Creative Commons)"
+            if atribucion.get("pagina_jamendo"):
+                linea_musica += f" — {atribucion['pagina_jamendo']}"
+            partes.append(linea_musica)
 
     partes.append(" ".join(f"#{h}" for h in metadata["hashtags"]))
     return "\n\n".join(partes)

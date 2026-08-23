@@ -66,6 +66,32 @@ built in). Never commit `config_trends.json`, `config.json`,
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
+## Background music (`actualizar_musica.py`)
+
+Background video clips (`fondo_vertical*.mp4` / `fondo_horizontal*.mp4`) are
+provided by you. Music is fetched automatically from
+[Jamendo](https://www.jamendo.com), a royalty-free catalog with a free API:
+
+```bash
+export JAMENDO_CLIENT_ID="tu_client_id"  # gratis en https://devportal.jamendo.com/
+python actualizar_musica.py
+```
+
+This downloads a few tracks per emotion category (`drama`, `venganza`,
+`suspenso`, `comedia`) as `musica_<emocion>_<artista>_<id>.mp3`, filtering
+for licenses that allow commercial use and don't forbid derivatives (needed
+since the track gets mixed with narration). `generar_video_maestro.py`
+picks randomly among all tracks available for an emotion, so re-running
+`actualizar_musica.py` occasionally (weekly/monthly is plenty — music
+doesn't need to change per video) keeps adding variety instead of repeating
+the same song. Attribution (artist, license, Jamendo page) is saved to
+`pipeline_state/musica_atribucion.json` and automatically credited in the
+YouTube description by `publisher.py` when a video uses one of these
+tracks.
+
+This isn't part of the daily `pipeline.py` run — run it manually, or set up
+its own occasional cron/Action if you want it fully hands-off.
+
 For YouTube uploads, download an OAuth "Desktop app" client from Google Cloud
 Console as `client_secret.json`. The first run of `publisher.py` (or
 `generar_youtube_token.py`, see below) opens a browser to authorize once;

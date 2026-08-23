@@ -387,21 +387,26 @@ def seleccionar_fondo_video(es_short):
     return next((f for p in ["fondo_vertical" if es_short else "fondo_horizontal", "fondo_gameplay"] for ext in ['.webm', '.mp4', '.mkv'] if os.path.exists(p+ext)), next((f for f in os.listdir('.') if f.endswith(('.webm', '.mp4', '.mkv'))), None))
 
 def seleccionar_musica_fondo(emocion='fondo'):
+    """Elige al azar entre todas las pistas disponibles para la emoción (p.ej.
+    musica_drama_artista_123.mp3, descargadas por actualizar_musica.py), para
+    no repetir siempre la misma canción. Si no hay ninguna con ese prefijo
+    exacto, cae a musica_fondo_*, y si tampoco hay, a cualquier musica_*."""
     exts = ('.m4a', '.mp3', '.wav', '.aac')
+
+    def candidatas(prefijo):
+        return [
+            f for f in os.listdir('.')
+            if f.startswith(prefijo) and f.endswith(exts) and archivo_valido(f)
+        ]
+
     for prefijo in (f"musica_{emocion}", "musica_fondo"):
-        for ext in exts:
-            candidato = prefijo + ext
-            if archivo_valido(candidato):
-                return candidato
+        opciones = candidatas(prefijo)
+        if opciones:
+            return random.choice(opciones)
 
     # Fallback estricto: solamente archivos que empiecen por musica_.
-    return next(
-        (
-            f for f in os.listdir('.')
-            if f.startswith("musica_") and f.endswith(exts) and archivo_valido(f)
-        ),
-        None
-    )
+    opciones = candidatas("musica_")
+    return random.choice(opciones) if opciones else None
 
 def extraer_fuente_y_autor(texto_raw):
     """Extrae la atribución (# Fuente: / # Autor:) que escribe script_writer.py,
@@ -661,8 +666,9 @@ def renderizar_una_historia(contenido, num=1):
         w, h = (1080, 1920) if es_short else (1920, 1080)
         f_ass = s_ass.replace('\\', '\\\\').replace(':', '\\:')
         if musica:
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.08[am];[av][am]amix=inputs=2:duration=first[aout]"
-            cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
+            fade_inicio = max(0.0, dur_sec - 2.0)
+            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.08,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
+            cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-stream_loop", "-1", "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
         else:
             fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0"]
@@ -726,6 +732,7 @@ def renderizar_una_historia(contenido, num=1):
             "es_short": es_short,
             "fuente_url": fuente_url,
             "autor_original": autor_original,
+            "musica_archivo": os.path.basename(musica) if musica else None,
         }
     finally:
         gestor.limpiar()

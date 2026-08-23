@@ -1,15 +1,17 @@
 {
-  "client_id": "PON_AQUI_TU_CLIENT_ID",
-  "client_secret": "PON_AQUI_TU_CLIENT_SECRET",
-  "user_agent": "trend-scout-video-pipeline/1.0",
   "subreddits": [
     "AmItheAsshole",
     "relationships",
     "tifu",
-    "confession"
+    "confession",
+    "AmItheButtface",
+    "relationship_advice"
   ],
   "time_filter": "day",
   "limite_por_subreddit": 15,
   "min_score": 500,
-  "min_comentarios": 100
+  "min_comentarios": 100,
+  "min_palabras_texto": 80,
+  "max_palabras_texto": 1800,
+  "max_candidatos_salida": 20
 }

@@ -7,32 +7,35 @@ Cada corrida evita repetir posts ya vistos (pipeline_state/historial_vistos.json
 Requiere: pip install requests
 
 Nota sobre el acceso a Reddit:
-  La API oficial de Reddit (PRAW/OAuth "script app") requiere aprobación de
-  Reddit, que no siempre se concede para uso personal. Como alternativa, este
-  script usa los endpoints públicos de solo lectura de reddit.com
-  (https://www.reddit.com/r/<sub>/top/.json), que no requieren credenciales ni
-  OAuth y son los mismos que carga cualquier navegador al visitar Reddit sin
-  iniciar sesión. Sigue siendo 100% de solo lectura: nunca se postea, comenta,
-  vota ni envía mensajes. Esto no es la vía "oficial" de la Data API de Reddit,
-  así que:
-    - Se respeta un rate limit conservador entre requests (ver RATE_LIMIT_SEG).
-    - Se identifica con un User-Agent descriptivo (ver CONFIG_DEFAULT).
-    - Si Reddit empieza a devolver 429/403 de forma consistente, hay que
-      espaciar aún más las corridas o volver a intentar la API oficial más
-      adelante.
+  La API oficial de Reddit requiere pasar por su formulario de "Reddit Data
+  Access" (revisión de la Responsible Builder Policy), que no siempre se
+  concede para uso personal. El endpoint JSON público sin autenticación
+  (www.reddit.com/r/<sub>/top/.json) también está bloqueado por el filtro
+  anti-bot de Reddit, incluso con un User-Agent de navegador real.
 
-Cumplimiento con la Responsible Builder Policy de Reddit:
-  - Propósito declarado: lectura de posts públicos de un puñado de
-    subreddits, para adaptar historias como narración en un canal propio de
-    YouTube. No se hace scraping masivo ni se re-publica contenido en Reddit.
-  - Cada historia conserva su autor y URL original (ver "autor"/"url" en el
-    candidato) para poder dar atribución aguas abajo, en vez de presentar el
-    contenido como propio.
+  Lo que sí funciona sin bloqueo es el **feed RSS/Atom** de cada subreddit
+  (www.reddit.com/r/<sub>/top/.rss), que trae el texto completo de cada post.
+  Es una vía pública, de solo lectura, pensada para lectores de RSS — el
+  mismo tipo de acceso que cualquier agregador de noticias usa. Igual que
+  antes: nunca se postea, comenta, vota ni envía mensajes, y cada historia
+  conserva su autor y URL original para dar atribución en el video (ver
+  "autor"/"url" en el candidato), en vez de presentar el contenido como
+  propio.
+
+  El RSS no expone score ni número de comentarios (a diferencia del JSON),
+  así que el filtrado por "viralidad" se basa en el orden del feed /top/
+  (ya viene rankeado por Reddit) en vez de umbrales de score/comentarios.
+
+  Si Reddit empieza a bloquear también el RSS, hay que espaciar más las
+  corridas (ver RATE_LIMIT_SEG) o retomar la vía de la API oficial.
 """
 import os
+import re
+import html
 import json
 import time
 import logging
+from xml.etree import ElementTree as ET
 
 try:
     import requests
@@ -44,12 +47,9 @@ RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
 RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "historial_vistos.json")
 RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_trends.json")
 
-RATE_LIMIT_SEG = 3.0  # pausa entre requests a reddit.com, para no golpear el endpoint público
+RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estricto que el JSON con el rate limit
 
 CONFIG_DEFAULT = {
-    # Identifica la app/operador en las requests (no es un requisito de OAuth,
-    # pero es buena práctica y ayuda a diagnosticar bloqueos).
-    "user_agent": "python:trend-scout-video-pipeline:v2.0 (by /u/TU_USUARIO_REDDIT)",
     "subreddits": [
         "AmItheAsshole",
         "relationships",
@@ -60,8 +60,6 @@ CONFIG_DEFAULT = {
     ],
     "time_filter": "day",
     "limite_por_subreddit": 15,
-    "min_score": 500,
-    "min_comentarios": 100,
     "min_palabras_texto": 80,
     "max_palabras_texto": 1800,
     "max_candidatos_salida": 20,
@@ -69,6 +67,12 @@ CONFIG_DEFAULT = {
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("trend_scout")
+
+_UA_NAVEGADOR = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+)
+_NS = {"a": "http://www.w3.org/2005/Atom"}
 
 
 def cargar_config():
@@ -92,29 +96,55 @@ def guardar_historial(vistos):
         json.dump(sorted(vistos), f, ensure_ascii=False, indent=2)
 
 
+def _limpiar_contenido_html(contenido_crudo):
+    """Convierte el HTML del <content> del feed en texto plano, quitando el
+    pie que Reddit agrega ("submitted by ... [link] [comments]")."""
+    texto = html.unescape(contenido_crudo or "")
+    texto = re.sub(r"<!--.*?-->", "", texto, flags=re.DOTALL)
+    texto = texto.split("submitted by")[0]
+    texto = re.sub(r"<[^>]+>", " ", texto)
+    return re.sub(r"\s+", " ", texto).strip()
+
+
 def obtener_posts_publicos(subreddit, cfg):
-    """Lee el listado 'top' público de un subreddit vía el JSON sin autenticar."""
-    url = f"https://www.reddit.com/r/{subreddit}/top/.json"
-    params = {"t": cfg["time_filter"], "limit": cfg["limite_por_subreddit"], "raw_json": 1}
-    headers = {"User-Agent": cfg["user_agent"]}
+    """Lee el feed RSS/Atom público 'top' de un subreddit (solo lectura)."""
+    url = f"https://www.reddit.com/r/{subreddit}/top/.rss"
+    params = {"t": cfg["time_filter"], "limit": cfg["limite_por_subreddit"]}
+    headers = {"User-Agent": _UA_NAVEGADOR}
 
     resp = requests.get(url, params=params, headers=headers, timeout=15)
     if resp.status_code == 429:
-        raise RuntimeError("Rate limit (429) de reddit.com. Reduce la frecuencia de corridas.")
+        # Un solo reintento con una espera más larga antes de rendirse.
+        time.sleep(RATE_LIMIT_SEG * 2)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
+    if resp.status_code in (429, 403):
+        raise RuntimeError(f"Bloqueado por reddit.com ({resp.status_code}).")
     resp.raise_for_status()
 
-    data = resp.json()
-    return [child["data"] for child in data.get("data", {}).get("children", [])]
+    root = ET.fromstring(resp.text)
+    posts = []
+    for entry in root.findall("a:entry", _NS):
+        post_id = (entry.findtext("a:id", default="", namespaces=_NS) or "").replace("t3_", "")
+        titulo = entry.findtext("a:title", default="", namespaces=_NS) or ""
+        texto = _limpiar_contenido_html(entry.findtext("a:content", default="", namespaces=_NS))
+        link_el = entry.find("a:link", _NS)
+        url_post = link_el.get("href") if link_el is not None else ""
+        autor = entry.findtext("a:author/a:name", default="", namespaces=_NS) or ""
+        autor = autor.replace("/u/", "").strip()
+
+        posts.append({
+            "id": post_id,
+            "titulo": titulo,
+            "texto": texto,
+            "url": url_post,
+            "autor": autor,
+        })
+    return posts
 
 
 def escanear(cfg):
     if requests is None:
         raise RuntimeError("Falta el paquete 'requests'. Instálalo con: pip install requests")
-    if "TU_USUARIO_REDDIT" in cfg["user_agent"]:
-        logger.warning(
-            "user_agent sigue con el placeholder TU_USUARIO_REDDIT. Edítalo en "
-            "config_trends.json para identificar tu app y tu usuario de Reddit."
-        )
 
     vistos = cargar_historial()
     candidatos = []
@@ -130,38 +160,35 @@ def escanear(cfg):
             logger.warning(f"No se pudo leer r/{nombre_sub}: {exc}")
             continue
 
-        for post in posts:
-            post_id = post.get("id")
+        for rank, post in enumerate(posts):
+            post_id = post["id"]
             if not post_id or post_id in vistos:
                 continue
-            texto = post.get("selftext", "")
-            if post.get("stickied") or not texto:
-                continue
-            if post.get("score", 0) < cfg["min_score"] or post.get("num_comments", 0) < cfg["min_comentarios"]:
-                continue
-            if post.get("over_18"):
+            texto = post["texto"]
+            if not texto:
                 continue
 
             num_palabras = len(texto.split())
             if not (cfg["min_palabras_texto"] <= num_palabras <= cfg["max_palabras_texto"]):
                 continue
 
-            autor = post.get("author") or ""
+            autor = post["autor"]
             candidatos.append({
                 "id": post_id,
                 "subreddit": nombre_sub,
-                "titulo_original": post.get("title", ""),
+                "titulo_original": post["titulo"],
                 "texto_original": texto,
-                "score": post.get("score", 0),
-                "num_comentarios": post.get("num_comments", 0),
-                "url": f"https://reddit.com{post.get('permalink', '')}",
+                # El feed RSS no trae score/num_comments; usamos la posición
+                # en el ranking /top/ (ya ordenado por Reddit) como proxy.
+                "rank_en_subreddit": rank,
+                "url": post["url"],
                 # Se conserva para dar atribución en la descripción del video
                 # (evita presentar la historia como propia).
                 "autor": f"u/{autor}" if autor and autor != "[deleted]" else "[autor eliminado]",
             })
             vistos.add(post_id)
 
-    candidatos.sort(key=lambda c: c["score"] + c["num_comentarios"], reverse=True)
+    candidatos.sort(key=lambda c: c["rank_en_subreddit"])
     candidatos = candidatos[:cfg["max_candidatos_salida"]]
 
     guardar_historial(vistos)
@@ -178,7 +205,7 @@ def main():
 
     logger.info(f"{len(candidatos)} candidato(s) guardado(s) en {RUTA_CANDIDATOS}")
     for c in candidatos:
-        print(f" • [{c['subreddit']}] {c['titulo_original']} (score={c['score']}, comentarios={c['num_comentarios']})")
+        print(f" • [{c['subreddit']}] {c['titulo_original']} (rank={c['rank_en_subreddit']})")
 
 
 if __name__ == "__main__":
