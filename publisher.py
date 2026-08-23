@@ -40,8 +40,16 @@ RUTA_RECHAZADOS = os.path.join(CARPETA_ESTADO, "rechazados.json")
 RUTA_CLIENT_SECRET = os.path.join(BASE_DIR, "client_secret.json")
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 
+# Misma detección y carpeta por defecto que generar_video_maestro.py: en
+# Android/Termux no existe "Desktop", los videos se guardan en DCIM.
+ES_ANDROID = 'PREFIX' in os.environ or os.path.exists('/sdcard')
+CARPETA_SALIDA_DEFAULT = (
+    "/sdcard/DCIM/Videos creados" if ES_ANDROID
+    else os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados")
+)
+
 CONFIG_DEFAULT = {
-    "carpeta_salida": os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados"),
+    "carpeta_salida": CARPETA_SALIDA_DEFAULT,
     "buffer_horas_revision": 12,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
