@@ -51,12 +51,23 @@ RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estri
 
 CONFIG_DEFAULT = {
     "subreddits": [
+        # Drama / dilemas
         "AmItheAsshole",
+        "relationship_advice",
         "relationships",
-        "tifu",
         "confession",
         "AmItheButtface",
-        "relationship_advice",
+        # Venganza (final feliz para quien narra)
+        "ProRevenge",
+        "pettyrevenge",
+        "MaliciousCompliance",
+        "EntitledParents",
+        # Suspenso / misterio (experiencias reales, no ficción tipo nosleep)
+        "UnresolvedMysteries",
+        "Glitch_in_the_Matrix",
+        # Comedia / torpezas
+        "tifu",
+        "mildlyinfuriating",
     ],
     "time_filter": "day",
     "limite_por_subreddit": 15,

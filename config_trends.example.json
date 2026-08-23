@@ -1,11 +1,18 @@
 {
   "subreddits": [
     "AmItheAsshole",
+    "relationship_advice",
     "relationships",
-    "tifu",
     "confession",
     "AmItheButtface",
-    "relationship_advice"
+    "ProRevenge",
+    "pettyrevenge",
+    "MaliciousCompliance",
+    "EntitledParents",
+    "UnresolvedMysteries",
+    "Glitch_in_the_Matrix",
+    "tifu",
+    "mildlyinfuriating"
   ],
   "time_filter": "day",
   "limite_por_subreddit": 15,
