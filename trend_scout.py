@@ -47,7 +47,7 @@ RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
 RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "historial_vistos.json")
 RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_trends.json")
 
-RATE_LIMIT_SEG = 3.0  # pausa entre requests a reddit.com, para no golpear el endpoint público
+RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estricto que el JSON con el rate limit
 
 CONFIG_DEFAULT = {
     "subreddits": [
@@ -113,6 +113,10 @@ def obtener_posts_publicos(subreddit, cfg):
     headers = {"User-Agent": _UA_NAVEGADOR}
 
     resp = requests.get(url, params=params, headers=headers, timeout=15)
+    if resp.status_code == 429:
+        # Un solo reintento con una espera más larga antes de rendirse.
+        time.sleep(RATE_LIMIT_SEG * 2)
+        resp = requests.get(url, params=params, headers=headers, timeout=15)
     if resp.status_code in (429, 403):
         raise RuntimeError(f"Bloqueado por reddit.com ({resp.status_code}).")
     resp.raise_for_status()
