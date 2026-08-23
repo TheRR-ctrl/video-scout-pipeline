@@ -492,7 +492,7 @@ def format_ass_time(td):
 
 def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True):
     font_size, PlayResX, PlayResY, palabras_por_grupo = (92, 1080, 1920, 1) if es_short else (120, 1920, 1080, 2)
-    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H00FFFFFF&,&H00FFFFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H0000FFFF&,&H0000FFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     
     if not os.path.exists(srt_in_path):
         with open(ass_out_path, 'w', encoding='utf-8') as f: f.write(header)
