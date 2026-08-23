@@ -4,41 +4,52 @@ Trend Scout — detecta historias con potencial viral en Reddit.
 Salida: pipeline_state/candidatos.json
 Cada corrida evita repetir posts ya vistos (pipeline_state/historial_vistos.json).
 
-Requiere: pip install praw
-Credenciales: config_trends.json (junto a este script) o variables de entorno
-REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET.
+Requiere: pip install requests
+
+Nota sobre el acceso a Reddit:
+  La API oficial de Reddit (PRAW/OAuth "script app") requiere aprobación de
+  Reddit, que no siempre se concede para uso personal. Como alternativa, este
+  script usa los endpoints públicos de solo lectura de reddit.com
+  (https://www.reddit.com/r/<sub>/top/.json), que no requieren credenciales ni
+  OAuth y son los mismos que carga cualquier navegador al visitar Reddit sin
+  iniciar sesión. Sigue siendo 100% de solo lectura: nunca se postea, comenta,
+  vota ni envía mensajes. Esto no es la vía "oficial" de la Data API de Reddit,
+  así que:
+    - Se respeta un rate limit conservador entre requests (ver RATE_LIMIT_SEG).
+    - Se identifica con un User-Agent descriptivo (ver CONFIG_DEFAULT).
+    - Si Reddit empieza a devolver 429/403 de forma consistente, hay que
+      espaciar aún más las corridas o volver a intentar la API oficial más
+      adelante.
 
 Cumplimiento con la Responsible Builder Policy de Reddit:
-  - Propósito declarado: lectura de posts públicos (read_only) de un puñado de
+  - Propósito declarado: lectura de posts públicos de un puñado de
     subreddits, para adaptar historias como narración en un canal propio de
     YouTube. No se hace scraping masivo ni se re-publica contenido en Reddit.
-  - Transparencia: el user_agent debe identificar la app y a su operador (ver
-    CONFIG_DEFAULT["user_agent"] más abajo) tal como exige la política de Reddit.
   - Cada historia conserva su autor y URL original (ver "autor"/"url" en el
     candidato) para poder dar atribución aguas abajo, en vez de presentar el
     contenido como propio.
 """
 import os
 import json
+import time
 import logging
 
 try:
-    import praw
+    import requests
 except ImportError:
-    praw = None
+    requests = None
 
 CARPETA_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline_state")
 RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
 RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "historial_vistos.json")
 RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_trends.json")
 
+RATE_LIMIT_SEG = 3.0  # pausa entre requests a reddit.com, para no golpear el endpoint público
+
 CONFIG_DEFAULT = {
-    "client_id": None,
-    "client_secret": None,
-    # Formato recomendado por Reddit: "<plataforma>:<nombre-app>:<version> (by /u/TU_USUARIO)".
-    # Reemplaza TU_USUARIO_REDDIT por tu usuario real: es lo que le dice a Reddit
-    # quién opera la app (requisito de transparencia de la Responsible Builder Policy).
-    "user_agent": "python:trend-scout-video-pipeline:v1.0 (by /u/TU_USUARIO_REDDIT)",
+    # Identifica la app/operador en las requests (no es un requisito de OAuth,
+    # pero es buena práctica y ayuda a diagnosticar bloqueos).
+    "user_agent": "python:trend-scout-video-pipeline:v2.0 (by /u/TU_USUARIO_REDDIT)",
     "subreddits": [
         "AmItheAsshole",
         "relationships",
@@ -65,8 +76,6 @@ def cargar_config():
     if os.path.exists(RUTA_CONFIG):
         with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
             cfg.update(json.load(f))
-    cfg["client_id"] = cfg["client_id"] or os.environ.get("REDDIT_CLIENT_ID")
-    cfg["client_secret"] = cfg["client_secret"] or os.environ.get("REDDIT_CLIENT_SECRET")
     return cfg
 
 
@@ -83,65 +92,74 @@ def guardar_historial(vistos):
         json.dump(sorted(vistos), f, ensure_ascii=False, indent=2)
 
 
+def obtener_posts_publicos(subreddit, cfg):
+    """Lee el listado 'top' público de un subreddit vía el JSON sin autenticar."""
+    url = f"https://www.reddit.com/r/{subreddit}/top/.json"
+    params = {"t": cfg["time_filter"], "limit": cfg["limite_por_subreddit"], "raw_json": 1}
+    headers = {"User-Agent": cfg["user_agent"]}
+
+    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    if resp.status_code == 429:
+        raise RuntimeError("Rate limit (429) de reddit.com. Reduce la frecuencia de corridas.")
+    resp.raise_for_status()
+
+    data = resp.json()
+    return [child["data"] for child in data.get("data", {}).get("children", [])]
+
+
 def escanear(cfg):
-    if praw is None:
-        raise RuntimeError("Falta el paquete 'praw'. Instálalo con: pip install praw")
-    if not cfg["client_id"] or not cfg["client_secret"]:
-        raise RuntimeError(
-            "Faltan credenciales de Reddit. Crea config_trends.json con client_id/client_secret "
-            "o define REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET como variables de entorno."
-        )
+    if requests is None:
+        raise RuntimeError("Falta el paquete 'requests'. Instálalo con: pip install requests")
     if "TU_USUARIO_REDDIT" in cfg["user_agent"]:
         logger.warning(
             "user_agent sigue con el placeholder TU_USUARIO_REDDIT. Edítalo en "
-            "config_trends.json para identificar tu app y tu usuario de Reddit "
-            "(requisito de transparencia de la Responsible Builder Policy)."
+            "config_trends.json para identificar tu app y tu usuario de Reddit."
         )
-
-    reddit = praw.Reddit(
-        client_id=cfg["client_id"],
-        client_secret=cfg["client_secret"],
-        user_agent=cfg["user_agent"],
-    )
-    reddit.read_only = True
 
     vistos = cargar_historial()
     candidatos = []
 
-    for nombre_sub in cfg["subreddits"]:
+    for i, nombre_sub in enumerate(cfg["subreddits"]):
+        if i > 0:
+            time.sleep(RATE_LIMIT_SEG)
+
         logger.info(f"Escaneando r/{nombre_sub}...")
         try:
-            sub = reddit.subreddit(nombre_sub)
-            posts = sub.top(time_filter=cfg["time_filter"], limit=cfg["limite_por_subreddit"])
+            posts = obtener_posts_publicos(nombre_sub, cfg)
         except Exception as exc:
             logger.warning(f"No se pudo leer r/{nombre_sub}: {exc}")
             continue
 
         for post in posts:
-            if post.id in vistos:
+            post_id = post.get("id")
+            if not post_id or post_id in vistos:
                 continue
-            if post.stickied or not getattr(post, "selftext", ""):
+            texto = post.get("selftext", "")
+            if post.get("stickied") or not texto:
                 continue
-            if post.score < cfg["min_score"] or post.num_comments < cfg["min_comentarios"]:
+            if post.get("score", 0) < cfg["min_score"] or post.get("num_comments", 0) < cfg["min_comentarios"]:
+                continue
+            if post.get("over_18"):
                 continue
 
-            num_palabras = len(post.selftext.split())
+            num_palabras = len(texto.split())
             if not (cfg["min_palabras_texto"] <= num_palabras <= cfg["max_palabras_texto"]):
                 continue
 
+            autor = post.get("author") or ""
             candidatos.append({
-                "id": post.id,
+                "id": post_id,
                 "subreddit": nombre_sub,
-                "titulo_original": post.title,
-                "texto_original": post.selftext,
-                "score": post.score,
-                "num_comentarios": post.num_comments,
-                "url": f"https://reddit.com{post.permalink}",
+                "titulo_original": post.get("title", ""),
+                "texto_original": texto,
+                "score": post.get("score", 0),
+                "num_comentarios": post.get("num_comments", 0),
+                "url": f"https://reddit.com{post.get('permalink', '')}",
                 # Se conserva para dar atribución en la descripción del video
                 # (evita presentar la historia como propia).
-                "autor": f"u/{post.author}" if post.author else "[autor eliminado]",
+                "autor": f"u/{autor}" if autor and autor != "[deleted]" else "[autor eliminado]",
             })
-            vistos.add(post.id)
+            vistos.add(post_id)
 
     candidatos.sort(key=lambda c: c["score"] + c["num_comentarios"], reverse=True)
     candidatos = candidatos[:cfg["max_candidatos_salida"]]

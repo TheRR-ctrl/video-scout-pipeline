@@ -1,0 +1,68 @@
+name: Pipeline diario
+
+# Corre las 4 etapas (historias -> guion -> video -> subida a YouTube) sin
+# intervención manual, en el runner gratuito de GitHub Actions.
+#
+# Requisitos antes de activar este workflow (ver README.md, sección
+# "Automatización en la nube"):
+#   1. Secrets del repo (Settings -> Secrets and variables -> Actions):
+#        GEMINI_API_KEY        - API key gratuita de https://aistudio.google.com/apikey
+#        YOUTUBE_CLIENT_SECRET - contenido de tu client_secret.json (OAuth desktop)
+#        YOUTUBE_TOKEN         - contenido de youtube_token.json ya autorizado
+#                                 una vez en tu máquina (ver README)
+#   2. Assets de fondo/música (fondo_vertical*.mp4, fondo_horizontal*.mp4,
+#      musica_*.mp3, tarjeta_plantilla.png) commiteados en el repo o
+#      descargados en el paso "Descargar assets" de abajo.
+
+on:
+  schedule:
+    - cron: "0 14 * * *"  # todos los días 14:00 UTC — ajusta a tu franja horaria
+  workflow_dispatch: {}    # permite lanzarlo manualmente desde la pestaña Actions
+
+jobs:
+  pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # Si tus videos/música de fondo no están commiteados en el repo,
+      # descárgalos aquí (por ejemplo desde un bucket o Google Drive) antes
+      # de continuar. Déjalo vacío si ya los versionas en el repo.
+      - name: Descargar assets (opcional)
+        run: echo "Sin paso de descarga configurado; usando assets del repo."
+
+      - name: Restaurar credenciales
+        env:
+          YOUTUBE_CLIENT_SECRET: ${{ secrets.YOUTUBE_CLIENT_SECRET }}
+          YOUTUBE_TOKEN: ${{ secrets.YOUTUBE_TOKEN }}
+        run: |
+          printf '%s' "$YOUTUBE_CLIENT_SECRET" > client_secret.json
+          printf '%s' "$YOUTUBE_TOKEN" > youtube_token.json
+
+      - name: Correr pipeline completo
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: python pipeline.py
+
+      - name: Subir logs y estado como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-state
+          path: |
+            pipeline_state/
+            guion.txt
+          retention-days: 14
