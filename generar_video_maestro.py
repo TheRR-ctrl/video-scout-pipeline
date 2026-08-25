@@ -1169,11 +1169,35 @@ def renderizar_lote_historias(archivo="guion.txt"):
 
         ruta_resultado = os.path.join(CARPETA_SALIDA, "resultado_lote.json")
         try:
+            # Se acumula en vez de sobrescribir. Antes cada corrida reemplazaba
+            # el archivo entero, así que los videos de tandas anteriores que
+            # seguían en disco quedaban huérfanos: sin registro, publisher.py
+            # ni los veía, y no había forma de saber de qué historia venían.
+            previos = []
+            if os.path.exists(ruta_resultado):
+                try:
+                    with open(ruta_resultado, "r", encoding="utf-8") as f:
+                        previos = json.load(f).get("completados", [])
+                except Exception as exc:
+                    logger.warning(f"No se pudo leer el resultado_lote.json previo ({exc}); se empieza de cero.")
+
+            # Los de esta corrida ganan sobre un registro viejo de la misma
+            # ruta (es un re-render), y se descartan los previos cuyo archivo
+            # ya no exista, para que el registro no crezca sin fin.
+            rutas_nuevas = {v["ruta"] for v in completados}
+            conservados = [
+                v for v in previos
+                if v.get("ruta") not in rutas_nuevas and archivo_valido(v.get("ruta", ""))
+            ]
+
             with open(ruta_resultado, "w", encoding="utf-8") as f:
                 json.dump({
-                    "completados": completados,
+                    "completados": conservados + completados,
                     "fallidas": [{"numero": n, "error": e} for n, e in fallidas],
                 }, f, ensure_ascii=False, indent=2)
+
+            if conservados:
+                logger.info(f"resultado_lote.json: {len(conservados)} video(s) de corridas anteriores conservados.")
         except Exception as exc:
             logger.warning(f"No se pudo escribir resultado_lote.json: {exc}")
 
