@@ -1,0 +1,537 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mesa de Revisión</title>
+<style>
+  :root {
+    --ground:#12151a; --surface:#1b2027; --surface-2:#232932;
+    --line:#2e3540; --line-soft:#252b34;
+    --ink:#eceef1; --ink-dim:#98a2ae; --ink-faint:#626c79;
+    --accent:#4db4a8; --accent-ink:#06211e; --accent-soft:#16332f;
+    --warn:#d9944a; --warn-soft:#33240f;
+    --crit:#d96a5a; --crit-soft:#331b18;
+    --ok:#6aab7a; --ok-soft:#172a1c;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){
+    :root{ --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8;
+      --line:#d9dde2; --line-soft:#e6e9ed; --ink:#191d23; --ink-dim:#5b6572;
+      --ink-faint:#939ba6; --accent:#1d7d72; --accent-ink:#fff; --accent-soft:#dcefec;
+      --warn:#9a6416; --warn-soft:#f7ead6; --crit:#b4402f; --crit-soft:#f8dfda;
+      --ok:#35754a; --ok-soft:#dff0e3; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.5 var(--body);
+       -webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom)}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 14px 70px}
+
+  .nav{position:sticky;top:0;z-index:30;background:var(--ground);border-bottom:1px solid var(--line);margin-bottom:20px}
+  .nav-in{max-width:1000px;margin:0 auto;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .logo{font:500 13px var(--mono);margin-right:auto}
+  .logo .b{color:var(--accent)}
+  .tabs{display:flex;gap:2px;flex-wrap:wrap}
+  .tabs button{font:500 13px var(--body);color:var(--ink-dim);background:none;border:0;
+    padding:7px 11px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px}
+  .tabs button.on{color:var(--accent);background:var(--accent-soft)}
+  .tabs .c{font:11px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:4px}
+  .tabs button.on .c{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+
+  .view{display:none} .view.on{display:block}
+  h2{font-size:16px;font-weight:600;margin:0 0 3px;letter-spacing:-.01em}
+  p.sub{font-size:13px;color:var(--ink-dim);margin:0 0 16px;max-width:64ch}
+  h3.sec{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+    color:var(--ink-faint);margin:24px 0 10px}
+
+  .btn{font:500 13px var(--body);padding:8px 13px;border-radius:7px;cursor:pointer;
+    border:1px solid var(--line);color:var(--ink-dim);background:var(--surface);
+    display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+  .btn:hover{color:var(--ink);border-color:var(--ink-faint)}
+  .btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.sm{font-size:12px;padding:6px 10px}
+  .btn.danger{color:var(--crit)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .pill{font:10.5px var(--mono);text-transform:uppercase;letter-spacing:.04em;
+    padding:3px 7px;border-radius:4px;white-space:nowrap}
+  .pill.ok{color:var(--ok);background:var(--ok-soft)}
+  .pill.warn{color:var(--warn);background:var(--warn-soft)}
+  .pill.crit{color:var(--crit);background:var(--crit-soft)}
+  .pill.idle{color:var(--ink-faint);background:var(--surface-2)}
+  .pill.acc{color:var(--accent);background:var(--accent-soft)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+  .muted{font-size:12.5px;color:var(--ink-dim);line-height:1.45}
+  code.cmd{display:block;font:11.5px var(--mono);background:var(--surface-2);
+    border:1px solid var(--line-soft);border-radius:6px;padding:7px 9px;color:var(--ink);
+    overflow-x:auto;white-space:pre}
+
+  /* trabajo en curso */
+  .job{background:var(--accent-soft);border:1px solid var(--accent);border-radius:9px;
+    padding:12px 14px;margin-bottom:16px}
+  .job.err{background:var(--crit-soft);border-color:var(--crit)}
+  .job.fin{background:var(--ok-soft);border-color:var(--ok)}
+  .job-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .job-top b{flex-grow:1}
+  .log{margin-top:9px;background:#0c0f13;border-radius:7px;padding:9px 10px;
+    font:11.5px/1.5 var(--mono);color:#c8d2dc;max-height:190px;overflow:auto;white-space:pre-wrap}
+  @media (prefers-color-scheme:light){ .log{background:#171b20} }
+  .tbtn{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer}
+
+  /* revisar */
+  .review{display:grid;grid-template-columns:300px 1fr;gap:20px}
+  video{width:100%;border-radius:9px;background:#000;display:block;aspect-ratio:9/16;object-fit:contain}
+  video.wide{aspect-ratio:16/9}
+  .facts{display:flex;flex-wrap:wrap;gap:5px 13px;font:11.5px var(--mono);color:var(--ink-dim)}
+  .facts b{color:var(--ink);font-weight:500}
+  .script{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
+    padding:11px 13px;font-size:13.5px;color:var(--ink-dim);line-height:1.55;max-height:150px;overflow:auto}
+  .thumbs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px}
+  .th{flex-shrink:0;width:64px;border:1px solid var(--line);border-radius:7px;
+    overflow:hidden;cursor:pointer;background:var(--surface)}
+  .th.on{border-color:var(--accent)}
+  .th .im{aspect-ratio:9/16;background:linear-gradient(170deg,#2b3340,#171c23);
+    display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;
+    font:9px var(--mono);color:rgba(255,255,255,.75)}
+  .th .cp{font-size:9.5px;color:var(--ink-faint);padding:4px 3px;text-align:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .th.on .cp{color:var(--accent)}
+
+  /* listas */
+  .list{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .row{display:grid;gap:10px;align-items:center;padding:10px 13px;
+    border-bottom:1px solid var(--line-soft);background:var(--surface);font-size:13px}
+  .row:last-child{border-bottom:0}
+  .row.sel{grid-template-columns:20px 26px 1fr 56px 46px;cursor:pointer}
+  .row.sel.on{background:var(--accent-soft)}
+  .row.sel input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+  .row .n,.row .m{font:11.5px var(--mono);color:var(--ink-faint)}
+  .row .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    flex-wrap:wrap;padding:11px 13px;background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
+  .list-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    flex-wrap:wrap;padding:11px 13px;background:var(--surface-2);border-top:1px solid var(--line-soft)}
+  .equiv{font:11.5px var(--mono);color:var(--ink-dim);background:var(--ground);
+    border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+
+  /* presets */
+  .presets{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .preset{border:1px solid var(--line);border-radius:9px;background:var(--surface);
+    padding:13px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+  .preset.on{border-color:var(--accent)}
+  .preset h4{margin:0;font:500 13.5px var(--mono)}
+  .sw{width:14px;height:14px;border-radius:4px;border:1px solid var(--line);display:inline-block}
+
+  .aviso{display:flex;gap:10px;align-items:flex-start;background:var(--surface);
+    border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 9px 9px 0;padding:12px 14px;margin-bottom:16px;font-size:13.5px}
+  .aviso.warn{border-left-color:var(--warn)}
+  .aviso.crit{border-left-color:var(--crit)}
+
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:60;
+    background:var(--surface);border:1px solid var(--accent);color:var(--ink);
+    padding:10px 16px;border-radius:9px;font-size:13.5px;box-shadow:0 8px 26px rgba(0,0,0,.35);
+    opacity:0;pointer-events:none;transition:opacity .18s}
+  .toast.on{opacity:1}
+
+  @media (max-width:780px){
+    .review{grid-template-columns:1fr}
+    video{max-width:330px;margin:0 auto}
+    .grid2,.presets{grid-template-columns:1fr}
+    .logo{width:100%;margin-bottom:2px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="nav"><div class="nav-in">
+  <div class="logo">mesa de <span class="b">revisión</span></div>
+  <div class="tabs">
+    <button data-v="revisar" class="on">Revisar <span class="c" id="c-rev">0</span></button>
+    <button data-v="cola">Cola <span class="c" id="c-col">0</span></button>
+    <button data-v="estilo">Estilo</button>
+    <button data-v="publicados">Publicados <span class="c" id="c-pub">0</span></button>
+    <button data-v="ajustes">Ajustes</button>
+  </div>
+</div></div>
+
+<div class="wrap">
+  <div id="job-slot"></div>
+
+  <section class="view on" id="v-revisar"></section>
+  <section class="view" id="v-cola"></section>
+  <section class="view" id="v-estilo"></section>
+  <section class="view" id="v-publicados"></section>
+  <section class="view" id="v-ajustes"></section>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = s => document.querySelector(s);
+let E = null;            // último estado del servidor
+let elegido = 0;         // índice del video en revisión
+let seleccion = new Set();
+let tocado = false;      // ¿el usuario ya eligió historias a mano?
+
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('on'),2600); }
+
+async function api(url, opts){
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+async function ejecutar(accion, cuerpo){
+  try{
+    await api('/api/ejecutar/'+accion, {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(cuerpo||{})});
+    refrescar();
+  }catch(e){ toast(e.message); }
+}
+async function trabajo(que){
+  try{ await api('/api/trabajo/'+que, {method:'POST'}); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+
+/* ---------- trabajo en curso ---------- */
+function pintaJob(){
+  const j = E && E.trabajo, slot = $('#job-slot');
+  if(!j){ slot.innerHTML=''; return; }
+  const corriendo = j.estado==='corriendo' || j.estado==='pausado';
+  const clase = j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : '');
+  const mins = Math.floor(j.segundos/60), segs = j.segundos%60;
+  slot.innerHTML = `
+    <div class="job${clase}">
+      <div class="job-top">
+        <b>${esc(j.nombre)}</b>
+        <span class="pill ${j.estado==='ok'?'ok':j.estado==='error'?'crit':'acc'}">${esc(j.estado)}</span>
+        <span class="row-m" style="font:11.5px var(--mono);color:var(--ink-dim)">${mins}:${String(segs).padStart(2,'0')}</span>
+        ${corriendo ? `
+          <button class="tbtn" id="b-pausa" title="${j.estado==='pausado'?'Reanudar':'Pausar'}">${j.estado==='pausado'?'▶':'⏸'}</button>
+          <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>` : ''}
+      </div>
+      ${j.lineas.length ? `<div class="log" id="log">${esc(j.lineas.join('\n'))}</div>` : ''}
+    </div>`;
+  const log = $('#log'); if(log) log.scrollTop = log.scrollHeight;
+  if($('#b-pausa')) $('#b-pausa').onclick = ()=>trabajo(j.estado==='pausado'?'reanudar':'pausar');
+  if($('#b-abort')) $('#b-abort').onclick = ()=>{ if(confirm('¿Abortar lo que está corriendo?')) trabajo('abortar'); };
+}
+
+/* ---------- revisar ---------- */
+function pintaRevisar(){
+  const v = E.videos, cont = $('#v-revisar');
+  if(!v.length){
+    cont.innerHTML = `
+      <h2>Nada que revisar todavía</h2>
+      <p class="sub">Cuando renderices, cada video aparece aquí para verlo y aprobarlo antes de que se suba.</p>
+      <div class="aviso"><span>▸</span><div>Empieza por uno solo para ver cómo quedó el estilo:
+        <div style="margin-top:9px"><button class="btn go" onclick="ejecutar('renderizar',{historias:'1'})">▶ Renderizar la historia 1</button></div>
+      </div></div>`;
+    return;
+  }
+  if(elegido >= v.length) elegido = 0;
+  const a = v[elegido];
+  const mins = Math.floor(a.duracion_sec/60), segs = Math.round(a.duracion_sec%60);
+
+  cont.innerHTML = `
+    <h2>${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}</h2>
+    <p class="sub">Míralo aquí mismo — el archivo está en este teléfono. Toca el video para pantalla completa.</p>
+    <div class="thumbs">${v.map((x,i)=>`
+      <div class="th ${i===elegido?'on':''}" data-i="${i}">
+        <div class="im">${Math.floor(x.duracion_sec/60)}:${String(Math.round(x.duracion_sec%60)).padStart(2,'0')}</div>
+        <div class="cp">${String(x.numero??i+1).padStart(2,'0')}</div>
+      </div>`).join('')}</div>
+
+    <div class="card review">
+      <div>
+        <video controls playsinline preload="metadata" class="${a.es_short?'':'wide'}"
+               src="/video/${encodeURIComponent(a.archivo)}"></video>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;min-width:0">
+        <div>
+          <h3 style="margin:0 0 5px;font-size:17px;line-height:1.3">${esc(a.titulo)}</h3>
+          <div class="facts">
+            <span><b>${mins}:${String(segs).padStart(2,'0')}</b></span>
+            <span>${a.es_short?'Short':'Largo'}</span>
+            <span>Emoción <b>${esc(a.emocion)}</b></span>
+            ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>`:''}
+            ${a.publicado?'<span class="pill ok">ya publicado</span>':''}
+          </div>
+        </div>
+        <div class="script"><b style="color:var(--ink-faint);font:10px var(--mono);
+          text-transform:uppercase;letter-spacing:.09em;display:block;margin-bottom:5px">Narración</b>${esc(a.cuerpo).slice(0,700)}${a.cuerpo.length>700?'…':''}</div>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line-soft)">
+          <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar pendientes</button>
+          <button class="btn" onclick="ejecutar('renderizar',{historias:'${a.numero||''}'})">↺ Rehacer este</button>
+        </div>
+        <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
+      </div>
+    </div>`;
+  cont.querySelectorAll('.th').forEach(t => t.onclick = ()=>{ elegido = +t.dataset.i; pintaRevisar(); });
+}
+
+/* ---------- cola ---------- */
+function rangoTexto(){
+  const a = [...seleccion].sort((x,y)=>x-y), p=[]; let i=0;
+  while(i<a.length){ let j=i; while(j+1<a.length && a[j+1]===a[j]+1) j++;
+    p.push(j>i+1 ? a[i]+'-'+a[j] : a.slice(i,j+1).join(',')); i=j+1; }
+  return p.join(',');
+}
+function pintaCola(){
+  const h = E.historias, cont = $('#v-cola');
+  if(!h.length){
+    cont.innerHTML = `<h2>Sin historias</h2>
+      <p class="sub">No hay guion.txt. Busca historias en Reddit y conviértelas en guiones.</p>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar historias</button>
+        <button class="btn" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+      </div>`;
+    return;
+  }
+  if(!tocado && !seleccion.size) h.slice(0,3).forEach(x=>seleccion.add(x.n));
+
+  cont.innerHTML = `
+    <h2>${h.length} historias listas para renderizar</h2>
+    <p class="sub">La numeración se conserva aunque pidas solo algunas: la historia 7 siempre genera <code style="font:12px var(--mono)">07_…</code></p>
+    <div class="list">
+      <div class="list-head">
+        <div><b>Elige qué renderizar</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button class="btn sm" id="q-todas">Todas</button>
+          <button class="btn sm" id="q-ning">Ninguna</button>
+        </div>
+      </div>
+      <div style="max-height:340px;overflow:auto">${h.map(x=>`
+        <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
+          <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
+          <span class="n">${String(x.n).padStart(2,'0')}</span>
+          <span class="t">${esc(x.titulo)}</span>
+          <span class="m">${esc(x.emocion).slice(0,5)}</span>
+          <span class="m">${x.duracion}</span>
+        </label>`).join('')}</div>
+      <div class="list-foot">
+        <code class="equiv" id="equiv"></code>
+        <div style="display:flex;gap:7px">
+          <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar más</button>
+          <button class="btn go" id="b-render">▶ Renderizar</button>
+        </div>
+      </div>
+    </div>`;
+
+  const sync = ()=>{
+    $('#cuenta').textContent = `${seleccion.size} de ${h.length} seleccionadas`;
+    $('#equiv').textContent = seleccion.size ? '--historias '+rangoTexto() : 'nada seleccionado';
+    const b = $('#b-render');
+    b.textContent = seleccion.size ? `▶ Renderizar ${seleccion.size}` : '▶ Renderizar';
+    b.disabled = !seleccion.size;
+  };
+  cont.querySelectorAll('.row.sel').forEach(r=>{
+    r.querySelector('input').onchange = e=>{
+      tocado = true;
+      const n = +r.dataset.n;
+      e.target.checked ? seleccion.add(n) : seleccion.delete(n);
+      r.classList.toggle('on', e.target.checked); sync();
+    };
+  });
+  $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintaCola(); };
+  $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintaCola(); };
+  $('#b-render').onclick = ()=> ejecutar('renderizar', {historias: rangoTexto()});
+  sync();
+}
+
+/* ---------- estilo ---------- */
+const DESCR = {
+  predeterminado:'Frase completa; solo las palabras con carga se pintan, rotando colores.',
+  verde_fijo:'Todas las palabras activas del mismo verde, sin rotación.',
+  amarillo_clasico:'Karaoke por relleno: lo ya dicho se queda amarillo.',
+  una_palabra:'Una palabra a la vez con rebote, un solo color.',
+  sobrio:'Sin color: la palabra activa solo crece. Lo más discreto.',
+  alto_contraste:'Bebas Neue, resalte rojo, menos palabras por frase.',
+  palabras_clave:'Una palabra a la vez, algunas pintadas rotando. El del video de referencia.'
+};
+function pintaEstilo(){
+  const s = E.subtitulos, act = s.preset || 'predeterminado';
+  const paleta = (s.colores_resalte||[]);
+  $('#v-estilo').innerHTML = `
+    <h2>Estilo de subtítulos</h2>
+    <p class="sub">Cambiarlo escribe el preset en config.json. Aplica al próximo render, no a lo ya hecho.</p>
+    <div class="presets">${E.presets.map(p=>`
+      <div class="preset ${p===act?'on':''}" data-p="${p}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h4>${p}</h4>${p===act?'<span class="pill acc">Activo</span>':''}
+        </div>
+        <div class="muted">${esc(DESCR[p]||'')}</div>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Qué usa el activo</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto"><span>Estilo</span><span class="m">${esc(s.estilo)}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Fuente</span><span class="m">${esc(s.fuente)}${s.italica?' · itálica':''}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Colores de resalte</span>
+        <span>${paleta.length>1 ? paleta.map(c=>`<span class="sw" style="background:${esc(c)}"></span>`).join(' ')
+              : `<span class="sw" style="background:${esc(s.color_activo)}"></span>`}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Solo palabras con carga</span>
+        <span class="m">${s.resaltar_solo_clave ? 'sí, de '+s.min_letras_resalte+'+ letras' : 'no, todas'}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Palabras en pantalla</span>
+        <span class="m">${s.estilo==='pop' ? '1' : s.palabras_por_frase_short+' / '+s.palabras_por_frase_largo}</span></div>
+    </div>
+
+    <h3 class="sec">Comparar sobre tu gameplay</h3>
+    <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="muted" style="flex-grow:1">Renderiza el mismo momento con cada preset y deja una hoja de comparación en la galería.</div>
+      <button class="btn go" onclick="ejecutar('previsualizar')">Generar comparación</button>
+    </div>`;
+
+  document.querySelectorAll('.preset').forEach(el=>{
+    el.onclick = async ()=>{
+      try{ await api('/api/preset',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({preset:el.dataset.p})});
+        toast('Estilo: '+el.dataset.p); refrescar();
+      }catch(e){ toast(e.message); }
+    };
+  });
+}
+
+/* ---------- publicados ---------- */
+function pintaPublicados(){
+  const p = E.publicados;
+  const porBorrar = p.filter(x=>x.dias_restantes!==null && x.dias_restantes<=2 && !x.borrado_local);
+  $('#v-publicados').innerHTML = `
+    <h2>Publicados</h2>
+    <p class="sub">Los archivos se quedan 7 días en el teléfono tras subirse, para que te dé tiempo de pasarlos a TikTok.</p>
+    ${porBorrar.length ? `<div class="aviso crit"><span>↓</span><div><b>${porBorrar.length} se borran pronto.</b> Si los quieres para TikTok, descárgalos ya.</div></div>`:''}
+    ${!p.length ? `<div class="aviso"><span>·</span><div>Todavía no hay nada publicado.</div></div>` : `
+    <div class="list">${p.map(x=>`
+      <div class="row" style="grid-template-columns:1fr 110px auto">
+        <div><div class="t">${esc(x.titulo)}</div>
+          <div class="m">${x.publish_at ? 'programado '+esc(x.publish_at.slice(0,16).replace('T',' ')) : 'público'}</div></div>
+        <span class="m">${x.borrado_local ? 'borrado local' : (x.dias_restantes!==null ? x.dias_restantes+'d en disco' : '')}</span>
+        ${x.video_id?`<a class="btn sm" target="_blank" rel="noopener"
+          href="https://studio.youtube.com/video/${esc(x.video_id)}/edit">Studio ↗</a>`:'<span></span>'}
+      </div>`).join('')}</div>`}
+
+    <h3 class="sec">Subir ahora</h3>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="muted" style="flex-grow:1">Sube los pendientes respetando el límite diario de YouTube.</div>
+      <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar</button>
+      <button class="btn" onclick="if(confirm('¿Subir usando datos móviles?')) ejecutar('publicar_datos')">Con datos móviles</button>
+    </div>`;
+}
+
+/* ---------- ajustes ---------- */
+async function pintaAjustes(){
+  const m = E.material, cr = E.credenciales;
+  let secretos = [];
+  try{ secretos = await api('/api/secretos'); }catch(e){}
+
+  $('#v-ajustes').innerHTML = `
+    <h2>Ajustes</h2>
+    <p class="sub">Material, credenciales y lo que se actualiza de vez en cuando.</p>
+
+    <h3 class="sec">Material</h3>
+    <div class="grid2">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h4 style="margin:0;font:500 13px var(--mono)">Música</h4>
+          <span class="pill ${m.musica?'ok':'warn'}">${m.musica} pistas</span></div>
+        <div class="muted" style="margin:8px 0">Tres por emoción desde Jamendo, con licencia comercial. Se acredita sola en la descripción.</div>
+        <button class="btn go sm" onclick="ejecutar('musica')">↻ Actualizar música</button>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h4 style="margin:0;font:500 13px var(--mono)">Fondos y plantilla</h4>
+          <span class="pill ${m.fondos_short+m.fondos_largo?'ok':'crit'}">${m.fondos_short}+${m.fondos_largo}</span></div>
+        <div class="muted" style="margin:8px 0">
+          Plantilla: ${m.plantilla?esc(m.plantilla):'<span style="color:var(--warn)">falta — se usa el respaldo</span>'} ·
+          Efectos: ${m.efectos||'<span style="color:var(--warn)">ninguno</span>'}</div>
+        <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
+      </div>
+    </div>
+
+    <h3 class="sec">Credenciales</h3>
+    <div class="list">${cr.map(c=>`
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(c.nombre)}</div>
+          ${c.origen?`<div class="m">desde ${esc(c.origen)}</div>`:''}</div>
+        <span class="pill ${c.ok?'ok':(c.opcional?'idle':'crit')}">${c.ok?'ok':(c.opcional?'opcional':'falta')}</span>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
+    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
+      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
+         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
+    <div class="list">${secretos.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
+          <div class="m">${esc(s.pista)}</div></div>
+        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
+        <button class="btn sm" ${s.disponible?'':'disabled'} data-sec="${esc(s.nombre)}">Copiar</button>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Subida</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
+        <button class="btn sm" id="b-wifi">${E.solo_wifi?'activado':'desactivado'}</button>
+      </div>
+    </div>`;
+
+  document.querySelectorAll('[data-sec]').forEach(b=>{
+    b.onclick = async ()=>{
+      try{
+        const j = await api('/api/secretos/'+encodeURIComponent(b.dataset.sec));
+        await navigator.clipboard.writeText(j.valor);
+        toast('Copiado: '+j.nombre);
+      }catch(e){ toast('No se pudo copiar: '+e.message); }
+    };
+  });
+  $('#b-wifi').onclick = async ()=>{
+    try{ const j = await api('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({solo_wifi: !E.solo_wifi})});
+      toast(j.solo_wifi ? 'Solo con WiFi' : 'Permite datos móviles'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+}
+
+/* ---------- ciclo ---------- */
+function pintar(){
+  $('#c-rev').textContent = E.videos.length;
+  $('#c-col').textContent = E.historias.length;
+  $('#c-pub').textContent = E.publicados.length;
+  pintaJob();
+  const v = document.querySelector('.tabs button.on').dataset.v;
+  if(v==='revisar') pintaRevisar();
+  else if(v==='cola') pintaCola();
+  else if(v==='estilo') pintaEstilo();
+  else if(v==='publicados') pintaPublicados();
+  else pintaAjustes();
+}
+async function refrescar(){
+  try{ E = await api('/api/estado'); pintar(); }
+  catch(e){ $('#job-slot').innerHTML =
+    `<div class="aviso crit"><span>✕</span><div>Se perdió la conexión con el servidor. ¿Sigue corriendo <code style="font:12px var(--mono)">python servidor.py</code>?</div></div>`; }
+}
+document.querySelectorAll('.tabs button').forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll('.tabs button').forEach(o=>o.classList.toggle('on', o===b));
+    document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+b.dataset.v));
+    window.scrollTo(0,0); pintar();
+  };
+});
+refrescar();
+// Mientras algo corre conviene ver el avance; si no, no hace falta insistir.
+setInterval(()=>{ const j=E&&E.trabajo;
+  if(j && (j.estado==='corriendo'||j.estado==='pausado')) refrescar(); }, 1500);
+setInterval(refrescar, 12000);
+</script>
+</body>
+</html>
