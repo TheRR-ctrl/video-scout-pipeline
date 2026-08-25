@@ -98,7 +98,16 @@ def main():
         linea("archivos .mp4 en disco", f"{len(mp4s)}", "ok" if mp4s else "aviso")
         lote = leer_json(os.path.join(carpeta_salida, "resultado_lote.json"), {})
         completados = lote.get("completados", [])
+        # resultado_lote.json puede citar videos cuyo archivo ya no está (los
+        # borró la retención de 7 días, o se limpiaron a mano). Distinguirlo
+        # importa: si no, "pendientes de publicar" cuenta videos inexistentes
+        # y publisher.py los rechaza uno por uno al no encontrarlos.
+        vivos = [v for v in completados if os.path.exists(v.get("ruta", ""))]
+        muertos = len(completados) - len(vivos)
         linea("renderizados (resultado_lote)", f"{len(completados)}")
+        if muertos:
+            linea("  ...cuyo archivo ya no existe", f"{muertos}", "aviso")
+        completados = vivos
 
     publicados = leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), [])
     rechazados = leer_json(os.path.join(CARPETA_ESTADO, "rechazados.json"), [])
