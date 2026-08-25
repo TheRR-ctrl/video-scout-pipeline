@@ -76,12 +76,12 @@ CONFIG_DEFAULT = {
     # video en revisión hasta ~6pm hora local el mismo día — buena hora pico
     # para Shorts en español. Súbelo si el cron de publicar corre más tarde.
     "buffer_horas_revision": 9,
-    # Un video público por día es mejor para el crecimiento del canal que
-    # publicar el lote entero de una sola vez (evita saturar a quien sigue
-    # el canal y da una señal más constante al algoritmo). El resto del lote
-    # ya renderizado queda esperando en resultado_lote.json para el día
-    # siguiente.
-    "max_subidas_por_corrida": 1,
+    # None = sin tope propio: sube todo lo que YouTube deje en el día (se
+    # detiene solo al toparse con el límite diario de subidas de YouTube,
+    # ver uploadLimitExceeded en subir_video/main). Pon un número aquí si
+    # en el futuro quieres volver a un ritmo de 1 video/día en vez de
+    # drenar el colchón lo más rápido posible.
+    "max_subidas_por_corrida": None,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
     "categoria_youtube": "24",  # Entertainment
@@ -455,9 +455,16 @@ def main():
         try:
             video_id = subir_video(servicio_yt, ruta, metadata, video, publish_at_iso)
         except Exception as exc:
-            logger.error(f"Fallo al subir {ruta}: {exc}")
-            rechazados.append({"ruta": ruta, "fase": "subida", "motivo": str(exc)})
-            guardar_json(RUTA_RECHAZADOS, rechazados)
+            if "uploadLimitExceeded" in str(exc):
+                logger.info(
+                    "Se alcanzó el límite diario de subidas de YouTube — el resto del "
+                    "colchón queda pendiente para la próxima corrida (no se pierde nada)."
+                )
+                break
+            # Cualquier otro fallo de subida (red, timeout, error temporal de la
+            # API) tampoco descarta el video: se reintenta en la próxima corrida
+            # en vez de quedar rechazado para siempre.
+            logger.warning(f"Fallo al subir {ruta} (se reintentará más adelante): {exc}")
             continue
 
         logger.info(f"✅ Subido como privado, se publica solo el {publish_at_iso} — https://studio.youtube.com/video/{video_id}/edit")
