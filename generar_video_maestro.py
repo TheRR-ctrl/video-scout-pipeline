@@ -26,12 +26,48 @@ except ImportError:
 # ---------------------------------------------------------
 ES_ANDROID = 'PREFIX' in os.environ or os.path.exists('/sdcard')
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Las fuentes viajan en el repo en vez de depender de que estén instaladas en
+# el sistema: pedir una fuente ausente no falla, libass la sustituye en
+# silencio (p.ej. "Montserrat Black" -> DejaVu Sans en peso normal), así que
+# el video salía con una tipografía que nadie eligió. Con fontsdir apuntando
+# aquí, el resultado es idéntico en el teléfono y en la PC.
+RUTA_FUENTES = os.path.join(BASE_DIR, "fuentes")
+
+# Estilos de subtítulo disponibles. La idea es que esto sea lo único que haya
+# que tocar (desde config.json, o más adelante desde un selector) para cambiar
+# cómo se ven, sin meter mano en la generación del .ass.
+ESTILOS_SUBTITULOS = ("frase_activa", "relleno", "pop")
+
+SUBTITULOS_DEFAULT = {
+    "estilo": "frase_activa",
+    "fuente": "Anton",
+    # Cuántas palabras se ven en pantalla a la vez. Con 1 se pierde el efecto
+    # de "palabra activa dentro de la frase" (no hay frase que resaltar).
+    "palabras_por_frase_short": 4,
+    "palabras_por_frase_largo": 6,
+    "tamano_short": 84,
+    "tamano_largo": 104,
+    "color_texto": "#FFFFFF",
+    "color_activo": "#3BF07A",
+    "color_borde": "#000000",
+    "grosor_borde": 5,
+    "sombra": 0,
+    "mayusculas": True,
+    # Cuánto crece la palabra que se está diciendo, en % (100 = sin crecer).
+    "escala_activa": 112,
+}
+
 CONFIG_DEFAULT = {
     "carpeta_salida": "/sdcard/DCIM/Videos creados" if ES_ANDROID else os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados"),
     "duracion_max_short_sec": 180.0,
     "voz_masculina": "es-MX-JorgeNeural",
     "voz_femenina": "es-MX-DaliaNeural",
     "reintentar_existentes": False,
+    "subtitulos": dict(SUBTITULOS_DEFAULT),
+    # La tarjeta de intro de los videos largos ocupa todo el cuadro en vez de
+    # quedar como una tarjetita centrada.
+    "tarjeta_intro_pantalla_completa_en_largos": True,
 }
 
 def cargar_config(ruta="config.json"):
@@ -39,7 +75,13 @@ def cargar_config(ruta="config.json"):
     if os.path.exists(ruta):
         try:
             with open(ruta, "r", encoding="utf-8") as f:
-                cfg.update(json.load(f))
+                usuario = json.load(f)
+            # "subtitulos" se mezcla en vez de reemplazarse, para poder
+            # cambiar solo una clave (p.ej. la fuente) sin repetir el resto.
+            subs = dict(SUBTITULOS_DEFAULT)
+            subs.update(usuario.pop("subtitulos", {}) or {})
+            cfg.update(usuario)
+            cfg["subtitulos"] = subs
         except Exception as exc:
             print(f"⚠️ No se pudo leer {ruta}, usando valores por defecto: {exc}")
     return cfg
@@ -443,15 +485,24 @@ def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_sho
 
     if plantilla_encontrada:
         plantilla_original = Image.open(plantilla_encontrada).convert('RGBA')
-        factor_escala = 0.95 if es_short else 0.55
-        target_w = int(ancho * factor_escala)
         w_orig, h_orig = plantilla_original.size
-        target_h = int(h_orig * (target_w / float(w_orig)))
-        
+        pantalla_completa = (not es_short) and CONFIG.get("tarjeta_intro_pantalla_completa_en_largos", True)
+
+        if pantalla_completa:
+            # Escala para CUBRIR todo el cuadro (como object-fit: cover): se
+            # toma el mayor de los dos factores y se recorta lo que sobre, en
+            # vez de dejar la tarjeta flotando chiquita en medio del video.
+            factor = max(ancho / float(w_orig), alto / float(h_orig))
+            target_w, target_h = int(w_orig * factor), int(h_orig * factor)
+        else:
+            factor_escala = 0.95
+            target_w = int(ancho * factor_escala)
+            target_h = int(h_orig * (target_w / float(w_orig)))
+
         plantilla_resized = plantilla_original.resize((target_w, target_h), Image.Resampling.LANCZOS)
         pos_x = (ancho - target_w) // 2
         pos_y = (alto - target_h) // 2 - (120 if es_short else 0)
-            
+
         lienzo.paste(plantilla_resized, (pos_x, pos_y), plantilla_resized)
         
         draw = ImageDraw.Draw(lienzo)
@@ -466,25 +517,50 @@ def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_sho
 
         if es_short: font_size = 28 if num_caracteres > 160 else 34 if num_caracteres > 100 else 44
         else: font_size = 36 if num_caracteres > 160 else 46 if num_caracteres > 100 else 56
-        
+
         espaciado = 8 if es_short else 12
         ancho_borde = 5 if es_short else 7
 
+        if pantalla_completa:
+            # Los tamaños de arriba estaban calculados para una tarjeta al 55%
+            # del ancho; al ocupar el cuadro entero hay que subirlos en la
+            # misma proporción o el título se ve diminuto y perdido.
+            escala_texto = target_w / (ancho * 0.55)
+            font_size = int(font_size * escala_texto)
+            espaciado = int(espaciado * escala_texto)
+            ancho_borde = max(ancho_borde, int(ancho_borde * escala_texto))
+
+        # El texto se coloca relativo a la plantilla (ahí está su zona de
+        # título), pero si el recorte la dejó fuera del cuadro se centra.
+        y_texto = pos_y + int(target_h * 0.58)
+        if not (0 < y_texto < alto):
+            y_texto = alto // 2
+
         font_tit = obtener_fuente_bold(font_size)
-        draw.multiline_text((ancho // 2, pos_y + int(target_h * 0.58)), "\n".join(lineas_wrap), fill=(255, 255, 255), font=font_tit, anchor="mm", align="center", spacing=espaciado, stroke_width=ancho_borde, stroke_fill=(0, 0, 0))
+        draw.multiline_text((ancho // 2, y_texto), "\n".join(lineas_wrap), fill=(255, 255, 255), font=font_tit, anchor="mm", align="center", spacing=espaciado, stroke_width=ancho_borde, stroke_fill=(0, 0, 0))
         lienzo.save(output_png)
     else:
         draw = ImageDraw.Draw(lienzo)
-        card_w = int(ancho * 0.88)
-        card_h = int(alto * (0.28 if es_short else 0.35))
-        card_x, card_y = (ancho - card_w) // 2, ((alto - card_h) // 2) - 120
-        
-        draw.rounded_rectangle([card_x, card_y, card_x + card_w, card_y + card_h], radius=30, fill=(255, 255, 255, 250))
+        pantalla_completa = (not es_short) and CONFIG.get("tarjeta_intro_pantalla_completa_en_largos", True)
+
+        if pantalla_completa:
+            card_x, card_y = 0, 0
+            card_w, card_h = ancho, alto
+            radio = 0
+            font_size = 96
+        else:
+            card_w = int(ancho * 0.88)
+            card_h = int(alto * (0.28 if es_short else 0.35))
+            card_x, card_y = (ancho - card_w) // 2, ((alto - card_h) // 2) - 120
+            radio = 30
+            font_size = 42 if es_short else 56
+
+        draw.rounded_rectangle([card_x, card_y, card_x + card_w, card_y + card_h], radius=radio, fill=(255, 255, 255, 250))
         draw.ellipse([card_x + 40, card_y + 35, card_x + 90, card_y + 85], fill=(255, 69, 0))
-        
+
         titulo_mayus = titulo.upper()
         chars_linea = max(24 if es_short else 35, int(len(titulo_mayus) / 3.8))
-        font_tit = obtener_fuente_bold(42 if es_short else 56)
+        font_tit = obtener_fuente_bold(font_size)
         draw.multiline_text((card_x + card_w // 2, card_y + card_h // 2 + 20), "\n".join(textwrap.wrap(titulo_mayus, width=chars_linea)), fill=(0, 0, 0), font=font_tit, anchor="mm", align="center", spacing=10)
         lienzo.save(output_png)
 
@@ -496,17 +572,89 @@ def format_ass_time(td):
     ts = int(td.total_seconds())
     return f"{ts // 3600}:{(ts % 3600) // 60:02d}:{ts % 60:02d}.{int(td.microseconds / 10000):02d}"
 
+def _color_ass(hex_rgb):
+    """#RRGGBB -> &HAABBGGRR& (ASS invierte el orden a BGR; AA=00 es opaco)."""
+    h = (hex_rgb or "").lstrip("#")
+    if len(h) != 6:
+        return "&H00FFFFFF&"
+    return f"&H00{h[4:6]}{h[2:4]}{h[0:2]}&".upper()
+
+
+def _cfg_subs():
+    subs = dict(SUBTITULOS_DEFAULT)
+    subs.update(CONFIG.get("subtitulos", {}) or {})
+    if subs.get("estilo") not in ESTILOS_SUBTITULOS:
+        logger.warning(f"Estilo de subtítulo desconocido '{subs.get('estilo')}'; se usa 'frase_activa'.")
+        subs["estilo"] = "frase_activa"
+    return subs
+
+
 def _header_ass(es_short):
-    font_size, PlayResX, PlayResY, palabras_por_grupo = (92, 1080, 1920, 1) if es_short else (120, 1920, 1080, 2)
-    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H0000FFFF&,&H0000FFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    subs = _cfg_subs()
+    PlayResX, PlayResY = (1080, 1920) if es_short else (1920, 1080)
+    font_size = subs["tamano_short"] if es_short else subs["tamano_largo"]
+    palabras_por_grupo = (
+        subs["palabras_por_frase_short"] if es_short else subs["palabras_por_frase_largo"]
+    )
+    # El estilo "pop" es de una palabra a la vez por definición.
+    if subs["estilo"] == "pop":
+        palabras_por_grupo = 1
+    palabras_por_grupo = max(1, int(palabras_por_grupo))
+
+    c_texto = _color_ass(subs["color_texto"])
+    c_activo = _color_ass(subs["color_activo"])
+    c_borde = _color_ass(subs["color_borde"])
+
+    # PrimaryColour vs SecondaryColour: el efecto \k anima DE Secondary A
+    # Primary. Antes ambos eran amarillo, así que el karaoke no se veía nunca.
+    #  - "relleno": Secondary = lo que falta por decir, Primary = lo ya dicho.
+    #  - los demás estilos pintan la palabra activa con tags en línea, así que
+    #    el color base es simplemente el del texto.
+    if subs["estilo"] == "relleno":
+        primary, secondary = c_activo, c_texto
+    else:
+        primary, secondary = c_texto, c_activo
+
+    header = (
+        "[Script Info]\n"
+        "ScriptType: v4.00+\n"
+        f"PlayResX: {PlayResX}\n"
+        f"PlayResY: {PlayResY}\n"
+        "WrapStyle: 0\n"
+        "ScaledBorderAndShadow: yes\n\n"
+        "[V4+ Styles]\n"
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+        "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+        "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        f"Style: Karaoke,{subs['fuente']},{font_size},{primary},{secondary},{c_borde},"
+        f"&H80000000&,0,0,0,0,100,100,0,0,1,{subs['grosor_borde']},{subs['sombra']},5,60,60,0,1\n\n"
+        "[Events]\n"
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    )
     return header, palabras_por_grupo
+
+
+def _texto_palabra(p, subs):
+    t = p["texto"]
+    return t.upper() if subs["mayusculas"] else t
 
 
 def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, es_short=True):
     """Arma el .ass de karaoke a partir del timing REAL por palabra que
     reporta edge-tts (evento WordBoundary), no de un SRT por oración
     repartido en partes iguales — eso causaba el desfase progresivo que se
-    notaba sobre todo en oraciones largas."""
+    notaba sobre todo en oraciones largas.
+
+    El estilo visual sale de CONFIG["subtitulos"]:
+      - frase_activa: se lee la frase completa y solo la palabra que se está
+        diciendo cambia de color y crece (el look de TikTok/CapCut). Requiere
+        una línea Dialogue por palabra, porque en ASS el resaltado de \\k se
+        queda pegado en las palabras ya dichas y aquí solo queremos una.
+      - relleno: karaoke clásico con \\k, lo ya dicho se queda del color de
+        acento. Una sola línea Dialogue por frase.
+      - pop: una palabra a la vez, entrando con un rebote de escala.
+    """
+    subs = _cfg_subs()
     header, palabras_por_grupo = _header_ass(es_short)
     lineas_ass = [header]
 
@@ -514,17 +662,65 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
         with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
         return
 
+    c_texto = _color_ass(subs["color_texto"])
+    c_activo = _color_ass(subs["color_activo"])
+    escala = max(100, int(subs["escala_activa"]))
+
+    def t_abs(seg):
+        return timedelta(seconds=duracion_intro_sec + seg)
+
+    def emitir(t_ini, t_fin, texto):
+        if (t_fin - t_ini).total_seconds() <= 0:
+            return
+        lineas_ass.append(
+            f"Dialogue: 0,{format_ass_time(t_ini)},{format_ass_time(t_fin)},"
+            f"Karaoke,,0,0,0,,{texto}\n"
+        )
+
     grupos = [palabras[i:i + palabras_por_grupo] for i in range(0, len(palabras), palabras_por_grupo)]
+
     for grupo in grupos:
-        t_inicio = timedelta(seconds=duracion_intro_sec + grupo[0]["inicio"])
-        t_fin = timedelta(seconds=duracion_intro_sec + grupo[-1]["inicio"] + grupo[-1]["duracion"])
-        if (t_fin - t_inicio).total_seconds() <= 0:
+        if subs["estilo"] == "relleno":
+            texto = "".join(
+                f"{{\\k{max(6, int(p['duracion'] * 100))}}}{_texto_palabra(p, subs)} "
+                for p in grupo
+            ).strip()
+            emitir(
+                t_abs(grupo[0]["inicio"]),
+                t_abs(grupo[-1]["inicio"] + grupo[-1]["duracion"]),
+                texto,
+            )
             continue
 
-        texto_karaoke = "".join(
-            f"{{\\k{max(6, int(p['duracion'] * 100))}}}{p['texto'].upper()} " for p in grupo
-        )
-        lineas_ass.append(f"Dialogue: 0,{format_ass_time(t_inicio)},{format_ass_time(t_fin)},Karaoke,,0,0,0,,{texto_karaoke.strip()}\n")
+        if subs["estilo"] == "pop":
+            for p in grupo:
+                # \t(0,90,...) anima al entrar: arranca al 70% y llega al 100%
+                # en 90 ms, que es el rebote que se ve en los videos de hoy.
+                texto = (
+                    f"{{\\fscx70\\fscy70\\t(0,90,\\fscx{escala}\\fscy{escala})"
+                    f"\\t(90,170,\\fscx100\\fscy100)}}{_texto_palabra(p, subs)}"
+                )
+                emitir(t_abs(p["inicio"]), t_abs(p["inicio"] + p["duracion"]), texto)
+            continue
+
+        # frase_activa: una línea por palabra, con la frase entera visible y
+        # solo esa palabra resaltada.
+        for i, activa in enumerate(grupo):
+            partes = []
+            for j, p in enumerate(grupo):
+                palabra = _texto_palabra(p, subs)
+                if j == i:
+                    partes.append(
+                        f"{{\\c{c_activo}\\fscx{escala}\\fscy{escala}}}{palabra}"
+                        f"{{\\c{c_texto}\\fscx100\\fscy100}}"
+                    )
+                else:
+                    partes.append(palabra)
+            emitir(
+                t_abs(activa["inicio"]),
+                t_abs(activa["inicio"] + activa["duracion"]),
+                " ".join(partes),
+            )
 
     with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
 
@@ -797,6 +993,17 @@ def renderizar_una_historia(contenido, num=1):
         # FASE 4: Render
         w, h = (1080, 1920) if es_short else (1920, 1080)
         f_ass = s_ass.replace('\\', '\\\\').replace(':', '\\:')
+        # fontsdir: sin esto libass busca la fuente en el sistema y, si no
+        # está, la sustituye en silencio por otra (así es como "Montserrat
+        # Black" terminaba saliendo como DejaVu Sans en peso normal).
+        if os.path.isdir(RUTA_FUENTES):
+            f_fuentes = RUTA_FUENTES.replace('\\', '\\\\').replace(':', '\\:')
+            f_ass = f"{f_ass}:fontsdir={f_fuentes}"
+        else:
+            logger.warning(
+                f"No existe {RUTA_FUENTES}; los subtítulos van a usar la fuente que el "
+                f"sistema elija por su cuenta, que puede no ser la configurada."
+            )
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
             fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"

@@ -20,7 +20,10 @@ schedule (cron, Termux, or GitHub Actions).
    `# Fuente:` / `# Autor:` reference back to the original post.
 3. **`generar_video_maestro.py`** — renders the narration (edge-tts), karaoke
    subtitles, and background video locally with ffmpeg into a finished video
-   file, and writes `resultado_lote.json` describing what was produced.
+   file, and writes `resultado_lote.json` describing what was produced. Shorts
+   vs. long-form isn't decided up front: it falls out of the finished
+   narration's real duration (`duracion_max_short_sec`, default 180 s), so the
+   script is never padded or trimmed to hit a format.
 4. **`publisher.py`** — runs a technical + content quality check (Gemini free
    tier, with an automatic fallback description/hashtags if that check
    fails), then uploads the video to YouTube as **private**, scheduled to go
@@ -70,6 +73,42 @@ built in). Never commit `config_trends.json`, `config.json`,
 
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
+
+## Subtitle style and fonts
+
+Subtitles are configured under `subtitulos` in `config.json` — nothing else
+needs touching to change how they look:
+
+```json
+{
+  "subtitulos": {
+    "estilo": "frase_activa",
+    "fuente": "Anton",
+    "color_activo": "#3BF07A",
+    "tamano_short": 84,
+    "escala_activa": 112
+  }
+}
+```
+
+Keys you omit keep their defaults, so the snippet above is a complete,
+valid config. Three styles are available:
+
+| `estilo` | What it looks like |
+|---|---|
+| `frase_activa` (default) | The whole phrase stays readable in white and only the word being spoken turns green and grows — the current TikTok/CapCut look. |
+| `relleno` | Classic karaoke fill: words already spoken keep the accent color, upcoming ones stay white. |
+| `pop` | One word at a time, entering with a scale bounce. |
+
+**Fonts ship in `fuentes/`** (Anton, Montserrat Black, Archivo Black, Bebas
+Neue — all SIL OFL, redistributable and fine for monetized video) and ffmpeg
+is pointed at that directory with `fontsdir`. This matters: libass silently
+*substitutes* a font that isn't installed rather than failing, so a style
+asking for `Montserrat Black` on a phone that doesn't have it was rendering
+as DejaVu Sans at regular weight — a font nobody chose. Bundling the files
+makes the output identical on the phone and on a PC. To add another font,
+drop its `.ttf` into `fuentes/` and set `fuente` to the font's internal
+family name (`fc-query -f '%{family}\n' file.ttf` prints it).
 
 ## Background music (`actualizar_musica.py`)
 
