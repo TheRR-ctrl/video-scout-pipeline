@@ -9,7 +9,6 @@
 
 set -e
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BASHRC="$HOME/.bashrc"
 ATAJOS="$HOME/.shortcuts"
 
 echo
@@ -29,32 +28,44 @@ fi
 # más molesto de este panel.
 if ! command -v termux-wake-lock >/dev/null 2>&1; then
   echo "  Instalando termux-api (evita que Android duerma el servidor)..."
-  pkg install -y termux-api
+  # Sin || true, un fallo aquí abortaría el instalador por el set -e y te
+  # quedarías sin el comando 'panel'. El wake lock es deseable, no
+  # imprescindible: el panel funciona igual, solo hay que no dejar Termux
+  # en segundo plano mucho rato.
+  pkg install -y termux-api || echo "  ⚠️  No se pudo instalar termux-api; el panel funciona igual."
 else
   echo "  ✓ termux-api ya está"
 fi
 
 # ---- 3. el comando 'panel' ------------------------------------------------
-# Se marca con un delimitador para poder reemplazar el bloque en vez de
-# apilar copias cada vez que se corre esto.
-INI="# >>> panel video-scout >>>"
-FIN="# <<< panel video-scout <<<"
-
-if [ -f "$BASHRC" ] && grep -qF "$INI" "$BASHRC"; then
-  sed -i "/$INI/,/$FIN/d" "$BASHRC"
+# Como ejecutable en el PATH, no como función en .bashrc: así funciona en la
+# misma terminal donde corres esto, sin abrir una nueva ni recargar nada, y
+# no depende de que .bashrc se lea.
+if [ -n "$PREFIX" ] && [ -d "$PREFIX/bin" ]; then
+  DESTINO="$PREFIX/bin/panel"
+else
+  mkdir -p "$HOME/.local/bin"
+  DESTINO="$HOME/.local/bin/panel"
 fi
 
-cat >> "$BASHRC" <<EOF
-$INI
-panel() { cd "$REPO" && python servidor.py --abrir "\$@"; }
-$FIN
+cat > "$DESTINO" <<EOF
+#!/usr/bin/env bash
+cd "$REPO" || exit 1
+exec python servidor.py --abrir "\$@"
 EOF
-echo "  ✓ Comando 'panel' listo"
+chmod +x "$DESTINO"
+echo "  ✓ Comando 'panel' listo  ($DESTINO)"
+
+case ":$PATH:" in
+  *":$(dirname "$DESTINO"):"*) ;;
+  *) echo "  ⚠️  $(dirname "$DESTINO") no está en tu PATH."
+     echo "      Agrega esto a ~/.bashrc:  export PATH=\"$(dirname "$DESTINO"):\$PATH\"" ;;
+esac
 
 # ---- 4. atajo en la pantalla de inicio (Termux:Widget) --------------------
 mkdir -p "$ATAJOS"
 cat > "$ATAJOS/🎬 Panel de videos" <<EOF
-#!/data/data/com.termux/files/usr/bin/bash
+#!/usr/bin/env bash
 cd "$REPO"
 python servidor.py --abrir
 EOF
@@ -71,6 +82,5 @@ echo
 echo "  Para tenerlo en la pantalla de inicio: instala Termux:Widget desde"
 echo "  F-Droid y agrega su widget; ahí aparecerá '🎬 Panel de videos'."
 echo
-echo "  Abre una terminal nueva —o corre  source ~/.bashrc—  para que el"
-echo "  comando 'panel' quede disponible."
+echo "  Funciona ya, en esta misma terminal."
 echo
