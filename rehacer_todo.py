@@ -40,8 +40,41 @@ logger = logging.getLogger("rehacer_todo")
 import publisher
 
 
+def resumen_de_lo_que_se_borra():
+    """Lo enumera ANTES de tocar nada: es una operación destructiva y hay que
+    poder ver el alcance sin haberla ejecutado."""
+    cfg = publisher.cargar_config()
+    carpeta = cfg["carpeta_salida"]
+
+    mp4s = []
+    if os.path.isdir(carpeta):
+        mp4s = [f for f in os.listdir(carpeta) if f.lower().endswith(".mp4")]
+    publicados = publisher.cargar_json(publisher.RUTA_PUBLICADOS, [])
+    rechazados = publisher.cargar_json(publisher.RUTA_RECHAZADOS, [])
+    hay_lote = os.path.exists(os.path.join(carpeta, "resultado_lote.json"))
+
+    print("\nSe va a borrar:")
+    print(f"  · {len(mp4s)} archivo(s) .mp4 en {carpeta}")
+    print(f"  · {len(publicados)} video(s) del canal de YouTube")
+    print(f"  · los registros: resultado_lote.json{' (existe)' if hay_lote else ' (no existe)'}, "
+          f"publicados.json ({len(publicados)}), rechazados.json ({len(rechazados)})")
+    print("\nSe conserva:")
+    print("  · guion.txt — las historias, para poder regenerar sin volver a Reddit ni a Gemini")
+    print("  · fondos, música, plantilla, efectos y credenciales")
+    return len(mp4s), len(publicados)
+
+
 def main():
     confirmar = "--si" not in sys.argv
+
+    resumen_de_lo_que_se_borra()
+    if confirmar:
+        resp = input("\n¿Seguimos? (escribe 'si'): ").strip().lower()
+        if resp != "si":
+            print("Cancelado. No se tocó nada.")
+            return
+        # Ya confirmó el conjunto completo; no se vuelve a preguntar por YouTube.
+        confirmar = False
 
     publicados = publisher.cargar_json(publisher.RUTA_PUBLICADOS, [])
     if not publicados:
@@ -94,11 +127,30 @@ def main():
                     logger.warning(f"No se pudo borrar {nombre}: {exc}")
     logger.info(f"{borrados_local} archivo(s) .mp4 local(es) borrado(s) en {carpeta_salida}.")
 
+    # Registros. Sin esto quedan rastros que confunden después: rutas que ya
+    # no existen contadas como pendientes, y videos marcados como rechazados
+    # que nunca se reintentarían.
+    registros = [
+        (os.path.join(carpeta_salida, "resultado_lote.json"), "registro de renderizados"),
+        (publisher.RUTA_PUBLICADOS, "registro de publicados"),
+        (publisher.RUTA_RECHAZADOS, "registro de rechazados"),
+    ]
+    for ruta, que_es in registros:
+        if os.path.exists(ruta):
+            try:
+                os.remove(ruta)
+                logger.info(f"🗑️  Borrado el {que_es}: {os.path.basename(ruta)}")
+            except Exception as exc:
+                logger.warning(f"No se pudo borrar {ruta}: {exc}")
+
     logger.info(
-        "\nListo. Ahora corre:\n"
-        "  python generar_video_maestro.py\n"
-        "  python publisher.py\n"
-        "(o 'python pipeline.py --desde video' para encadenar ambos)."
+        "\n✅ No queda rastro de los videos generados.\n"
+        "   Se conservan a propósito: guion.txt (las historias), los fondos,\n"
+        "   la música, la plantilla y las credenciales.\n"
+        "\nPara generar de nuevo:\n"
+        "  python generar_video_maestro.py --historias 1   # prueba con uno\n"
+        "  python generar_video_maestro.py                 # todas\n"
+        "  python publisher.py"
     )
 
 
