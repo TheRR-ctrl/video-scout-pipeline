@@ -9,6 +9,7 @@ Uso:
   python estado.py
 """
 import os
+import sys
 import re
 import json
 import glob
@@ -52,7 +53,55 @@ def contar_historias_guion():
     return len(bloques), len(contenido.split()), con_cierre
 
 
+def diagnostico_rutas(carpeta_salida):
+    """Compara lo que dice resultado_lote.json contra lo que hay en disco.
+    Sirve cuando los números no cuadran (hay archivos, pero ninguna ruta
+    registrada resuelve)."""
+    import unicodedata
+    lote = leer_json(os.path.join(carpeta_salida, "resultado_lote.json"), {})
+    completados = lote.get("completados", [])
+    reales = sorted(os.path.basename(m) for m in glob.glob(os.path.join(carpeta_salida, "*.mp4")))
+
+    print(f"\n{C}Rutas registradas (primeras 5 de {len(completados)}){N}")
+    print(f"{G}{'─' * 52}{N}")
+    for v in completados[:5]:
+        ruta = v.get("ruta", "")
+        marca = f"{V}existe{N}" if os.path.exists(ruta) else f"{R}NO resuelve{N}"
+        print(f"  {marca}  {ruta}")
+
+    print(f"\n{C}Archivos .mp4 realmente en disco ({len(reales)}){N}")
+    print(f"{G}{'─' * 52}{N}")
+    for n in reales[:10]:
+        print(f"  {n}")
+    if len(reales) > 10:
+        print(f"  ... y {len(reales) - 10} más")
+
+    # ¿Coinciden los nombres, aunque las rutas completas no?
+    regs = {unicodedata.normalize("NFC", os.path.basename(v.get("ruta", ""))) for v in completados}
+    disc = {unicodedata.normalize("NFC", n) for n in reales}
+    comunes = regs & disc
+    print(f"\n{C}Cruce por nombre de archivo{N}")
+    print(f"{G}{'─' * 52}{N}")
+    print(f"  coinciden           {len(comunes)}")
+    print(f"  solo en el registro {len(regs - disc)}")
+    print(f"  solo en el disco    {len(disc - regs)}")
+    if disc - regs:
+        print(f"\n  {A}En disco pero sin registrar:{N}")
+        for n in sorted(disc - regs)[:6]:
+            print(f"    {n}")
+    print()
+
+
 def main():
+    if "--rutas" in sys.argv:
+        try:
+            import generar_video_maestro as gvm
+            cfg = gvm.cargar_config(os.path.join(BASE_DIR, "config.json"))
+            diagnostico_rutas(cfg["carpeta_salida"])
+        except Exception as exc:
+            print(f"{R}No se pudo diagnosticar: {exc}{N}")
+        return
+
     print(f"\n{C}Estado del pipeline{N}  ·  {datetime.now().strftime('%d/%m/%Y %H:%M')}")
 
     # ---------- config ----------
@@ -102,9 +151,35 @@ def main():
         # borró la retención de 7 días, o se limpiaron a mano). Distinguirlo
         # importa: si no, "pendientes de publicar" cuenta videos inexistentes
         # y publisher.py los rechaza uno por uno al no encontrarlos.
-        vivos = [v for v in completados if os.path.exists(v.get("ruta", ""))]
+        #
+        # La ruta guardada puede no resolver aunque el archivo SÍ esté: en la
+        # SD card los nombres con acentos pueden quedar normalizados distinto
+        # (NFC vs NFD), y entonces os.path.exists() falla sobre un archivo que
+        # se ve perfectamente en el listado. Por eso, si la ruta no resuelve,
+        # se reintenta comparando el nombre ya normalizado.
+        import unicodedata
+
+        def normaliza(s):
+            return unicodedata.normalize("NFC", s)
+
+        reales = {normaliza(os.path.basename(m)): m for m in mp4s}
+
+        vivos, recuperados = [], 0
+        for v in completados:
+            ruta = v.get("ruta", "")
+            if os.path.exists(ruta):
+                vivos.append(v)
+                continue
+            real = reales.get(normaliza(os.path.basename(ruta)))
+            if real:
+                v = dict(v, ruta=real)
+                vivos.append(v)
+                recuperados += 1
+
         muertos = len(completados) - len(vivos)
         linea("renderizados (resultado_lote)", f"{len(completados)}")
+        if recuperados:
+            linea("  ...hallados por nombre", f"{recuperados}", "aviso")
         if muertos:
             linea("  ...cuyo archivo ya no existe", f"{muertos}", "aviso")
         completados = vivos
@@ -167,10 +242,23 @@ def main():
 
     # ---------- assets ----------
     titulo("Material de fondo")
-    for patron, etiqueta in ((("fondo_vertical*", "fondo_gameplay*"), "video vertical (shorts)"),
-                             (("fondo_horizontal*",), "video horizontal (largos)")):
-        encontrados = [f for p in patron for f in glob.glob(os.path.join(BASE_DIR, p))]
-        linea(etiqueta, f"{len(encontrados)} archivo(s)", "ok" if encontrados else "mal")
+    vert = [f for p in ("fondo_vertical*", "fondo_gameplay*")
+            for f in glob.glob(os.path.join(BASE_DIR, p))]
+    horiz = glob.glob(os.path.join(BASE_DIR, "fondo_horizontal*"))
+    # Cualquiera de los dos sirve para ambos formatos: el renderizador escala
+    # y recorta al centro. Solo es un problema no tener ninguno.
+    hay_algo = bool(vert or horiz)
+    linea("marcados para shorts", f"{len(vert)} archivo(s)",
+          "ok" if vert else ("aviso" if hay_algo else "mal"))
+    linea("marcados para largos", f"{len(horiz)} archivo(s)",
+          "ok" if horiz else ("aviso" if hay_algo else "mal"))
+    if hay_algo and not (vert and horiz):
+        falta = "shorts" if not vert else "videos largos"
+        sobra = "horizontales" if not vert else "verticales"
+        print(f"  {G}  sin material propio para {falta}: se recortan los {sobra}{N}")
+    elif not hay_algo:
+        print(f"  {A}  sin videos de fondo no se puede renderizar nada{N}")
+        print(f"  {G}  ponlos con: python vincular_fondos.py{N}")
     musica = glob.glob(os.path.join(BASE_DIR, "musica_*.mp3"))
     linea("pistas de música", f"{len(musica)}", "ok" if musica else "aviso")
 
