@@ -297,6 +297,25 @@ def actualizar_hud(mensaje_lista, finalizado=False):
     sys.stdout.flush()
 
 def obtener_fuente_bold(tamano=46):
+    # Primero las fuentes del repo: son las mismas que usan los subtítulos,
+    # así la tarjeta de intro y los subtítulos comparten tipografía y el
+    # resultado no depende de qué tenga instalado cada dispositivo. Antes se
+    # iba directo a las del sistema, y donde no hubiera ninguna se caía a
+    # load_default(), que es un mapa de bits y IGNORA el tamaño pedido: el
+    # título salía diminuto sin que nada avisara.
+    if os.path.isdir(RUTA_FUENTES):
+        preferida = _cfg_subs().get("fuente", "")
+        candidatas = sorted(
+            (f for f in os.listdir(RUTA_FUENTES) if f.lower().endswith((".ttf", ".otf"))),
+            # La configurada para subtítulos primero, si está.
+            key=lambda f: (preferida.replace(" ", "").lower() not in f.replace("-", "").lower(), f),
+        )
+        for f in candidatas:
+            try:
+                return ImageFont.truetype(os.path.join(RUTA_FUENTES, f), tamano)
+            except Exception:
+                pass
+
     rutas_preferidas = [
         "/system/fonts/Roboto-Black.ttf",
         "/system/fonts/Roboto-Bold.ttf",
@@ -560,28 +579,55 @@ def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_sho
         draw.multiline_text((ancho // 2, y_texto), "\n".join(lineas_wrap), fill=(255, 255, 255), font=font_tit, anchor="mm", align="center", spacing=espaciado, stroke_width=ancho_borde, stroke_fill=(0, 0, 0))
         lienzo.save(output_png)
     else:
+        # Respaldo: no hay tarjeta_plantilla.png. Ojo, esto es lo que se ve si
+        # la plantilla se perdió (está en .gitignore por ser *.png, así que no
+        # sobrevive a un reclonado del repo) — estado.py lo avisa.
         draw = ImageDraw.Draw(lienzo)
         pantalla_completa = (not es_short) and CONFIG.get("tarjeta_intro_pantalla_completa_en_largos", True)
+        titulo_mayus = titulo.upper()
 
         if pantalla_completa:
-            card_x, card_y = 0, 0
-            card_w, card_h = ancho, alto
-            radio = 0
-            font_size = 96
+            # A pantalla completa, una tarjeta blanca opaca tapa el gameplay
+            # entero y se lee como una hoja en blanco, no como una intro. Un
+            # velo oscuro con el título en blanco encima deja ver el fondo y
+            # se lee como portada.
+            draw.rectangle([0, 0, ancho, alto], fill=(10, 13, 18, 205))
+            chars_linea = max(28, int(len(titulo_mayus) / 3.2))
+            lineas_wrap = textwrap.wrap(titulo_mayus, width=chars_linea)
+
+            # El tamaño se ajusta midiendo, no estimando por número de
+            # caracteres: cuánto ocupa depende de la fuente (Anton es
+            # condensada, Montserrat Black no) y de qué letras toquen. Se
+            # baja hasta que la línea más ancha quepa con margen.
+            ancho_max = int(ancho * 0.88)
+            font_size = 124
+            while font_size > 40:
+                font_tit = obtener_fuente_bold(font_size)
+                try:
+                    mas_ancha = max(draw.textlength(l, font=font_tit) for l in lineas_wrap)
+                except Exception:
+                    break
+                if mas_ancha <= ancho_max:
+                    break
+                font_size -= 6
+            font_tit = obtener_fuente_bold(font_size)
+            draw.multiline_text(
+                (ancho // 2, alto // 2), "\n".join(lineas_wrap),
+                fill=(255, 255, 255), font=font_tit, anchor="mm", align="center",
+                spacing=18, stroke_width=6, stroke_fill=(0, 0, 0),
+            )
         else:
             card_w = int(ancho * 0.88)
             card_h = int(alto * (0.28 if es_short else 0.35))
             card_x, card_y = (ancho - card_w) // 2, ((alto - card_h) // 2) - 120
-            radio = 30
-            font_size = 42 if es_short else 56
 
-        draw.rounded_rectangle([card_x, card_y, card_x + card_w, card_y + card_h], radius=radio, fill=(255, 255, 255, 250))
-        draw.ellipse([card_x + 40, card_y + 35, card_x + 90, card_y + 85], fill=(255, 69, 0))
+            draw.rounded_rectangle([card_x, card_y, card_x + card_w, card_y + card_h], radius=30, fill=(255, 255, 255, 250))
+            draw.ellipse([card_x + 40, card_y + 35, card_x + 90, card_y + 85], fill=(255, 69, 0))
 
-        titulo_mayus = titulo.upper()
-        chars_linea = max(24 if es_short else 35, int(len(titulo_mayus) / 3.8))
-        font_tit = obtener_fuente_bold(font_size)
-        draw.multiline_text((card_x + card_w // 2, card_y + card_h // 2 + 20), "\n".join(textwrap.wrap(titulo_mayus, width=chars_linea)), fill=(0, 0, 0), font=font_tit, anchor="mm", align="center", spacing=10)
+            chars_linea = max(24 if es_short else 35, int(len(titulo_mayus) / 3.8))
+            font_tit = obtener_fuente_bold(42 if es_short else 56)
+            draw.multiline_text((card_x + card_w // 2, card_y + card_h // 2 + 20), "\n".join(textwrap.wrap(titulo_mayus, width=chars_linea)), fill=(0, 0, 0), font=font_tit, anchor="mm", align="center", spacing=10)
+
         lienzo.save(output_png)
 
 def parse_time(time_str):

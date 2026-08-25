@@ -262,6 +262,17 @@ def main():
     musica = glob.glob(os.path.join(BASE_DIR, "musica_*.mp3"))
     linea("pistas de música", f"{len(musica)}", "ok" if musica else "aviso")
 
+    # La plantilla es un .png y .gitignore ignora *.png, así que no sobrevive
+    # a un reclonado del repo. Sin ella el video sí sale, pero con la tarjeta
+    # de respaldo en vez de la tuya — conviene que se note.
+    plantilla = next(
+        (p for p in ("tarjeta_plantilla.png", "tarjeta_plantilla.jpg", "Tarjeta de inicio.png")
+         if os.path.exists(os.path.join(BASE_DIR, p))),
+        None,
+    )
+    linea("plantilla de la tarjeta", plantilla or "falta — se usa la de respaldo",
+          "ok" if plantilla else "aviso")
+
     # ---------- qué sigue ----------
     titulo("Qué sigue")
     if n_bloques is None:
