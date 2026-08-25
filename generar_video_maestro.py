@@ -12,6 +12,7 @@ import threading
 import subprocess
 import textwrap
 import tempfile
+import collections
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
@@ -699,7 +700,20 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
 
     grupos = [palabras[i:i + palabras_por_grupo] for i in range(0, len(palabras), palabras_por_grupo)]
 
-    for grupo in grupos:
+    # Hasta cuándo puede estirarse la última palabra de cada grupo: hasta que
+    # arranca el grupo siguiente, para que el relevo entre frases no deje un
+    # fotograma en blanco. Solo si la pausa es corta — en un silencio largo
+    # (cambio de escena, respiración) es mejor limpiar que dejar colgada una
+    # frase que ya no se está diciendo.
+    PAUSA_MAXIMA_PUENTE = 0.6
+    relevo = {}
+    for k, grupo in enumerate(grupos[:-1]):
+        fin_natural = grupo[-1]["inicio"] + grupo[-1]["duracion"]
+        inicio_siguiente = grupos[k + 1][0]["inicio"]
+        if 0 < inicio_siguiente - fin_natural <= PAUSA_MAXIMA_PUENTE:
+            relevo[k] = inicio_siguiente
+
+    for k, grupo in enumerate(grupos):
         if subs["estilo"] == "relleno":
             texto = "".join(
                 f"{{\\k{max(6, int(p['duracion'] * 100))}}}{_texto_palabra(p, subs)} "
@@ -760,11 +774,23 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
                     )
                 else:
                     partes.append(palabra)
-            emitir(
-                t_abs(activa["inicio"]),
-                t_abs(activa["inicio"] + activa["duracion"]),
-                " ".join(partes),
-            )
+
+            # Cada línea dura hasta que empieza la siguiente palabra, no solo
+            # lo que dura la palabra en sí. Si terminara con ella, en el
+            # silencio entre palabras no habría ninguna línea en pantalla y
+            # la frase completa desaparecería por uno o dos fotogramas: un
+            # parpadeo constante (medido: 20% de los fotogramas en blanco).
+            # Así la frase se queda quieta y lo único que se mueve es el
+            # resaltado, que es justamente el efecto que se busca.
+            # Y la última palabra del grupo se estira hasta que arranca el
+            # grupo siguiente (ver relevo), para que el cambio de frase
+            # tampoco deje un fotograma en blanco.
+            if i + 1 < len(grupo):
+                fin = grupo[i + 1]["inicio"]
+            else:
+                fin = relevo.get(k, activa["inicio"] + activa["duracion"])
+
+            emitir(t_abs(activa["inicio"]), t_abs(fin), " ".join(partes))
 
     with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
 
@@ -1049,21 +1075,29 @@ def renderizar_una_historia(contenido, num=1):
                 f"sistema elija por su cuenta, que puede no ser la configurada."
             )
 
-        # Velo blanco sobre el fondo. Con 0 no se añade ningún filtro (el
-        # encadenado pasa de [bg] directo a [bgt]), para no gastar una pasada
-        # de composición en algo que no hace nada.
+        # Fondo escalado y recortado, con velo blanco opcional encima.
+        #
+        # Con velo 0 la cadena tiene que terminar directamente en [bgt]: no
+        # basta con omitir el trozo del overlay y dejar [bg][bgt], porque eso
+        # le da dos etiquetas de salida a un filtro que solo produce una y
+        # ffmpeg rechaza el filter_complex entero.
+        escalado = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}"
         opacidad_velo = float(CONFIG.get("velo_blanco_fondo", 0.0) or 0.0)
         if opacidad_velo > 0:
-            velo = f";color=white@{opacidad_velo}:s={w}x{h}[ow];[bg][ow]overlay=0:0"
+            cadena_fondo = (
+                f"{escalado}[bg];"
+                f"color=white@{opacidad_velo}:s={w}x{h}[ow];"
+                f"[bg][ow]overlay=0:0[bgt]"
+            )
         else:
-            velo = ""
+            cadena_fondo = f"{escalado}[bgt]"
 
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg]{velo}[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
+            fc = f"{cadena_fondo};[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-stream_loop", "-1", "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
         else:
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg]{velo}[bgt];[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
+            fc = f"{cadena_fondo};[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0"]
 
         flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest", "-progress", "pipe:1"]
@@ -1080,7 +1114,16 @@ def renderizar_una_historia(contenido, num=1):
             current_speed = 0.0
             eta_str = "--:--"
 
+            # stderr viene mezclado aquí y se consume para sacar el progreso.
+            # Guardamos las últimas líneas que NO son progreso: si el render
+            # falla, ese es el mensaje real de ffmpeg, y sin él el error que
+            # se reporta ("falló tanto en GPU como en CPU") no dice nada.
+            ultimas = collections.deque(maxlen=12)
+
             for ln in proc.stdout:
+                if not re.match(r"^(frame|fps|stream_|bitrate|total_size|out_time|dup_|drop_|speed|progress)=", ln.strip()):
+                    if ln.strip():
+                        ultimas.append(ln.rstrip())
                 if m := re.search(r"total_size=(\d+)", ln):
                     current_size = f"{int(m.group(1)) / (1024*1024):.1f}MB"
                 elif m := re.search(r"speed=\s*([\d\.]+)x", ln):
@@ -1100,7 +1143,13 @@ def renderizar_una_historia(contenido, num=1):
 
                     actualizar_hud([linea_barra, linea_metricas])
             proc.wait()
-            return proc.returncode == 0 and archivo_valido(ruta_out)
+            ok = proc.returncode == 0 and archivo_valido(ruta_out)
+            if not ok and ultimas:
+                logger.error(
+                    f"ffmpeg falló (código {proc.returncode}) en el video {num}:\n  "
+                    + "\n  ".join(ultimas)
+                )
+            return ok
 
         exito_render = ejecutar_render(flags_cpu if ES_ANDROID else flags_gpu)
         if not exito_render and not ES_ANDROID:
