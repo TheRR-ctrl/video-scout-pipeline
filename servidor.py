@@ -467,6 +467,50 @@ def api_video(archivo):
     return resp
 
 
+# =========================================================
+# APAGADO
+# =========================================================
+# El panel manda un latido mientras la pestaña está abierta. Si deja de
+# llegar, es que se cerró — y no tiene sentido dejar el servidor y el wake
+# lock consumiendo batería.
+#
+# El margen es amplio a propósito: Chrome en Android ralentiza los
+# temporizadores de las pestañas en segundo plano, así que cambiar de app un
+# rato NO debe apagar nada. Y nunca se apaga con un trabajo corriendo: si
+# cierras la pestaña a media renderización, lo que quieres es que termine.
+MARGEN_SIN_LATIDO = 240      # segundos
+ULTIMO_LATIDO = {"t": time.time()}
+APAGAR = {"pedido": False}
+
+
+@app.post("/api/latido")
+def api_latido():
+    ULTIMO_LATIDO["t"] = time.time()
+    return jsonify({"ok": True})
+
+
+@app.post("/api/apagar")
+def api_apagar():
+    APAGAR["pedido"] = True
+    return jsonify({"ok": True})
+
+
+def vigilante(margen):
+    while True:
+        time.sleep(5)
+        if APAGAR["pedido"]:
+            break
+        t = TRABAJO["actual"]
+        if t and t.estado in ("corriendo", "pausado"):
+            # Hay trabajo en curso: se posterga la cuenta, no se apaga.
+            ULTIMO_LATIDO["t"] = time.time()
+            continue
+        if time.time() - ULTIMO_LATIDO["t"] > margen:
+            print("\n  Panel cerrado y sin trabajo pendiente — apagando el servidor.")
+            break
+    os.kill(os.getpid(), signal.SIGINT)
+
+
 @app.get("/")
 def index():
     ruta = os.path.join(WEB_DIR, "index.html")
@@ -485,6 +529,10 @@ def main():
     )
     parser.add_argument("--sin-wakelock", action="store_true",
                         help="No pedir el wake lock de Termux al arrancar.")
+    parser.add_argument("--no-apagar", action="store_true",
+                        help="No apagarse solo al cerrar el panel (útil si lo dejas de fondo).")
+    parser.add_argument("--abrir", action="store_true",
+                        help="Abrir el navegador automáticamente al arrancar.")
     args = parser.parse_args()
 
     # Android suspende los procesos en segundo plano. Al cambiar de Termux a
@@ -522,8 +570,21 @@ def main():
         print( "      Instálalo con:  pkg install termux-api")
     print()
 
+    if not args.no_apagar:
+        ULTIMO_LATIDO["t"] = time.time()
+        threading.Thread(target=vigilante, args=(MARGEN_SIN_LATIDO,), daemon=True).start()
+        print(f"  Se apaga solo si cierras el panel (y no hay nada corriendo).")
+
+    if args.abrir and shutil.which("termux-open-url"):
+        # Un momento para que Flask levante antes de que el navegador pida.
+        threading.Timer(1.5, lambda: subprocess.run(
+            ["termux-open-url", f"http://127.0.0.1:{args.puerto}"],
+            capture_output=True)).start()
+
     try:
         app.run(host=args.host, port=args.puerto, threaded=True)
+    except KeyboardInterrupt:
+        pass
     finally:
         if wakelock:
             try:

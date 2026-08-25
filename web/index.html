@@ -159,6 +159,7 @@
     <button data-v="publicados">Publicados <span class="c" id="c-pub">0</span></button>
     <button data-v="ajustes">Ajustes</button>
   </div>
+  <button class="btn sm" id="b-apagar" title="Apagar el panel y liberar el wake lock">⏻</button>
 </div></div>
 
 <div class="wrap">
@@ -532,6 +533,27 @@ refrescar();
 setInterval(()=>{ const j=E&&E.trabajo;
   if(j && (j.estado==='corriendo'||j.estado==='pausado')) refrescar(); }, 1500);
 setInterval(refrescar, 12000);
+
+/* Latido: mientras la pestaña esté abierta, el servidor sabe que sigues
+   aquí. Si deja de llegar (cerraste el panel), se apaga solo y suelta el
+   wake lock. El margen del servidor es amplio porque Chrome ralentiza los
+   temporizadores en segundo plano — cambiar de app un rato no lo apaga. */
+setInterval(()=>{ fetch('/api/latido',{method:'POST'}).catch(()=>{}); }, 20000);
+fetch('/api/latido',{method:'POST'}).catch(()=>{});
+
+$('#b-apagar').onclick = async ()=>{
+  const j = E && E.trabajo;
+  if(j && (j.estado==='corriendo'||j.estado==='pausado')){
+    if(!confirm('Hay algo corriendo. ¿Apagar el panel de todas formas?\n(el trabajo se interrumpe)')) return;
+  }
+  try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
+  document.body.innerHTML = `<div style="max-width:420px;margin:22vh auto;padding:0 20px;
+    text-align:center;font:15px/1.6 var(--body);color:var(--ink-dim)">
+    <div style="font-size:34px;margin-bottom:12px">⏻</div>
+    <b style="color:var(--ink);font-size:16px">Panel apagado</b>
+    <p>Termux quedó libre y se soltó el wake lock. Ya puedes cerrar esta pestaña.</p>
+    <p style="font:12px var(--mono)">Para volver: <b>panel</b> en Termux</p></div>`;
+};
 </script>
 </body>
 </html>
