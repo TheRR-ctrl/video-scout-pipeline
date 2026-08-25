@@ -1130,7 +1130,64 @@ def renderizar_una_historia(contenido, num=1):
     finally:
         gestor.limpiar()
 
-def renderizar_lote_historias(archivo="guion.txt"):
+def parsear_seleccion(texto, total):
+    """Convierte '1', '1,3,5' o '2-6' (combinables: '1,4-6,9') en índices.
+
+    Devuelve una lista ordenada y sin repetidos, en base 1, que es como se
+    numeran las historias en pantalla y en los nombres de archivo."""
+    elegidos = set()
+    for parte in str(texto).split(","):
+        parte = parte.strip()
+        if not parte:
+            continue
+        if "-" in parte:
+            desde, _, hasta = parte.partition("-")
+            try:
+                a, b = int(desde), int(hasta)
+            except ValueError:
+                raise ValueError(f"Rango inválido: '{parte}'")
+            if a > b:
+                a, b = b, a
+            elegidos.update(range(a, b + 1))
+        else:
+            try:
+                elegidos.add(int(parte))
+            except ValueError:
+                raise ValueError(f"Número inválido: '{parte}'")
+
+    fuera = [n for n in elegidos if n < 1 or n > total]
+    if fuera:
+        raise ValueError(
+            f"Fuera de rango (hay {total} historia(s)): {sorted(fuera)}"
+        )
+    return sorted(elegidos)
+
+
+def listar_historias(archivo="guion.txt"):
+    """Imprime el índice de historias del guion, para saber qué número pedir."""
+    if not os.path.exists(archivo):
+        print(f"❌ No se encontró '{archivo}'.")
+        return
+
+    with open(archivo, "r", encoding="utf-8") as f:
+        hists = [h.strip() for h in f.read().split("===NUEVA_HISTORIA===") if h.strip()]
+
+    print(f"\n{len(hists)} historia(s) en {archivo}\n")
+    for i, h in enumerate(hists, 1):
+        lineas = [
+            l.strip() for l in h.splitlines()
+            if l.strip() and not l.strip().startswith(("#", "===", "📌", "🎙️"))
+        ]
+        titulo = lineas[0] if lineas else "(sin título)"
+        palabras = len(" ".join(lineas[1:]).split()) if len(lineas) > 1 else 0
+        emocion = detectar_emocion_historia(h)
+        # ~2.6 palabras/segundo es el ritmo típico de la narración generada.
+        mins, segs = divmod(int(palabras / 2.6), 60)
+        print(f"  {i:2d}. [{emocion[:4]:<4}] {mins}:{segs:02d} aprox  {titulo[:52]}")
+    print()
+
+
+def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
     sys.stdout.write("\033[?25l")
     sys.stdout.flush()
     try:
@@ -1154,14 +1211,29 @@ def renderizar_lote_historias(archivo="guion.txt"):
             return
 
         print(f"📦 Total de historias detectadas: {len(hists)}")
+
+        # Se conserva la numeración original del guion aunque se renderice un
+        # subconjunto: así el nombre del archivo de la historia 7 es el mismo
+        # tanto si se hizo el lote entero como si se pidió solo esa.
+        if seleccion:
+            pares = [(i, hists[i - 1]) for i in seleccion]
+            print(f"🎯 Renderizando solo {len(pares)}: {', '.join(str(i) for i in seleccion)}")
+        else:
+            pares = list(enumerate(hists, 1))
+
         fallidas = []
         completados = []
 
-        for i, h in enumerate(hists, 1):
+        for i, h in pares:
             try:
                 resultado = renderizar_una_historia(h, i)
                 if resultado:
                     completados.append(resultado)
+            except KeyboardInterrupt:
+                # Ctrl+C corta el lote pero conserva lo ya terminado: el
+                # registro se escribe abajo igual, no se pierde el trabajo.
+                print(f"\n\n⏹️  Interrumpido en la historia {i}. Se guarda lo completado.")
+                break
             except Exception as exc:
                 fallidas.append((i, str(exc)))
                 logger.error(f"Video {i} falló: {exc}")
@@ -1214,4 +1286,39 @@ def renderizar_lote_historias(archivo="guion.txt"):
         sys.stdout.flush()
 
 if __name__ == "__main__":
-    renderizar_lote_historias()
+    import argparse
+
+    parser = argparse.ArgumentParser(
+        description="Renderiza las historias de guion.txt.",
+        epilog=(
+            "Ejemplos:\n"
+            "  python generar_video_maestro.py --listar        ver el índice\n"
+            "  python generar_video_maestro.py --historias 1   solo la primera\n"
+            "  python generar_video_maestro.py --historias 1,4-6,9\n"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument("--guion", default="guion.txt", help="Archivo de guion a usar.")
+    parser.add_argument("--listar", action="store_true", help="Solo listar las historias, sin renderizar.")
+    parser.add_argument(
+        "--historias",
+        help="Cuáles renderizar: '1', '1,3,5' o '2-6' (combinables). Por defecto, todas.",
+    )
+    args = parser.parse_args()
+
+    if args.listar:
+        listar_historias(args.guion)
+        sys.exit(0)
+
+    seleccion = None
+    if args.historias:
+        if not os.path.exists(args.guion):
+            sys.exit(f"❌ No se encontró '{args.guion}'.")
+        with open(args.guion, "r", encoding="utf-8") as f:
+            total = len([h for h in f.read().split("===NUEVA_HISTORIA===") if h.strip()])
+        try:
+            seleccion = parsear_seleccion(args.historias, total)
+        except ValueError as exc:
+            sys.exit(f"❌ {exc}")
+
+    renderizar_lote_historias(args.guion, seleccion)
