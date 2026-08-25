@@ -54,6 +54,7 @@ SUBTITULOS_DEFAULT = {
     "grosor_borde": 5,
     "sombra": 0,
     "mayusculas": True,
+    "italica": False,
     # Cuánto crece la palabra que se está diciendo, en % (100 = sin crecer).
     "escala_activa": 112,
 }
@@ -68,6 +69,11 @@ CONFIG_DEFAULT = {
     # La tarjeta de intro de los videos largos ocupa todo el cuadro en vez de
     # quedar como una tarjetita centrada.
     "tarjeta_intro_pantalla_completa_en_largos": True,
+    # Velo blanco encima del video de fondo, de 0.0 (nada) a 1.0. Estaba fijo
+    # en 0.30, que lava el gameplay y deja todo lechoso; los canales del
+    # género no lo usan (se apoyan en el contorno grueso del subtítulo para
+    # la legibilidad, no en apagar el fondo).
+    "velo_blanco_fondo": 0.0,
 }
 
 def cargar_config(ruta="config.json"):
@@ -627,7 +633,8 @@ def _header_ass(es_short):
         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Karaoke,{subs['fuente']},{font_size},{primary},{secondary},{c_borde},"
-        f"&H80000000&,0,0,0,0,100,100,0,0,1,{subs['grosor_borde']},{subs['sombra']},5,60,60,0,1\n\n"
+        f"&H80000000&,0,{1 if subs.get('italica') else 0},0,0,100,100,0,0,1,"
+        f"{subs['grosor_borde']},{subs['sombra']},5,60,60,0,1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -1004,12 +1011,22 @@ def renderizar_una_historia(contenido, num=1):
                 f"No existe {RUTA_FUENTES}; los subtítulos van a usar la fuente que el "
                 f"sistema elija por su cuenta, que puede no ser la configurada."
             )
+
+        # Velo blanco sobre el fondo. Con 0 no se añade ningún filtro (el
+        # encadenado pasa de [bg] directo a [bgt]), para no gastar una pasada
+        # de composición en algo que no hace nada.
+        opacidad_velo = float(CONFIG.get("velo_blanco_fondo", 0.0) or 0.0)
+        if opacidad_velo > 0:
+            velo = f";color=white@{opacidad_velo}:s={w}x{h}[ow];[bg][ow]overlay=0:0"
+        else:
+            velo = ""
+
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
+            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg]{velo}[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-stream_loop", "-1", "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
         else:
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
+            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg]{velo}[bgt];[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0"]
 
         flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest", "-progress", "pipe:1"]
