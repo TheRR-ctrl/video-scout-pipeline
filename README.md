@@ -22,10 +22,15 @@ schedule (cron, Termux, or GitHub Actions).
    subtitles, and background video locally with ffmpeg into a finished video
    file, and writes `resultado_lote.json` describing what was produced.
 4. **`publisher.py`** — runs a technical + content quality check (Gemini free
-   tier), then uploads the video to YouTube as **private**, scheduled to go
-   public only after a manual review window. Every published video's
-   description credits the original subreddit and author, with a link back
-   to the source Reddit post.
+   tier, with an automatic fallback description/hashtags if that check
+   fails), then uploads the video to YouTube as **private**, scheduled to go
+   public only after a manual review window. Hashtags are placed at the
+   start of the description so YouTube renders them as clickable chips.
+   Every published video's description credits the original subreddit and
+   author, with a link back to the source Reddit post. Uploads only run
+   while connected to WiFi, and local video files are kept for 7 days after
+   upload (so you can still cross-post them to TikTok manually) before
+   being deleted automatically.
 5. **`pipeline.py`** — orchestrates all four stages in one command, so the
    whole thing can be triggered by cron/CI without babysitting it.
 
@@ -66,6 +71,32 @@ built in). Never commit `config_trends.json`, `config.json`,
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
+## Background music (`actualizar_musica.py`)
+
+Background video clips (`fondo_vertical*.mp4` / `fondo_horizontal*.mp4`) are
+provided by you. Music is fetched automatically from
+[Jamendo](https://www.jamendo.com), a royalty-free catalog with a free API:
+
+```bash
+export JAMENDO_CLIENT_ID="tu_client_id"  # gratis en https://devportal.jamendo.com/
+python actualizar_musica.py
+```
+
+This downloads a few tracks per emotion category (`drama`, `venganza`,
+`suspenso`, `comedia`) as `musica_<emocion>_<artista>_<id>.mp3`, filtering
+for licenses that allow commercial use and don't forbid derivatives (needed
+since the track gets mixed with narration). `generar_video_maestro.py`
+picks randomly among all tracks available for an emotion, so re-running
+`actualizar_musica.py` occasionally (weekly/monthly is plenty — music
+doesn't need to change per video) keeps adding variety instead of repeating
+the same song. Attribution (artist, license, Jamendo page) is saved to
+`pipeline_state/musica_atribucion.json` and automatically credited in the
+YouTube description by `publisher.py` when a video uses one of these
+tracks.
+
+This isn't part of the daily `pipeline.py` run — run it manually, or set up
+its own occasional cron/Action if you want it fully hands-off.
+
 For YouTube uploads, download an OAuth "Desktop app" client from Google Cloud
 Console as `client_secret.json`. The first run of `publisher.py` (or
 `generar_youtube_token.py`, see below) opens a browser to authorize once;
@@ -88,12 +119,32 @@ up where it left off.
 
 **Option A — local cron / Termux (simplest, uses your own machine/phone):**
 run `python pipeline.py` on a schedule with cron (Linux/macOS) or
-Termux:Boot + `termux-job-scheduler` (Android), e.g. once daily. Your
-background footage/music files stay local, no upload needed.
+`cronie` + `termux-services` (Android). Your background footage/music files
+stay local, no upload needed.
+
+**Recommended split — generate in batches, publish daily.** So split
+generation (heavier, less often) from publishing (light, daily). Each
+publish run drains as much of the backlog as YouTube's real daily upload
+quota allows that day (`max_subidas_por_corrida` is `None` by default, so
+it only stops on an actual `uploadLimitExceeded` from YouTube, counting
+whatever was already uploaded earlier that same day) — before uploading, it
+also checks the channel for a video with the same title already there, so a
+connection drop mid-run never causes a duplicate or a lost upload; whatever
+doesn't fit in a day's quota just stays queued in `resultado_lote.json` for
+the next run:
 
 ```cron
-# crontab -e — once a day at 09:00
-0 9 * * * cd /path/to/video-scout-pipeline && /usr/bin/python3 pipeline.py >> pipeline.log 2>&1
+# crontab -e
+# Generate a backlog: scout + script + render, twice a week
+0 6 * * 1,4 bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python pipeline.py --hasta video >> pipeline.log 2>&1'
+
+# Publish one video/day from the backlog — buffer_horas_revision in
+# publisher.py's config controls how many hours later it actually goes
+# public (tune it so that lands near your audience's peak hours)
+0 9 * * * bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python pipeline.py --desde publicar >> pipeline.log 2>&1'
+
+# Refresh background music once a month (optional, doesn't need to be frequent)
+0 8 1 * * bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python actualizar_musica.py >> musica.log 2>&1'
 ```
 
 **Option B — GitHub Actions (cloud, no device needs to stay on):** see

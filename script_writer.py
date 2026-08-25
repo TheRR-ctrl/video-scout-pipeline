@@ -23,6 +23,12 @@ RUTA_GUION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guion.txt
 MODEL = "gemini-3.6-flash"
 EMOCIONES_VALIDAS = ["venganza", "suspenso", "drama", "comedia"]
 
+# Si la historia original tiene suficiente material (en palabras), se le pide
+# a Gemini una versión extendida (~5 min de narración) en vez de la versión
+# corta de siempre, para que también salgan videos largos y no solo Shorts.
+UMBRAL_PALABRAS_PARA_EXTENDER = 400
+OBJETIVO_PALABRAS_EXTENDIDO = "700 y 900"
+
 SCHEMA_HISTORIA = {
     "type": "object",
     "properties": {
@@ -47,12 +53,14 @@ SCHEMA_HISTORIA = {
     "required": ["titulo_hook", "genero_narrador", "emocion", "cuerpo"],
 }
 
-SYSTEM_PROMPT = """Eres guionista de historias virales estilo "Reddit story" para Shorts/TikTok en español.
-Reescribes historias reales (de Reddit) en narrativa en primera persona, natural para ser leída en voz alta por un locutor.
+SYSTEM_PROMPT = """Eres guionista de historias virales estilo "Reddit story" para Shorts/TikTok, narradas en español mexicano.
+Reescribes historias reales (de Reddit) en narrativa en primera persona, natural para ser leída en voz alta por un locutor mexicano.
 
 Reglas:
 - El titulo_hook debe enganchar en 1-2 frases, generando curiosidad o tensión inmediata (no reveles el final).
 - El cuerpo debe sonar como alguien contando la historia de viva voz: frases cortas, ritmo natural, sin lenguaje de texto escrito (nada de "en resumen", "por lo tanto").
+- Usa español mexicano real y cotidiano, no español neutro de doblaje: modismos, muletillas y giros naturales de México ("neta", "qué onda", "se me hizo raro", "no manches", "wey" solo si el tono de la historia lo permite, etc.), sin forzarlos ni exagerar el acento a caricatura. La historia original puede ser de cualquier país — adapta el modo de contarla al mexicano, no la ubiques falsamente en México si el contexto no calza.
+- Evita que suene genérico o traducido: cada historia debe conservar su esencia y detalles particulares, no una versión aplanada/intercambiable con cualquier otra.
 - Mantén los hechos centrales de la historia original, pero puedes reordenar para maximizar tensión narrativa.
 - Cierra el cuerpo con una pregunta o gancho que invite a comentar (ej. "¿Ustedes qué hubieran hecho?").
 - No inventes detalles explícitos, violentos o inapropiados que no estén en el original.
@@ -68,6 +76,17 @@ def reescribir_historia(client, candidato):
         f"Título: {candidato['titulo_original']}\n\n"
         f"{candidato['texto_original']}"
     )
+
+    num_palabras_original = len(candidato["texto_original"].split())
+    if num_palabras_original >= UMBRAL_PALABRAS_PARA_EXTENDER:
+        prompt += (
+            f"\n\nEsta historia tiene suficiente material: escribe el cuerpo "
+            f"extendido, apuntando a entre {OBJETIVO_PALABRAS_EXTENDIDO} palabras "
+            f"(para un video de varios minutos, no un short). Desarrolla más el "
+            f"ritmo narrativo — más escenas, diálogo, reflexión del narrador, "
+            f"tensión antes del desenlace — sin inventar hechos nuevos que no "
+            f"estén en el original."
+        )
 
     response = client.models.generate_content(
         model=MODEL,
