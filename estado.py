@@ -229,16 +229,31 @@ def main():
 
     # ---------- credenciales ----------
     titulo("Credenciales")
-    linea("GEMINI_API_KEY",
-          "configurada" if os.environ.get("GEMINI_API_KEY") else "FALTA",
-          "ok" if os.environ.get("GEMINI_API_KEY") else "mal")
+
+    # Las claves pueden venir del entorno o de secretos.env. Distinguirlo
+    # importa: una que solo está en el entorno desaparece al abrir otra
+    # sesión de Termux o al correr desde cron, y el pipeline sigue adelante
+    # con la metadata de respaldo sin decir por qué.
+    try:
+        import secretos
+        for clave, tiene, origen in secretos.estado():
+            opcional = clave == "JAMENDO_CLIENT_ID"
+            if tiene:
+                linea(clave, f"ok (desde {origen})", "ok")
+            elif opcional:
+                linea(clave, "sin configurar (opcional)")
+            else:
+                linea(clave, "FALTA", "mal")
+        if not os.path.exists(secretos.RUTA_SECRETOS):
+            print(f"  {G}  tip: guárdalas en secretos.env y dejan de perderse entre sesiones{N}")
+    except Exception:
+        linea("GEMINI_API_KEY",
+              "configurada" if os.environ.get("GEMINI_API_KEY") else "FALTA",
+              "ok" if os.environ.get("GEMINI_API_KEY") else "mal")
     for archivo, etiqueta in (("client_secret.json", "client_secret.json"),
                               ("youtube_token.json", "youtube_token.json")):
         existe = os.path.exists(os.path.join(BASE_DIR, archivo))
         linea(etiqueta, "presente" if existe else "FALTA", "ok" if existe else "mal")
-    linea("JAMENDO_CLIENT_ID",
-          "configurada" if os.environ.get("JAMENDO_CLIENT_ID") else "sin configurar (opcional)",
-          "ok" if os.environ.get("JAMENDO_CLIENT_ID") else "")
 
     # ---------- assets ----------
     titulo("Material de fondo")

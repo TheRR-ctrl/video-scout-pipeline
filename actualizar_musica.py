@@ -21,6 +21,8 @@ import re
 import json
 import logging
 
+import secretos  # carga secretos.env si las claves no están en el entorno
+
 try:
     import requests
 except ImportError:

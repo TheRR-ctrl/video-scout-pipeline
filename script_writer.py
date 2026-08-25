@@ -12,6 +12,8 @@ import os
 import json
 import logging
 
+import secretos  # carga secretos.env si las claves no están en el entorno
+
 from google import genai
 from google.genai import types as genai_types
 from google.genai import errors as genai_errors

@@ -14,3 +14,4 @@ video_maestro.log
 *.png
 __pycache__/
 *.pyc
+secretos.env
