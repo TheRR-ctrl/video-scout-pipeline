@@ -227,6 +227,22 @@ def main():
     linea("itálica", "sí" if subs.get("italica") else "no")
     linea("velo blanco del fondo", f"{cfg.get('velo_blanco_fondo', 0.0)}")
 
+    # Cómo quedaría la subida ahora mismo, con las tres formas de permitir
+    # datos combinadas — es lo que decide si publisher.py sube o se aplaza.
+    try:
+        import publisher
+        cfg_pub = publisher.cargar_config()
+        solo_wifi = cfg_pub.get("solo_wifi", True)
+        por_entorno = os.environ.get("SUBIR_CON_DATOS") == "1"
+        if not solo_wifi:
+            linea("subir con datos móviles", "permitido (config)", "aviso")
+        elif por_entorno:
+            linea("subir con datos móviles", "permitido (SUBIR_CON_DATOS=1)", "aviso")
+        else:
+            linea("subir con datos móviles", "bloqueado — solo con WiFi", "ok")
+    except Exception:
+        pass
+
     # ---------- credenciales ----------
     titulo("Credenciales")
 

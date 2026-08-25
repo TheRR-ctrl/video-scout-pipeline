@@ -78,6 +78,10 @@ CONFIG_DEFAULT = {
     # video en revisión hasta ~6pm hora local el mismo día — buena hora pico
     # para Shorts en español. Súbelo si el cron de publicar corre más tarde.
     "buffer_horas_revision": 9,
+    # true = solo sube con WiFi (protege el plan de datos). Se puede saltar
+    # sin cambiar esto, con --con-datos o SUBIR_CON_DATOS=1, para una subida
+    # puntual desde la calle sin desactivar la protección del cron diario.
+    "solo_wifi": True,
     # None = sin tope propio: sube todo lo que YouTube deje en el día (se
     # detiene solo al toparse con el límite diario de subidas de YouTube,
     # ver uploadLimitExceeded en subir_video/main). Pon un número aquí si
@@ -365,14 +369,30 @@ def limpiar_videos_locales_vencidos():
 # ---------------------------------------------------------
 # ORQUESTACIÓN
 # ---------------------------------------------------------
-def main():
+def main(forzar_datos=False):
     limpiar_videos_locales_vencidos()
 
-    if not conectado_a_wifi():
-        logger.info("Sin WiFi activo — se aplaza la subida a YouTube para no gastar datos móviles.")
-        return
-
     cfg = cargar_config()
+
+    # Tres formas de permitir datos móviles, de más puntual a más permanente:
+    # el argumento (una corrida), la variable de entorno (una sesión) y la
+    # config (siempre). Así se puede subir algo desde la calle sin dejar
+    # apagada la protección para el cron de todos los días.
+    permitir_datos = (
+        forzar_datos
+        or os.environ.get("SUBIR_CON_DATOS") == "1"
+        or not cfg.get("solo_wifi", True)
+    )
+
+    if not permitir_datos and not conectado_a_wifi():
+        logger.info(
+            "Sin WiFi activo — se aplaza la subida para no gastar datos móviles.\n"
+            "   Para subir ahora de todas formas: python publisher.py --con-datos"
+        )
+        return
+    if permitir_datos and not conectado_a_wifi():
+        logger.warning("Sin WiFi, pero se pidió subir con datos móviles. Ojo con tu plan.")
+
     ruta_resultado = os.path.join(cfg["carpeta_salida"], "resultado_lote.json")
 
     if not os.path.exists(ruta_resultado):
@@ -486,4 +506,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Sube a YouTube los videos pendientes.")
+    parser.add_argument(
+        "--con-datos", action="store_true",
+        help="Subir aunque no haya WiFi (usa datos móviles). Solo para esta corrida.",
+    )
+    args = parser.parse_args()
+    main(forzar_datos=args.con_datos)
