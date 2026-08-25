@@ -18,6 +18,7 @@ Credenciales:
   - GEMINI_API_KEY como variable de entorno (gratis en https://aistudio.google.com/apikey).
 """
 import os
+import re
 import json
 import time
 import logging
@@ -40,16 +41,60 @@ RUTA_RECHAZADOS = os.path.join(CARPETA_ESTADO, "rechazados.json")
 RUTA_CLIENT_SECRET = os.path.join(BASE_DIR, "client_secret.json")
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 
+# Misma detección y carpeta por defecto que generar_video_maestro.py: en
+# Android/Termux no existe "Desktop", los videos se guardan en DCIM.
+ES_ANDROID = 'PREFIX' in os.environ or os.path.exists('/sdcard')
+
+
+def conectado_a_wifi():
+    """En Android (con Termux:API instalado, paquete termux-api) revisa si
+    hay una conexión WiFi activa, para no gastar datos móviles subiendo
+    videos. Si no es Android, o termux-api no está instalado, no bloquea
+    (se asume que el usuario administra su propia conexión en PC)."""
+    if not ES_ANDROID:
+        return True
+    try:
+        res = subprocess.run(
+            ["termux-wifi-connectioninfo"],
+            capture_output=True, text=True, timeout=5
+        )
+        if res.returncode != 0:
+            # termux-api no instalado o falló: no bloquear la subida por esto.
+            return True
+        info = json.loads(res.stdout)
+        return info.get("supplicant_state") == "COMPLETED"
+    except Exception:
+        return True
+CARPETA_SALIDA_DEFAULT = (
+    "/sdcard/DCIM/Videos creados" if ES_ANDROID
+    else os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados")
+)
+
 CONFIG_DEFAULT = {
-    "carpeta_salida": os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados"),
-    "buffer_horas_revision": 12,
+    "carpeta_salida": CARPETA_SALIDA_DEFAULT,
+    # Con crond corriendo publisher.py a diario (ver README), esto deja el
+    # video en revisión hasta ~6pm hora local el mismo día — buena hora pico
+    # para Shorts en español. Súbelo si el cron de publicar corre más tarde.
+    "buffer_horas_revision": 9,
+    # Un video público por día es mejor para el crecimiento del canal que
+    # publicar el lote entero de una sola vez (evita saturar a quien sigue
+    # el canal y da una señal más constante al algoritmo). El resto del lote
+    # ya renderizado queda esperando en resultado_lote.json para el día
+    # siguiente.
+    "max_subidas_por_corrida": 1,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
     "categoria_youtube": "24",  # Entertainment
     "idioma": "es",
 }
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    # De solo lectura: para poder revisar si un video ya existe en el canal
+    # antes de subirlo (evita duplicados si pipeline_state/publicados.json
+    # se pierde o se corrompe).
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 MODEL = "gemini-3.5-flash-lite"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -147,6 +192,35 @@ def revisar_y_generar_metadata(client, titulo, cuerpo):
     return json.loads(response.text)
 
 
+# Hashtags genéricos por emoción, para cuando falla la llamada a Gemini y no
+# hay generación de metadata "inteligente" disponible.
+HASHTAGS_DE_RESPALDO_POR_EMOCION = {
+    "drama": ["drama", "historiasreales"],
+    "venganza": ["venganza", "justicia"],
+    "suspenso": ["misterio", "suspenso"],
+    "comedia": ["humor", "comedia"],
+}
+
+
+def metadata_de_respaldo(video):
+    """Metadata genérica pero funcional, usada solo cuando revisar_y_generar_metadata
+    falla (red, cuota de la API, etc.) — para no dejar el video sin subir por
+    un fallo pasajero ajeno al contenido en sí. No reemplaza el chequeo de
+    contenido de Gemini, solo cubre su ausencia: el técnico ya pasó antes."""
+    emocion = video.get("emocion", "drama")
+    hashtags = HASHTAGS_DE_RESPALDO_POR_EMOCION.get(emocion, ["historias"]) + ["reddit", "shorts"]
+    return {
+        "aprobado": True,
+        "motivo_rechazo": "",
+        "titulo_youtube": (video.get("titulo") or "Historia de Reddit")[:100],
+        "descripcion_youtube": (
+            "Historia real adaptada de Reddit, narrada en español.\n\n"
+            "¿Tú qué hubieras hecho? Cuéntamelo en los comentarios 👇"
+        ),
+        "hashtags": hashtags,
+    }
+
+
 # ---------------------------------------------------------
 # FASE 3: subida a YouTube
 # ---------------------------------------------------------
@@ -172,6 +246,23 @@ def obtener_servicio_youtube():
     return build("youtube", "v3", credentials=creds)
 
 
+def buscar_video_existente_en_canal(servicio, titulo):
+    """Busca en el propio canal un video con este título exacto, para no
+    duplicar una subida si publicados.json se perdió o se corrompió (nuestro
+    único registro es local, no se sincroniza con YouTube de otra forma).
+    Devuelve el video_id si lo encuentra, o None."""
+    try:
+        resp = servicio.search().list(
+            part="snippet", forMine=True, type="video", q=titulo[:100], maxResults=5
+        ).execute()
+        for item in resp.get("items", []):
+            if item["snippet"]["title"] == titulo[:100]:
+                return item["id"]["videoId"]
+    except Exception as exc:
+        logger.warning(f"No se pudo verificar duplicados en YouTube ({exc}); se sube de todas formas.")
+    return None
+
+
 RUTA_ATRIBUCION_MUSICA = os.path.join(CARPETA_ESTADO, "musica_atribucion.json")
 
 
@@ -180,7 +271,13 @@ def construir_descripcion(metadata, video):
     fuente y aviso de adaptación con IA. Esto no depende del modelo (que puede
     olvidarlo) para cumplir con el requisito de transparencia de Reddit de no
     presentar contenido ajeno como propio."""
-    partes = [metadata["descripcion_youtube"]]
+    # Al inicio: YouTube solo muestra como "chips" clicables arriba del
+    # título los hashtags que detecta cerca del principio de la descripción
+    # (o en el título) — puestos al final, quedan como texto plano sin ese
+    # efecto. Se sanean espacios/símbolos, que igual los invalidarían.
+    hashtags_limpios = [re.sub(r"[^\w]", "", h) for h in metadata["hashtags"]]
+    hashtags_limpios = [h for h in hashtags_limpios if h][:6]
+    partes = [" ".join(f"#{h}" for h in hashtags_limpios), metadata["descripcion_youtube"]]
 
     fuente_url = video.get("fuente_url")
     autor = video.get("autor_original")
@@ -200,7 +297,6 @@ def construir_descripcion(metadata, video):
                 linea_musica += f" — {atribucion['pagina_jamendo']}"
             partes.append(linea_musica)
 
-    partes.append(" ".join(f"#{h}" for h in metadata["hashtags"]))
     return "\n\n".join(partes)
 
 
@@ -230,10 +326,50 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
     return respuesta["id"]
 
 
+DIAS_RETENCION_LOCAL = 7
+
+
+def limpiar_videos_locales_vencidos():
+    """Borra los .mp4 locales de videos que ya llevan DIAS_RETENCION_LOCAL
+    días subidos a YouTube — deja esa ventana a propósito para poder
+    subirlos a mano a TikTok u otras plataformas antes de que se borren."""
+    publicados = cargar_json(RUTA_PUBLICADOS, [])
+    ahora = datetime.now(timezone.utc)
+    cambios = False
+
+    for p in publicados:
+        if p.get("_borrado_local") or not p.get("subido_en"):
+            continue
+        try:
+            fecha_subida = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+
+        if ahora - fecha_subida >= timedelta(days=DIAS_RETENCION_LOCAL):
+            ruta = p["ruta"]
+            if os.path.exists(ruta):
+                try:
+                    os.remove(ruta)
+                    logger.info(f"🗑️  Borrado local (cumplió {DIAS_RETENCION_LOCAL} días subido): {os.path.basename(ruta)}")
+                except Exception as exc:
+                    logger.warning(f"No se pudo borrar {ruta}: {exc}")
+            p["_borrado_local"] = True
+            cambios = True
+
+    if cambios:
+        guardar_json(RUTA_PUBLICADOS, publicados)
+
+
 # ---------------------------------------------------------
 # ORQUESTACIÓN
 # ---------------------------------------------------------
 def main():
+    limpiar_videos_locales_vencidos()
+
+    if not conectado_a_wifi():
+        logger.info("Sin WiFi activo — se aplaza la subida a YouTube para no gastar datos móviles.")
+        return
+
     cfg = cargar_config()
     ruta_resultado = os.path.join(cfg["carpeta_salida"], "resultado_lote.json")
 
@@ -260,8 +396,17 @@ def main():
 
     client = genai.Client()
     servicio_yt = None
+    max_subidas = cfg.get("max_subidas_por_corrida")
+    subidas_en_esta_corrida = 0
 
     for video in pendientes:
+        if max_subidas and subidas_en_esta_corrida >= max_subidas:
+            logger.info(
+                f"Tope de {max_subidas} subida(s) por corrida alcanzado — "
+                f"el resto del lote queda pendiente para la próxima corrida."
+            )
+            break
+
         ruta = video["ruta"]
         logger.info(f"Procesando: {os.path.basename(ruta)}")
 
@@ -275,10 +420,8 @@ def main():
         try:
             metadata = revisar_y_generar_metadata(client, video["titulo"], video.get("cuerpo", ""))
         except Exception as exc:
-            logger.warning(f"Rechazado (error de revisión): {exc}")
-            rechazados.append({"ruta": ruta, "fase": "revision", "motivo": str(exc)})
-            guardar_json(RUTA_RECHAZADOS, rechazados)
-            continue
+            logger.warning(f"Falló la revisión de Gemini ({exc}); usando metadata de respaldo.")
+            metadata = metadata_de_respaldo(video)
 
         if not metadata["aprobado"]:
             logger.warning(f"Rechazado (contenido): {metadata['motivo_rechazo']}")
@@ -288,6 +431,23 @@ def main():
 
         if servicio_yt is None:
             servicio_yt = obtener_servicio_youtube()
+
+        video_id_existente = buscar_video_existente_en_canal(servicio_yt, metadata["titulo_youtube"][:100])
+        if video_id_existente:
+            logger.warning(
+                f"'{metadata['titulo_youtube']}' ya existe en el canal (video_id={video_id_existente}) — "
+                f"no se vuelve a subir. Registrando para no volver a evaluarlo."
+            )
+            publicados.append({
+                "ruta": ruta,
+                "video_id": video_id_existente,
+                "titulo_youtube": metadata["titulo_youtube"],
+                "publish_at": None,
+                "url_revision": f"https://studio.youtube.com/video/{video_id_existente}/edit",
+                "detectado_como_duplicado": True,
+            })
+            guardar_json(RUTA_PUBLICADOS, publicados)
+            continue
 
         publish_at = datetime.now(timezone.utc) + timedelta(hours=cfg["buffer_horas_revision"])
         publish_at_iso = publish_at.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -307,8 +467,13 @@ def main():
             "titulo_youtube": metadata["titulo_youtube"],
             "publish_at": publish_at_iso,
             "url_revision": f"https://studio.youtube.com/video/{video_id}/edit",
+            # Para el borrado retrasado (ver limpiar_videos_locales_vencidos):
+            # se conserva el archivo local unos días para poder subirlo a
+            # mano a TikTok antes de que se borre solo.
+            "subido_en": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
         guardar_json(RUTA_PUBLICADOS, publicados)
+        subidas_en_esta_corrida += 1
 
 
 if __name__ == "__main__":

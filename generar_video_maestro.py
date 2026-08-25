@@ -492,7 +492,7 @@ def format_ass_time(td):
 
 def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True):
     font_size, PlayResX, PlayResY, palabras_por_grupo = (92, 1080, 1920, 1) if es_short else (120, 1920, 1080, 2)
-    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H00FFFFFF&,&H00FFFFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H0000FFFF&,&H0000FFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     
     if not os.path.exists(srt_in_path):
         with open(ass_out_path, 'w', encoding='utf-8') as f: f.write(header)
@@ -528,14 +528,16 @@ def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, e
 
 def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
     """Genera TTS con reintentos y nunca reporta éxito si no hay archivo válido."""
+    comando_principal = [
+        sys.executable, "-m", "edge_tts",
+        f"--rate={rate}", f"--pitch={pitch}",
+        "--file", txt, "--voice", voz,
+        "--write-media", audio_out,
+        "--write-subtitles", srt_out
+    ]
     comandos = [
-        [
-            sys.executable, "-m", "edge_tts",
-            f"--rate={rate}", f"--pitch={pitch}",
-            "--file", txt, "--voice", voz,
-            "--write-media", audio_out,
-            "--write-subtitles", srt_out
-        ],
+        comando_principal,
+        comando_principal,  # un segundo intento con la misma voz cubre la mayoría de los cortes por red
         [
             sys.executable, "-m", "edge_tts",
             "--rate=+15%", "--pitch=+0Hz",
@@ -544,6 +546,16 @@ def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
             "--write-subtitles", srt_out
         ],
     ]
+
+    try:
+        with open(txt, "r", encoding="utf-8") as f:
+            num_palabras = len(f.read().split())
+    except Exception:
+        num_palabras = 0
+    # Cota mínima conservadora: textos cortos (como el título) se hablan
+    # proporcionalmente más rápido, así que se usa un margen amplio
+    # (palabras/6.0) para no rechazar tomas válidas por falsos positivos.
+    duracion_minima_esperada = num_palabras / 6.0
 
     for intento, cmd in enumerate(comandos, 1):
         try:
@@ -560,7 +572,12 @@ def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
                 errors="replace"
             )
             if res.returncode == 0 and archivo_valido(audio_out):
-                return True
+                if medir_duracion_media(audio_out) >= duracion_minima_esperada:
+                    return True
+                logger.warning(
+                    f"Audio TTS sospechosamente corto para {os.path.basename(txt)} "
+                    f"(intento {intento}/{len(comandos)}); reintentando."
+                )
 
             if intento < len(comandos):
                 time.sleep(1)
@@ -667,7 +684,7 @@ def renderizar_una_historia(contenido, num=1):
         f_ass = s_ass.replace('\\', '\\\\').replace(':', '\\:')
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
-            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.08,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
+            fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
             cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-stream_loop", "-1", "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
         else:
             fc = f"[0:v]scale={w}:{h}:force_original_aspect_ratio=increase,crop={w}:{h}[bg];color=white@0.3:s={w}x{h}[ow];[bg][ow]overlay=0:0[bgt];[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"

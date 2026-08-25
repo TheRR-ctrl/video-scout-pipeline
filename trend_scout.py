@@ -51,18 +51,35 @@ RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estri
 
 CONFIG_DEFAULT = {
     "subreddits": [
+        # Drama / dilemas
         "AmItheAsshole",
+        "relationship_advice",
         "relationships",
-        "tifu",
         "confession",
         "AmItheButtface",
-        "relationship_advice",
+        # Venganza (final feliz para quien narra)
+        "ProRevenge",
+        "pettyrevenge",
+        "MaliciousCompliance",
+        "EntitledParents",
+        # Suspenso / misterio (experiencias reales, no ficción tipo nosleep)
+        "UnresolvedMysteries",
+        "Glitch_in_the_Matrix",
+        # Comedia / torpezas
+        "tifu",
+        "mildlyinfuriating",
     ],
     "time_filter": "day",
     "limite_por_subreddit": 15,
     "min_palabras_texto": 80,
     "max_palabras_texto": 1800,
     "max_candidatos_salida": 20,
+    # Para que salgan también videos largos (3-5 min): de los candidatos que
+    # superen este umbral de palabras, se reservan algunos cupos aunque no
+    # sean los mejor rankeados en /top/. El resto de los cupos se llena
+    # normal, por ranking.
+    "umbral_palabras_historia_larga": 400,
+    "min_candidatos_largos": 3,
 }
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -189,10 +206,26 @@ def escanear(cfg):
             vistos.add(post_id)
 
     candidatos.sort(key=lambda c: c["rank_en_subreddit"])
-    candidatos = candidatos[:cfg["max_candidatos_salida"]]
+
+    # Reserva algunos cupos para historias largas (para que también salgan
+    # videos de varios minutos), aunque no sean las mejor rankeadas.
+    umbral = cfg["umbral_palabras_historia_larga"]
+    cupos_largos = cfg["min_candidatos_largos"]
+    largas = [c for c in candidatos if len(c["texto_original"].split()) >= umbral]
+
+    seleccionados = largas[:cupos_largos]
+    ids_ya_elegidos = {c["id"] for c in seleccionados}
+    for c in candidatos:
+        if len(seleccionados) >= cfg["max_candidatos_salida"]:
+            break
+        if c["id"] not in ids_ya_elegidos:
+            seleccionados.append(c)
+            ids_ya_elegidos.add(c["id"])
+
+    seleccionados.sort(key=lambda c: c["rank_en_subreddit"])
 
     guardar_historial(vistos)
-    return candidatos
+    return seleccionados
 
 
 def main():
