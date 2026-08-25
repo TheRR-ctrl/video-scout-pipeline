@@ -273,6 +273,19 @@ def main():
     linea("plantilla de la tarjeta", plantilla or "falta — se usa la de respaldo",
           "ok" if plantilla else "aviso")
 
+    base = (cfg.get("sonido_transicion") or "").strip()
+    if base:
+        efectos = [
+            f for f in glob.glob(os.path.join(BASE_DIR, base + "*"))
+            if f.lower().endswith((".mp3", ".wav", ".m4a", ".ogg", ".aac"))
+        ]
+        linea("efecto de transición", f"{len(efectos)} archivo(s)" if efectos else "falta — no suena nada",
+              "ok" if efectos else "aviso")
+        if not efectos:
+            print(f"  {G}  ponle un {base}.mp3 en esta carpeta para que suene tras la intro{N}")
+    else:
+        linea("efecto de transición", "desactivado")
+
     # ---------- qué sigue ----------
     titulo("Qué sigue")
     if n_bloques is None:

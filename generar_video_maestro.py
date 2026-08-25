@@ -3,6 +3,7 @@ import re
 import sys
 import time
 import json
+import glob
 import shutil
 import random
 import asyncio
@@ -175,6 +176,17 @@ CONFIG_DEFAULT = {
     # género no lo usan (se apoyan en el contorno grueso del subtítulo para
     # la legibilidad, no en apagar el fondo).
     "velo_blanco_fondo": 0.0,
+    # Efecto que suena una vez, al terminar la tarjeta de intro. Es el nombre
+    # base de un archivo en la carpeta del repo; si hay varios que empiezan
+    # igual (efecto_transicion_1.mp3, _2.mp3...) se elige uno al azar. Con
+    # cadena vacía se desactiva.
+    "sonido_transicion": "efecto_transicion",
+    "volumen_sonido_transicion": 0.5,
+    # Segundos que el efecto se adelanta respecto al final de la tarjeta.
+    # Con 0 arranca justo cuando empieza a hablar y compite con la primera
+    # palabra; adelantarlo un poco hace que su golpe caiga en la transición
+    # y la voz entre limpia después.
+    "adelanto_sonido_transicion": 0.25,
 }
 
 def resolver_subtitulos(pedido, preset=None):
@@ -760,6 +772,29 @@ def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_sho
             draw.multiline_text((card_x + card_w // 2, card_y + card_h // 2 + 20), "\n".join(textwrap.wrap(titulo_mayus, width=chars_linea)), fill=(0, 0, 0), font=font_tit, anchor="mm", align="center", spacing=10)
 
         lienzo.save(output_png)
+
+def seleccionar_sonido_transicion():
+    """Archivo del efecto que suena al terminar la tarjeta de intro.
+
+    Se busca por nombre en la carpeta del repo. Si hay varios
+    (efecto_transicion_1.mp3, _2.mp3...) se elige uno al azar, para que no
+    suene idéntico en todos los videos.
+    """
+    nombre = CONFIG.get("sonido_transicion", "efecto_transicion")
+    if not nombre:
+        return None
+
+    # Si viene con extensión, se toma tal cual.
+    if os.path.splitext(nombre)[1]:
+        ruta = nombre if os.path.isabs(nombre) else os.path.join(BASE_DIR, nombre)
+        return ruta if archivo_valido(ruta) else None
+
+    candidatos = [
+        f for f in glob.glob(os.path.join(BASE_DIR, f"{nombre}*"))
+        if f.lower().endswith((".mp3", ".wav", ".m4a", ".ogg", ".aac")) and archivo_valido(f)
+    ]
+    return random.choice(candidatos) if candidatos else None
+
 
 def parse_time(time_str):
     pt = datetime.strptime(time_str.replace(',', '.'), "%H:%M:%S.%f")
@@ -1363,13 +1398,63 @@ def renderizar_una_historia(contenido, num=1):
         else:
             cadena_fondo = f"{escalado}[bgt]"
 
+        # Efecto de transición: suena una sola vez, justo al terminar la
+        # tarjeta de intro, para marcar el arranque de la historia.
+        sonido = seleccionar_sonido_transicion()
+
+        # Entradas de ffmpeg, en orden. Se arman aquí porque los índices que
+        # usa el filter_complex ([1:a], [2:a]...) dependen de cuáles existan.
+        entradas = ["-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc]
+        idx = {"fondo": 0, "loc": 1}
+        siguiente = 2
+        if musica:
+            entradas += ["-stream_loop", "-1", "-i", musica]
+            idx["musica"] = siguiente; siguiente += 1
+        if sonido:
+            entradas += ["-i", sonido]
+            idx["sonido"] = siguiente; siguiente += 1
+        entradas += ["-i", img_tar]
+        idx["tarjeta"] = siguiente
+
+        video_fc = (
+            f"{cadena_fondo};[bgt][{idx['tarjeta']}:v]"
+            f"overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
+        )
+
+        # amix normaliza dividiendo entre el número de entradas, así que
+        # sumar una pista bajaría el volumen de todas. Con normalize=0 los
+        # niveles se fijan a mano y agregar el efecto no altera la mezcla
+        # que ya existía (locución 0.5 + música 0.09 es exactamente lo que
+        # producía el amix de dos entradas con normalización).
+        partes_audio, etiquetas = [], []
+        partes_audio.append(f"[{idx['loc']}:a]volume=0.5[av]"); etiquetas.append("[av]")
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
-            fc = f"{cadena_fondo};[bgt][3:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout];[1:a]volume=1.0[av];[2:a]volume=0.18,afade=t=out:st={fade_inicio:.2f}:d=2[am];[av][am]amix=inputs=2:duration=first[aout]"
-            cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-stream_loop", "-1", "-i", musica, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"]
+            partes_audio.append(
+                f"[{idx['musica']}:a]volume=0.09,afade=t=out:st={fade_inicio:.2f}:d=2[am]"
+            )
+            etiquetas.append("[am]")
+        if sonido:
+            vol = float(CONFIG.get("volumen_sonido_transicion", 0.5) or 0.0)
+            adelanto = float(CONFIG.get("adelanto_sonido_transicion", 0.25) or 0.0)
+            retraso = int(max(0.0, d_tit - adelanto) * 1000)
+            partes_audio.append(
+                f"[{idx['sonido']}:a]volume={vol},adelay={retraso}|{retraso}[asfx]"
+            )
+            etiquetas.append("[asfx]")
+
+        if len(etiquetas) == 1:
+            fc = f"{video_fc};{partes_audio[0]},anull[aout]"
         else:
-            fc = f"{cadena_fondo};[bgt][2:v]overlay=0:0:enable='between(t,0,{d_tit:.2f})'[bgc];[bgc]ass='{f_ass}'[vout]"
-            cmd_ff = ["ffmpeg", "-hide_banner", "-y", "-stream_loop", "-1", "-i", vid_fondo, "-i", a_loc, "-i", img_tar, "-filter_complex", fc, "-map", "[vout]", "-map", "1:a:0"]
+            fc = (
+                f"{video_fc};" + ";".join(partes_audio) + ";"
+                + "".join(etiquetas)
+                + f"amix=inputs={len(etiquetas)}:duration=first:normalize=0[aout]"
+            )
+
+        cmd_ff = ["ffmpeg", "-hide_banner", "-y"] + entradas + [
+            "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"
+        ]
 
         flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest", "-progress", "pipe:1"]
         flags_gpu = ["-hwaccel", "cuda", "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "19"]
