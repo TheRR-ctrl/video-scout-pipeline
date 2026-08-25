@@ -389,6 +389,14 @@ def main():
         guardar_json(RUTA_PUBLICADOS, publicados)
         subidas_en_esta_corrida += 1
 
+        # Ya está respaldado en YouTube (aunque siga privado) — no hace falta
+        # seguir ocupando espacio en el teléfono con el archivo local.
+        try:
+            os.remove(ruta)
+            logger.info(f"🗑️  Borrado local: {os.path.basename(ruta)}")
+        except Exception as exc:
+            logger.warning(f"No se pudo borrar {ruta} tras subirlo: {exc}")
+
 
 if __name__ == "__main__":
     main()

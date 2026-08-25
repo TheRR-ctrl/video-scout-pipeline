@@ -15,11 +15,22 @@ Uso:
   python pipeline.py --hasta guion  # corre solo trend_scout + script_writer
   python pipeline.py --desde video  # corre solo video + publisher (asume
                                      # que guion.txt ya existe)
+  python pipeline.py --forzar       # ignora el freno de colchón (ver abajo)
 
 Salida: código de retorno != 0 si alguna etapa falló, para que cron/CI lo
 reporte como corrida fallida.
+
+Freno de sobreproducción: con publisher.py subiendo como mucho 1 video por
+corrida (max_subidas_por_corrida), generar contenido nuevo 2x/semana sin
+parar acumula un colchón sin fin (gastando batería/almacenamiento/llamadas a
+Gemini para nada). Por eso, antes de las etapas "candidatos" y "guion", se
+revisa cuántos videos ya renderizados siguen sin publicar; si hay
+UMBRAL_BACKLOG_VIDEOS o más (suficiente colchón para varios días), esas dos
+etapas se saltan solas y se loguea el motivo. --forzar la ignora.
 """
+import os
 import sys
+import json
 import argparse
 import logging
 import traceback
@@ -28,6 +39,27 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("pipeline")
 
 ETAPAS = ["candidatos", "guion", "video", "publicar"]
+UMBRAL_BACKLOG_VIDEOS = 10
+
+
+def videos_pendientes_de_publicar():
+    """Cuenta los videos ya renderizados que todavía no se subieron ni
+    rechazaron, para no generar más contenido del que se alcanza a publicar."""
+    try:
+        import publisher
+        cfg = publisher.cargar_config()
+        ruta_resultado = os.path.join(cfg["carpeta_salida"], "resultado_lote.json")
+        if not os.path.exists(ruta_resultado):
+            return 0
+        with open(ruta_resultado, "r", encoding="utf-8") as f:
+            completados = json.load(f).get("completados", [])
+        publicados = publisher.cargar_json(publisher.RUTA_PUBLICADOS, [])
+        rechazados = publisher.cargar_json(publisher.RUTA_RECHAZADOS, [])
+        procesados = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
+        return len([v for v in completados if v["ruta"] not in procesados])
+    except Exception as exc:
+        logger.warning(f"No se pudo calcular el colchón pendiente ({exc}); no se frena la generación.")
+        return 0
 
 
 def correr_etapa(nombre, fn):
@@ -52,6 +84,7 @@ def main():
     parser = argparse.ArgumentParser(description="Orquesta el pipeline completo.")
     parser.add_argument("--desde", choices=ETAPAS, default=ETAPAS[0])
     parser.add_argument("--hasta", choices=ETAPAS, default=ETAPAS[-1])
+    parser.add_argument("--forzar", action="store_true", help="Ignora el freno de colchón y genera igual.")
     args = parser.parse_args()
 
     i_desde, i_hasta = ETAPAS.index(args.desde), ETAPAS.index(args.hasta)
@@ -60,11 +93,21 @@ def main():
 
     resultados = {}
 
-    if i_desde <= ETAPAS.index("candidatos") <= i_hasta:
+    frena_generacion = False
+    if not args.forzar and (i_desde <= ETAPAS.index("candidatos") <= i_hasta or i_desde <= ETAPAS.index("guion") <= i_hasta):
+        pendientes = videos_pendientes_de_publicar()
+        if pendientes >= UMBRAL_BACKLOG_VIDEOS:
+            frena_generacion = True
+            logger.info(
+                f"Colchón de {pendientes} video(s) sin publicar (>= {UMBRAL_BACKLOG_VIDEOS}) — "
+                f"se saltan 'candidatos' y 'guion' esta corrida. Usa --forzar para generar igual."
+            )
+
+    if not frena_generacion and i_desde <= ETAPAS.index("candidatos") <= i_hasta:
         import trend_scout
         resultados["candidatos"] = correr_etapa("candidatos (trend_scout)", trend_scout.main)
 
-    if i_desde <= ETAPAS.index("guion") <= i_hasta:
+    if not frena_generacion and i_desde <= ETAPAS.index("guion") <= i_hasta:
         import script_writer
         resultados["guion"] = correr_etapa("guion (script_writer)", script_writer.main)
 
