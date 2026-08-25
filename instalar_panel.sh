@@ -62,6 +62,40 @@ case ":$PATH:" in
      echo "      Agrega esto a ~/.bashrc:  export PATH=\"$(dirname "$DESTINO"):\$PATH\"" ;;
 esac
 
+# ---- 3b. arranque automático (opcional) -----------------------------------
+# Útil si Termux:Widget no funciona en tu teléfono: al abrir Termux el panel
+# ya queda corriendo, y solo hay que pasarse a Chrome.
+INI="# >>> autoarranque panel >>>"
+FIN="# <<< autoarranque panel <<<"
+BASHRC="$HOME/.bashrc"
+
+if [ -f "$BASHRC" ] && grep -qF "$INI" "$BASHRC"; then
+  sed -i "/$INI/,/$FIN/d" "$BASHRC"
+fi
+
+if [ "$1" = "--autoarranque" ]; then
+  cat >> "$BASHRC" <<EOF
+$INI
+# Arranca el panel al abrir Termux, salvo que ya esté escuchando.
+# Se comprueba el PUERTO y no el nombre del proceso: "pgrep -f servidor.py"
+# coincide también con el propio shell que lo busca, y daría falsos
+# positivos que impedirían arrancarlo.
+if ! (exec 3<>/dev/tcp/127.0.0.1/8770) 2>/dev/null; then
+  # setsid y redirecciones completas: sin esto el proceso queda atado a
+  # la terminal y abrir Termux se quedaría esperándolo.
+  (cd "$REPO" && setsid nohup python servidor.py </dev/null >/dev/null 2>&1 &)
+  echo "  Panel arrancando en http://127.0.0.1:8770"
+else
+  echo "  Panel ya corriendo en http://127.0.0.1:8770"
+fi
+$FIN
+EOF
+  echo "  ✓ Arranque automático activado (se apaga solo al cerrar el panel)"
+else
+  echo "  · Arranque automático: desactivado"
+  echo "    (actívalo con: bash instalar_panel.sh --autoarranque)"
+fi
+
 # ---- 4. atajo en la pantalla de inicio (Termux:Widget) --------------------
 mkdir -p "$ATAJOS"
 cat > "$ATAJOS/🎬 Panel de videos" <<EOF
