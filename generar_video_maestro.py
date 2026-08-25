@@ -350,7 +350,20 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
     exts = ('.webm', '.mp4', '.mkv', '.mov')
     prefijo = "fondo_vertical" if es_short else "fondo_horizontal"
     cands = [f for f in os.listdir('.') if f.endswith(exts) and not f.startswith(('0','1','2','3','temp_','fondo_ensamblado'))]
-    vids_base = [c for c in cands if prefijo in c or 'fondo' in c] or cands
+    # Preferencia en orden: material marcado para ESTE formato; si no hay,
+    # cualquier fondo; si tampoco, lo que haya. El escalado de abajo recorta
+    # al centro, así que un 16:9 sirve para shorts y viceversa — por eso caer
+    # al siguiente nivel es correcto y no un apaño.
+    #
+    # (Antes la condición era `prefijo in c or 'fondo' in c`, y ese `or`
+    # anulaba al primer filtro: cualquier archivo fondo_* entraba siempre,
+    # así que los shorts tomaban fondos horizontales aun teniendo verticales
+    # disponibles.)
+    vids_base = (
+        [c for c in cands if prefijo in c]
+        or [c for c in cands if 'fondo' in c]
+        or cands
+    )
     if not vids_base: return None
 
     w_res, h_res = (1080, 1920) if es_short else (1920, 1080)

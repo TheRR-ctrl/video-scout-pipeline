@@ -14,8 +14,15 @@ vive en la carpeta del repo (sistema de archivos de Termux, que sí soporta
 enlaces) y apunta al archivo original en la SD. Con --copiar hace copias de
 verdad, por si prefieres eso.
 
-La orientación se detecta con ffprobe, no se adivina por el nombre: si el
-video es más alto que ancho va como vertical, si no, como horizontal.
+Cómo decide cuál va a cada formato:
+  1. Si el archivo ya se llama "fondo_vertical..." o "fondo_horizontal...",
+     se respeta esa intención — la pusiste tú a propósito.
+  2. Si no, se clasifica por sus dimensiones (más alto que ancho = vertical).
+
+Ojo: que un video sea 16:9 NO impide usarlo en shorts. El renderizador
+escala y recorta al centro (force_original_aspect_ratio=increase + crop),
+que es justo como se hacen los shorts de gameplay. Por eso un video
+horizontal marcado como vertical es una decisión válida, no un error.
 
 Uso:
   python vincular_fondos.py                       # usa ~/storage/downloads/Reddicuentos
@@ -95,28 +102,52 @@ def main():
 
     print(f"\n{len(videos)} video(s) en {carpeta}\n")
 
-    verticales, horizontales, ilegibles = [], [], []
+    verticales, horizontales, pesados = [], [], []
     for nombre in videos:
         origen = os.path.join(carpeta, nombre)
         dims = dimensiones(origen)
         if dims is None:
-            ilegibles.append(nombre)
-            print(f"  ⚠️  {nombre[:46]:<46} no se pudo leer")
+            print(f"  ⚠️  {nombre[:44]:<44} no se pudo leer")
             continue
         w, h = dims
-        destino_lista = verticales if h > w else horizontales
-        destino_lista.append(origen)
-        forma = "vertical  " if h > w else "horizontal"
+        bajo = nombre.lower()
+
+        # El nombre que ya le pusiste manda sobre las dimensiones: marcar un
+        # 16:9 como "fondo_vertical" es una decisión válida (se recorta), no
+        # un error que haya que corregir.
+        if "fondo_vertical" in bajo:
+            destino, motivo = verticales, "por su nombre"
+        elif "fondo_horizontal" in bajo:
+            destino, motivo = horizontales, "por su nombre"
+        else:
+            destino, motivo = (verticales if h > w else horizontales), "por dimensiones"
+        destino.append(origen)
+
+        forma = "shorts" if destino is verticales else "largos"
         tam = os.path.getsize(origen) / (1024 * 1024)
-        print(f"  {forma}  {w}x{h:<5}  {tam:6.0f} MB  {nombre[:38]}")
+        if tam > 5000 or w >= 3840:
+            pesados.append((nombre, tam, w, h))
+        print(f"  → {forma:<7} {w}x{h:<5} {tam:7.0f} MB  {nombre[:30]:<30} ({motivo})")
 
-    print(f"\n  → {len(verticales)} vertical(es) para shorts")
-    print(f"  → {len(horizontales)} horizontal(es) para videos largos")
+    print(f"\n  {len(verticales)} para shorts · {len(horizontales)} para videos largos")
 
-    if not verticales:
-        print("\n  ⚠️  Sin videos verticales no se pueden renderizar shorts.")
-    if not horizontales:
-        print("  ⚠️  Sin videos horizontales no se pueden renderizar videos largos.")
+    # Un 16:9 sirve para shorts: el renderizador escala y recorta al centro
+    # (force_original_aspect_ratio=increase + crop), que es como se hacen los
+    # shorts de gameplay. Solo hay problema si no hay NADA.
+    if not verticales and horizontales:
+        print("\n  Sin material marcado para shorts: se usarán los horizontales,")
+        print("  recortados al centro a 1080x1920. Es lo normal con gameplay.")
+    if not horizontales and verticales:
+        print("\n  Sin material marcado para largos: se usarán los verticales,")
+        print("  recortados a 1920x1080.")
+    if not verticales and not horizontales:
+        print("\n  ⚠️  No quedó ningún video utilizable.")
+
+    if pesados:
+        print("\n  Aviso de rendimiento — estos son muy grandes para renderizar en un teléfono:")
+        for nombre, tam, w, h in pesados:
+            print(f"    {nombre[:38]:<38} {w}x{h}  {tam:.0f} MB")
+        print("  Cada corte se recodifica: en 4K puede tardar varias veces más que en 1080p.")
 
     if args.ver:
         print("\n(--ver: no se creó nada)")
