@@ -51,10 +51,10 @@ SUBTITULOS_DEFAULT = {
     "color_texto": "#FFFFFF",
     "color_activo": "#3BF07A",
     "color_borde": "#000000",
-    "grosor_borde": 5,
+    "grosor_borde": 7,
     "sombra": 0,
     "mayusculas": True,
-    "italica": False,
+    "italica": True,
     # Cuánto crece la palabra que se está diciendo, en % (100 = sin crecer).
     "escala_activa": 112,
 }
@@ -712,13 +712,37 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
 
         # frase_activa: una línea por palabra, con la frase entera visible y
         # solo esa palabra resaltada.
+        #
+        # La palabra activa entra con un rebote (crece, se pasa un poco del
+        # tamaño final y se asienta) en vez de saltar de golpe: es lo que
+        # hacen los canales del género, medido en ~130 ms. Con
+        # escala_activa=100 no hay nada que animar y se omite.
+        sobregiro = escala + max(2, (escala - 100) // 2)
+
+        def animacion(dur_seg):
+            """El rebote se comprime para caber en la palabra. En español hay
+            muchísimas palabras cortas ('mi', 'de', 'que') que duran menos que
+            la animación completa; sin esto se quedarían congeladas a medio
+            crecer, que es justo lo que se nota como mal hecho."""
+            if escala <= 100:
+                return ""
+            ms = max(40, int(dur_seg * 1000))
+            t1 = min(70, int(ms * 0.5))
+            t2 = min(140, ms)
+            return (
+                f"\\fscx100\\fscy100"
+                f"\\t(0,{t1},\\fscx{sobregiro}\\fscy{sobregiro})"
+                f"\\t({t1},{t2},\\fscx{escala}\\fscy{escala})"
+            )
+
         for i, activa in enumerate(grupo):
             partes = []
+            anim = animacion(activa["duracion"])
             for j, p in enumerate(grupo):
                 palabra = _texto_palabra(p, subs)
                 if j == i:
                     partes.append(
-                        f"{{\\c{c_activo}\\fscx{escala}\\fscy{escala}}}{palabra}"
+                        f"{{\\c{c_activo}{anim}}}{palabra}"
                         f"{{\\c{c_texto}\\fscx100\\fscy100}}"
                     )
                 else:
