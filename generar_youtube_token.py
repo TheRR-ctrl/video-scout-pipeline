@@ -23,7 +23,10 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_CLIENT_SECRET = os.path.join(BASE_DIR, "client_secret.json")
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 
 
 def main():
