@@ -58,6 +58,90 @@ SUBTITULOS_DEFAULT = {
     "italica": True,
     # Cuánto crece la palabra que se está diciendo, en % (100 = sin crecer).
     "escala_activa": 112,
+    # Si trae más de un color, el resalte va rotando entre ellos en vez de
+    # usar siempre color_activo. Vacío = usar color_activo.
+    "colores_resalte": [],
+    # Con True, solo se pintan las palabras con carga (sustantivos, verbos):
+    # las de relleno ("que", "la", "de") se quedan del color del texto. Es lo
+    # que hace que el resalte se sienta como acento y no como un metrónomo.
+    "resaltar_solo_clave": False,
+    "min_letras_resalte": 4,
+}
+
+# Palabras que no aportan y por eso no se pintan cuando resaltar_solo_clave
+# está activo. No pretende ser exhaustivo: sobran las más frecuentes.
+PALABRAS_SIN_CARGA = {
+    "que", "de", "la", "el", "los", "las", "un", "una", "unos", "unas", "y", "o",
+    "a", "en", "con", "por", "para", "su", "sus", "mi", "mis", "tu", "tus", "se",
+    "lo", "le", "les", "me", "te", "nos", "es", "era", "fue", "ser", "al", "del",
+    "no", "si", "ya", "pero", "como", "cuando", "porque", "eso", "esa", "ese",
+    "esto", "esta", "este", "yo", "él", "ella", "ellos", "muy", "más", "ni",
+}
+
+# Presets: paquetes con nombre de los valores de arriba. La idea es no volver
+# a cambiar los defaults para probar un look — se agrega un preset y se elige,
+# así lo que ya te gusta sigue saliendo igual aunque se sumen opciones nuevas.
+#
+# Se eligen con config.json {"subtitulos": {"preset": "nombre"}} o, para una
+# sola corrida, con --estilo nombre. Lo que pongas suelto en "subtitulos"
+# pisa al preset, para poder tomar uno y cambiarle un detalle.
+PRESETS_SUBTITULOS = {
+    # Vacío a propósito: son los defaults tal cual, el look aprobado.
+    "actual": {},
+
+    "amarillo_clasico": {
+        "estilo": "relleno",
+        "color_texto": "#FFFFFF",
+        "color_activo": "#FFE14D",
+        "italica": False,
+        "escala_activa": 100,
+    },
+
+    "una_palabra": {
+        "estilo": "pop",
+        "fuente": "Montserrat Black",
+        "color_texto": "#FFFFFF",
+        "tamano_short": 96,
+        "tamano_largo": 120,
+    },
+
+    "sobrio": {
+        "estilo": "frase_activa",
+        "fuente": "Archivo Black",
+        "color_activo": "#FFFFFF",
+        "italica": False,
+        "escala_activa": 104,
+        "grosor_borde": 5,
+    },
+
+    "alto_contraste": {
+        "estilo": "frase_activa",
+        "fuente": "Bebas Neue",
+        "color_activo": "#FF3B30",
+        "tamano_short": 100,
+        "tamano_largo": 124,
+        "palabras_por_frase_short": 3,
+    },
+
+    # Los dos siguientes replican lo medido en los canales del género: la
+    # mayoría de las palabras en blanco y solo algunas pintadas, con el color
+    # rotando. El resalte se siente como acento, no como metrónomo.
+    "palabras_clave": {
+        "estilo": "pop",
+        "fuente": "Montserrat Black",
+        "tamano_short": 96,
+        "tamano_largo": 120,
+        "colores_resalte": ["#3BF07A", "#3BE0F0", "#FFE14D", "#FF6B6B"],
+        "resaltar_solo_clave": True,
+        "min_letras_resalte": 5,
+    },
+
+    "frase_palabras_clave": {
+        "estilo": "frase_activa",
+        "colores_resalte": ["#3BF07A", "#3BE0F0", "#FFE14D", "#FF6B6B"],
+        "resaltar_solo_clave": True,
+        "min_letras_resalte": 5,
+    },
 }
 
 CONFIG_DEFAULT = {
@@ -70,6 +154,11 @@ CONFIG_DEFAULT = {
     # La tarjeta de intro de los videos largos ocupa todo el cuadro en vez de
     # quedar como una tarjetita centrada.
     "tarjeta_intro_pantalla_completa_en_largos": True,
+    # Cómo se dibuja la tarjeta cuando NO hay tarjeta_plantilla.png:
+    #   "velo_oscuro"   - velo translúcido sobre el gameplay, título en blanco
+    #   "hoja_blanca"   - fondo blanco opaco, título en negro (el de antes)
+    # Con plantilla propia esto no aplica: manda tu imagen.
+    "tarjeta_intro_respaldo": "velo_oscuro",
     # Velo blanco encima del video de fondo, de 0.0 (nada) a 1.0. Estaba fijo
     # en 0.30, que lava el gameplay y deja todo lechoso; los canales del
     # género no lo usan (se apoyan en el contorno grueso del subtítulo para
@@ -77,20 +166,43 @@ CONFIG_DEFAULT = {
     "velo_blanco_fondo": 0.0,
 }
 
-def cargar_config(ruta="config.json"):
+def resolver_subtitulos(pedido, preset=None):
+    """Arma la configuración de subtítulos en cascada:
+
+        defaults  ->  preset  ->  lo que pusiste suelto en "subtitulos"
+
+    Así puedes tomar un preset y cambiarle un detalle sin copiar el resto, y
+    lo que ya funciona sigue igual aunque se agreguen presets nuevos.
+    """
+    pedido = dict(pedido or {})
+    nombre = preset or pedido.pop("preset", None) or "actual"
+    if nombre not in PRESETS_SUBTITULOS:
+        print(
+            f"⚠️ Preset de subtítulos desconocido: '{nombre}'. "
+            f"Disponibles: {', '.join(PRESETS_SUBTITULOS)}. Se usa 'actual'."
+        )
+        nombre = "actual"
+
+    subs = dict(SUBTITULOS_DEFAULT)
+    subs.update(PRESETS_SUBTITULOS[nombre])
+    pedido.pop("preset", None)
+    subs.update(pedido)
+    subs["preset"] = nombre
+    return subs
+
+
+def cargar_config(ruta="config.json", preset=None):
     cfg = dict(CONFIG_DEFAULT)
+    usuario_subs = {}
     if os.path.exists(ruta):
         try:
             with open(ruta, "r", encoding="utf-8") as f:
                 usuario = json.load(f)
-            # "subtitulos" se mezcla en vez de reemplazarse, para poder
-            # cambiar solo una clave (p.ej. la fuente) sin repetir el resto.
-            subs = dict(SUBTITULOS_DEFAULT)
-            subs.update(usuario.pop("subtitulos", {}) or {})
+            usuario_subs = usuario.pop("subtitulos", {}) or {}
             cfg.update(usuario)
-            cfg["subtitulos"] = subs
         except Exception as exc:
             print(f"⚠️ No se pudo leer {ruta}, usando valores por defecto: {exc}")
+    cfg["subtitulos"] = resolver_subtitulos(usuario_subs, preset)
     return cfg
 
 CONFIG = cargar_config()
@@ -586,12 +698,20 @@ def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_sho
         pantalla_completa = (not es_short) and CONFIG.get("tarjeta_intro_pantalla_completa_en_largos", True)
         titulo_mayus = titulo.upper()
 
+        velo = CONFIG.get("tarjeta_intro_respaldo", "velo_oscuro") == "velo_oscuro"
+
         if pantalla_completa:
             # A pantalla completa, una tarjeta blanca opaca tapa el gameplay
             # entero y se lee como una hoja en blanco, no como una intro. Un
             # velo oscuro con el título en blanco encima deja ver el fondo y
-            # se lee como portada.
-            draw.rectangle([0, 0, ancho, alto], fill=(10, 13, 18, 205))
+            # se lee como portada. "hoja_blanca" conserva el comportamiento
+            # anterior para quien lo prefiera.
+            if velo:
+                draw.rectangle([0, 0, ancho, alto], fill=(10, 13, 18, 205))
+                color_texto, color_borde = (255, 255, 255), (0, 0, 0)
+            else:
+                draw.rectangle([0, 0, ancho, alto], fill=(255, 255, 255, 250))
+                color_texto, color_borde = (0, 0, 0), (255, 255, 255)
             chars_linea = max(28, int(len(titulo_mayus) / 3.2))
             lineas_wrap = textwrap.wrap(titulo_mayus, width=chars_linea)
 
@@ -613,8 +733,8 @@ def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_sho
             font_tit = obtener_fuente_bold(font_size)
             draw.multiline_text(
                 (ancho // 2, alto // 2), "\n".join(lineas_wrap),
-                fill=(255, 255, 255), font=font_tit, anchor="mm", align="center",
-                spacing=18, stroke_width=6, stroke_fill=(0, 0, 0),
+                fill=color_texto, font=font_tit, anchor="mm", align="center",
+                spacing=18, stroke_width=6 if velo else 0, stroke_fill=color_borde,
             )
         else:
             card_w = int(ancho * 0.88)
@@ -647,12 +767,39 @@ def _color_ass(hex_rgb):
 
 
 def _cfg_subs():
+    # CONFIG["subtitulos"] ya viene resuelto por cargar_config (defaults ->
+    # preset -> lo puesto a mano); aquí solo se valida el estilo.
     subs = dict(SUBTITULOS_DEFAULT)
     subs.update(CONFIG.get("subtitulos", {}) or {})
     if subs.get("estilo") not in ESTILOS_SUBTITULOS:
         logger.warning(f"Estilo de subtítulo desconocido '{subs.get('estilo')}'; se usa 'frase_activa'.")
         subs["estilo"] = "frase_activa"
     return subs
+
+
+def listar_estilos():
+    """Muestra los presets disponibles y en qué se diferencian del actual."""
+    activo = (CONFIG.get("subtitulos") or {}).get("preset", "actual")
+    print(f"\nPresets de subtítulos (activo: {activo})\n")
+    for nombre, cambios in PRESETS_SUBTITULOS.items():
+        marca = "→" if nombre == activo else " "
+        resuelto = resolver_subtitulos({}, nombre)
+        print(f" {marca} {nombre}")
+        print(
+            f"     {resuelto['estilo']}, {resuelto['fuente']}"
+            f"{', itálica' if resuelto['italica'] else ''}"
+            f", activa {resuelto['color_activo']}"
+        )
+        if cambios:
+            print(f"     cambia: {', '.join(sorted(cambios))}")
+        else:
+            print("     (los valores por defecto — el look actual)")
+    print(
+        "\nPara probar uno sin tocar nada:\n"
+        "  python generar_video_maestro.py --estilo amarillo_clasico --historias 1\n"
+        "Para dejarlo fijo, en config.json:\n"
+        '  {"subtitulos": {"preset": "amarillo_clasico"}}\n'
+    )
 
 
 def _header_ass(es_short):
@@ -706,6 +853,47 @@ def _texto_palabra(p, subs):
     return t.upper() if subs["mayusculas"] else t
 
 
+def _tiene_carga(palabra):
+    """¿Vale la pena pintar esta palabra? Se descartan las de relleno y las
+    muy cortas, que al resaltarse hacen que el efecto parezca un metrónomo
+    en vez de un acento."""
+    limpia = re.sub(r"[^\wáéíóúñü]", "", palabra.lower())
+    return bool(limpia) and limpia not in PALABRAS_SIN_CARGA
+
+
+def _colores_resalte(subs):
+    """Lista de colores ASS por los que rota el resalte."""
+    paleta = subs.get("colores_resalte") or [subs["color_activo"]]
+    return [_color_ass(c) for c in paleta]
+
+
+def _plan_resalte(palabras, subs):
+    """Decide, para cada palabra, si se pinta y de qué color.
+
+    Devuelve una lista paralela a `palabras` con el color ASS a usar, o None
+    si esa palabra no se resalta. El contador de rotación solo avanza con las
+    palabras que sí se pintan, para que la secuencia de colores se vea
+    deliberada y no dependa de cuántas palabras vacías haya en medio.
+    """
+    paleta = _colores_resalte(subs)
+    solo_clave = bool(subs.get("resaltar_solo_clave"))
+    min_letras = int(subs.get("min_letras_resalte", 0) or 0)
+
+    plan, i = [], 0
+    for p in palabras:
+        texto = p["texto"]
+        pintar = True
+        if solo_clave:
+            limpia = re.sub(r"[^\wáéíóúñü]", "", texto)
+            pintar = _tiene_carga(texto) and len(limpia) >= min_letras
+        if pintar:
+            plan.append(paleta[i % len(paleta)])
+            i += 1
+        else:
+            plan.append(None)
+    return plan
+
+
 def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, es_short=True):
     """Arma el .ass de karaoke a partir del timing REAL por palabra que
     reporta edge-tts (evento WordBoundary), no de un SRT por oración
@@ -730,8 +918,16 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
         return
 
     c_texto = _color_ass(subs["color_texto"])
-    c_activo = _color_ass(subs["color_activo"])
     escala = max(100, int(subs["escala_activa"]))
+
+    # Color de resalte por palabra: puede rotar entre varios y puede no
+    # aplicarse a las palabras de relleno (ver _plan_resalte). Indexado por
+    # posición en la lista original, para que grupos y palabras coincidan.
+    plan = _plan_resalte(palabras, subs)
+    indice_de = {id(p): i for i, p in enumerate(palabras)}
+
+    def color_de(p):
+        return plan[indice_de[id(p)]]
 
     def t_abs(seg):
         return timedelta(seconds=duracion_intro_sec + seg)
@@ -776,8 +972,10 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
             for p in grupo:
                 # \t(0,90,...) anima al entrar: arranca al 70% y llega al 100%
                 # en 90 ms, que es el rebote que se ve en los videos de hoy.
+                col = color_de(p)
+                pintura = f"\\c{col}" if col else f"\\c{c_texto}"
                 texto = (
-                    f"{{\\fscx70\\fscy70\\t(0,90,\\fscx{escala}\\fscy{escala})"
+                    f"{{{pintura}\\fscx70\\fscy70\\t(0,90,\\fscx{escala}\\fscy{escala})"
                     f"\\t(90,170,\\fscx100\\fscy100)}}{_texto_palabra(p, subs)}"
                 )
                 emitir(t_abs(p["inicio"]), t_abs(p["inicio"] + p["duracion"]), texto)
@@ -814,10 +1012,18 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
             for j, p in enumerate(grupo):
                 palabra = _texto_palabra(p, subs)
                 if j == i:
-                    partes.append(
-                        f"{{\\c{c_activo}{anim}}}{palabra}"
-                        f"{{\\c{c_texto}\\fscx100\\fscy100}}"
-                    )
+                    col = color_de(p)
+                    if col:
+                        partes.append(
+                            f"{{\\c{col}{anim}}}{palabra}"
+                            f"{{\\c{c_texto}\\fscx100\\fscy100}}"
+                        )
+                    else:
+                        # Palabra sin carga: no se pinta, pero sí crece, para
+                        # no perder de vista dónde va la narración.
+                        partes.append(
+                            f"{{{anim}}}{palabra}{{\\fscx100\\fscy100}}"
+                        )
                 else:
                     partes.append(palabra)
 
@@ -1399,7 +1605,23 @@ if __name__ == "__main__":
         "--historias",
         help="Cuáles renderizar: '1', '1,3,5' o '2-6' (combinables). Por defecto, todas.",
     )
+    parser.add_argument("--estilos", action="store_true", help="Listar los presets de subtítulos.")
+    parser.add_argument(
+        "--estilo",
+        help="Preset de subtítulos para esta corrida, sin tocar config.json.",
+    )
     args = parser.parse_args()
+
+    # --estilo aplica solo a esta corrida: se recarga la config con el preset
+    # pedido y se refrescan los globales que ya la habían leído al importar.
+    if args.estilo:
+        CONFIG = cargar_config(preset=args.estilo)
+        CARPETA_SALIDA = CONFIG["carpeta_salida"]
+        DURACION_MAX_SHORT_SEC = CONFIG["duracion_max_short_sec"]
+
+    if args.estilos:
+        listar_estilos()
+        sys.exit(0)
 
     if args.listar:
         listar_historias(args.guion)
