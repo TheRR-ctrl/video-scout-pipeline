@@ -5,6 +5,7 @@ import time
 import json
 import shutil
 import random
+import asyncio
 import logging
 import hashlib
 import threading
@@ -14,6 +15,11 @@ import tempfile
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
+
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
 
 # ---------------------------------------------------------
 # CONFIGURACIÓN GLOBAL Y VARIABLES DE ESTADO
@@ -485,10 +491,46 @@ def format_ass_time(td):
     ts = int(td.total_seconds())
     return f"{ts // 3600}:{(ts % 3600) // 60:02d}:{ts % 60:02d}.{int(td.microseconds / 10000):02d}"
 
-def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True):
+def _header_ass(es_short):
     font_size, PlayResX, PlayResY, palabras_por_grupo = (92, 1080, 1920, 1) if es_short else (120, 1920, 1080, 2)
-    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H00FFFFFF&,&H00FFFFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-    
+    header = f"[Script Info]\nScriptType: v4.00+\nPlayResX: {PlayResX}\nPlayResY: {PlayResY}\n\n[V4+ Styles]\nFormat: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\nStyle: Karaoke,Montserrat Black,{font_size},&H0000FFFF&,&H0000FFFF&,&H00000000&,&H80000000&,1,0,0,0,100,100,0,0,1,6,2,5,0,0,0,1\n\n[Events]\nFormat: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+    return header, palabras_por_grupo
+
+
+def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, es_short=True):
+    """Arma el .ass de karaoke a partir del timing REAL por palabra que
+    reporta edge-tts (evento WordBoundary), no de un SRT por oración
+    repartido en partes iguales — eso causaba el desfase progresivo que se
+    notaba sobre todo en oraciones largas."""
+    header, palabras_por_grupo = _header_ass(es_short)
+    lineas_ass = [header]
+
+    if not palabras:
+        with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
+        return
+
+    grupos = [palabras[i:i + palabras_por_grupo] for i in range(0, len(palabras), palabras_por_grupo)]
+    for grupo in grupos:
+        t_inicio = timedelta(seconds=duracion_intro_sec + grupo[0]["inicio"])
+        t_fin = timedelta(seconds=duracion_intro_sec + grupo[-1]["inicio"] + grupo[-1]["duracion"])
+        if (t_fin - t_inicio).total_seconds() <= 0:
+            continue
+
+        texto_karaoke = "".join(
+            f"{{\\k{max(6, int(p['duracion'] * 100))}}}{p['texto'].upper()} " for p in grupo
+        )
+        lineas_ass.append(f"Dialogue: 0,{format_ass_time(t_inicio)},{format_ass_time(t_fin)},Karaoke,,0,0,0,,{texto_karaoke.strip()}\n")
+
+    with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
+
+
+def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True):
+    """Respaldo si no se pudo capturar el timing real por palabra (ver
+    convertir_timing_a_karaoke_ass): reparte cada bloque del SRT (por
+    oración) en partes iguales entre sus palabras — aproximado, con algo
+    de desfase en oraciones largas, pero mejor que nada."""
+    header, palabras_por_grupo = _header_ass(es_short)
+
     if not os.path.exists(srt_in_path):
         with open(ass_out_path, 'w', encoding='utf-8') as f: f.write(header)
         return
@@ -520,6 +562,66 @@ def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, e
             t_act = t_sig
 
     with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
+
+
+def generar_cuerpo_con_mejor_timing(t_cue, v_cue, p_cue, r_cue, a_cue, s_raw):
+    """Genera el audio de la narración intentando primero el timing real por
+    palabra (ver generar_audio_con_timing); si falla o sale sospechosamente
+    corto, cae al flujo viejo (CLI + SRT). Devuelve (ok, palabras) — palabras
+    es None cuando se usó el flujo de respaldo por SRT."""
+    with open(t_cue, "r", encoding="utf-8") as f:
+        texto_plano = f.read()
+    duracion_minima_esperada = len(texto_plano.split()) / 6.0
+
+    palabras = generar_audio_con_timing(texto_plano, v_cue, p_cue, r_cue, a_cue)
+    if palabras:
+        duracion_hablada = palabras[-1]["inicio"] + palabras[-1]["duracion"]
+        if duracion_hablada >= duracion_minima_esperada:
+            return True, palabras
+        logger.warning("Audio con timing preciso salió sospechosamente corto; se usa el flujo por SRT en su lugar.")
+
+    ok = generar_audio(t_cue, v_cue, p_cue, r_cue, a_cue, s_raw)
+    return ok, None
+
+
+async def _sintetizar_con_timing_async(texto, voz, pitch, rate, audio_out):
+    # boundary='WordBoundary' es obligatorio: por defecto Communicate() usa
+    # 'SentenceBoundary', que es justo el nivel de detalle que queremos evitar.
+    comunicador = edge_tts.Communicate(texto, voice=voz, rate=rate, pitch=pitch, boundary="WordBoundary")
+    palabras = []
+    with open(audio_out, "wb") as f:
+        async for trozo in comunicador.stream():
+            if trozo["type"] == "audio":
+                f.write(trozo["data"])
+            elif trozo["type"] == "WordBoundary":
+                palabras.append({
+                    "texto": trozo["text"],
+                    "inicio": trozo["offset"] / 10_000_000.0,   # 100ns -> segundos
+                    "duracion": trozo["duration"] / 10_000_000.0,
+                })
+    return palabras
+
+
+def generar_audio_con_timing(texto_plano, voz, pitch, rate, audio_out):
+    """Como generar_audio, pero usando la librería de edge-tts directamente
+    en vez del comando de consola: así se captura el timing real por
+    palabra (evento WordBoundary) que el CLI no expone bien vía --write-subtitles.
+    Devuelve la lista de palabras con su timing, o None si falló (en cuyo
+    caso el llamador debe caer al flujo viejo basado en SRT)."""
+    if edge_tts is None:
+        return None
+    for intento in range(2):
+        try:
+            if os.path.exists(audio_out):
+                os.remove(audio_out)
+            palabras = asyncio.run(_sintetizar_con_timing_async(texto_plano, voz, pitch, rate, audio_out))
+            if archivo_valido(audio_out) and palabras:
+                return palabras
+        except Exception as exc:
+            logger.warning(f"Fallo generando audio con timing preciso (intento {intento + 1}/2): {exc}")
+        time.sleep(1)
+    return None
+
 
 def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
     """Genera TTS con reintentos y nunca reporta éxito si no hay archivo válido."""
@@ -594,20 +696,30 @@ def renderizar_una_historia(contenido, num=1):
         # FASE 1: TTS
         txt_loc = " ├─ 🎙️ [1/4] Loc:"
         with ThreadPoolExecutor(max_workers=2) as ex:
-            futs = [ex.submit(generar_audio, t_tit, v_tit, "+0Hz", "+15%", a_tit, s_dum), ex.submit(generar_audio, t_cue, v_cue, p_cue, r_cue, a_cue, s_raw)]
+            fut_tit = ex.submit(generar_audio, t_tit, v_tit, "+0Hz", "+15%", a_tit, s_dum)
+            fut_cue = ex.submit(generar_cuerpo_con_mejor_timing, t_cue, v_cue, p_cue, r_cue, a_cue, s_raw)
+            futs = [fut_tit, fut_cue]
             while not all(f.done() for f in futs):
                 pct = (sum(1 for f in futs if f.done())/2)*100
                 bl = int(anch * pct / 100)
                 actualizar_hud([f"{txt_loc} [{pct:5.1f}%] [{'█'*bl}{' '*(anch-bl)}]"])
                 time.sleep(0.5)
+
         errores_tts = []
-        for fut, etiqueta in zip(futs, ("título", "narración")):
-            try:
-                ok = fut.result()
-            except Exception:
-                ok = False
-            if not ok:
-                errores_tts.append(etiqueta)
+        try:
+            ok_tit = fut_tit.result()
+        except Exception:
+            ok_tit = False
+        if not ok_tit:
+            errores_tts.append("título")
+
+        palabras_cuerpo = None
+        try:
+            ok_cue, palabras_cuerpo = fut_cue.result()
+        except Exception:
+            ok_cue = False
+        if not ok_cue:
+            errores_tts.append("narración")
 
         if errores_tts:
             actualizar_hud(
@@ -653,7 +765,10 @@ def renderizar_una_historia(contenido, num=1):
         
         act_gra(66.6)
         s_ass = gestor.registrar(f"s_ass_{num}.ass")
-        convertir_srt_a_karaoke_ass(s_raw, s_ass, d_tit, es_short)
+        if palabras_cuerpo:
+            convertir_timing_a_karaoke_ass(palabras_cuerpo, s_ass, d_tit, es_short)
+        else:
+            convertir_srt_a_karaoke_ass(s_raw, s_ass, d_tit, es_short)
         act_gra(100.0)
         actualizar_hud([f"{txt_gra} [100.0%] [{'█'*anch}]"], True)
 
