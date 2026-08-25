@@ -29,7 +29,13 @@ import threading
 import unicodedata
 from datetime import datetime, timezone
 
-from flask import Flask, Response, request, jsonify, send_file, abort
+try:
+    from flask import Flask, Response, request, jsonify, send_file, abort
+except ImportError:
+    raise SystemExit(
+        "\nFalta Flask, que es lo único que este panel necesita aparte del pipeline.\n"
+        "Instálalo con:\n\n    pip install flask\n"
+    )
 
 import secretos  # carga secretos.env si las claves no están en el entorno
 
@@ -38,6 +44,8 @@ WEB_DIR = os.path.join(BASE_DIR, "web")
 CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
 RUTA_CONFIG = os.path.join(BASE_DIR, "config.json")
+
+ES_TERMUX = "PREFIX" in os.environ or os.path.exists("/sdcard")
 
 app = Flask(__name__, static_folder=None)
 
@@ -475,11 +483,53 @@ def main():
         help="Por defecto solo este dispositivo. 0.0.0.0 lo abre a la red local "
              "— el panel ejecuta comandos, así que hazlo solo si sabes lo que implica.",
     )
+    parser.add_argument("--sin-wakelock", action="store_true",
+                        help="No pedir el wake lock de Termux al arrancar.")
     args = parser.parse_args()
 
+    # Android suspende los procesos en segundo plano. Al cambiar de Termux a
+    # Chrome el servidor se congela y el navegador ve "conexión rechazada",
+    # que es exactamente el síntoma que hay que evitar aquí: el panel solo
+    # sirve si sigue vivo mientras miras otra app. El wake lock lo impide.
+    import socket
+    with socket.socket() as s_prueba:
+        s_prueba.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            s_prueba.bind((args.host, args.puerto))
+        except OSError:
+            raise SystemExit(
+                f"\nEl puerto {args.puerto} ya está ocupado — probablemente por otro\n"
+                f"panel que quedó corriendo. Ciérralo con:\n\n"
+                f"    pkill -f servidor.py\n\n"
+                f"o usa otro puerto:  python servidor.py --puerto 8771\n"
+            )
+
+    wakelock = False
+    if not args.sin_wakelock and shutil.which("termux-wake-lock"):
+        try:
+            subprocess.run(["termux-wake-lock"], timeout=5, capture_output=True)
+            wakelock = True
+        except Exception:
+            pass
+
     print(f"\n  Panel listo en:  http://127.0.0.1:{args.puerto}")
-    print( "  Ábrelo en Chrome. Ctrl+C aquí para apagarlo.\n")
-    app.run(host=args.host, port=args.puerto, threaded=True)
+    print( "  Ábrelo en Chrome. Ctrl+C aquí para apagarlo.")
+    if wakelock:
+        print( "  Wake lock activo: Termux no se dormirá mientras esto corra.")
+    elif ES_TERMUX:
+        print( "  ⚠️  Sin termux-wake-lock (falta el paquete termux-api).")
+        print( "      Android puede congelar el servidor al cambiarte a Chrome.")
+        print( "      Instálalo con:  pkg install termux-api")
+    print()
+
+    try:
+        app.run(host=args.host, port=args.puerto, threaded=True)
+    finally:
+        if wakelock:
+            try:
+                subprocess.run(["termux-wake-unlock"], timeout=5, capture_output=True)
+            except Exception:
+                pass
 
 
 if __name__ == "__main__":
