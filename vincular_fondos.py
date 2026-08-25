@@ -74,6 +74,56 @@ def limpiar_enlaces_previos():
     return quitados
 
 
+def vincular_otros_assets(carpeta, copiar=False):
+    """Enlaza el resto del material que el renderizador espera encontrar en
+    la carpeta del repo: la plantilla de la tarjeta de intro, la música y los
+    efectos de sonido.
+
+    Es el mismo problema que con los videos: el código los busca por nombre
+    en el directorio donde se corre, así que si viven en tu carpeta de
+    descargas no los encuentra y usa los respaldos sin avisar.
+    """
+    patrones = [
+        # (patrón a buscar, nombre que debe tener en el repo o None = igual)
+        ("tarjeta_plantilla.png", None),
+        ("tarjeta_plantilla.jpg", None),
+        ("Tarjeta de inicio.png", None),
+        ("musica_*.mp3", None),
+        ("efecto_transicion*", None),
+    ]
+
+    hechos = 0
+    for patron, _ in patrones:
+        for origen in glob.glob(os.path.join(carpeta, patron)):
+            if not os.path.isfile(origen):
+                continue
+            destino = os.path.join(BASE_DIR, os.path.basename(origen))
+
+            # Si ya hay un archivo real ahí (no un enlace nuestro), no se toca:
+            # puede ser algo que pusiste a mano y sería una sorpresa perderlo.
+            if os.path.exists(destino) and not os.path.islink(destino):
+                print(f"  ya existe, se respeta: {os.path.basename(destino)}")
+                continue
+            if os.path.islink(destino):
+                os.unlink(destino)
+
+            try:
+                if copiar:
+                    shutil.copy2(origen, destino)
+                else:
+                    os.symlink(origen, destino)
+                hechos += 1
+                print(f"  {'copiado' if copiar else 'enlazado'}: {os.path.basename(origen)}")
+            except OSError as exc:
+                try:
+                    shutil.copy2(origen, destino)
+                    hechos += 1
+                    print(f"  copiado (no se pudo enlazar): {os.path.basename(origen)}")
+                except Exception as exc2:
+                    print(f"  ❌ {os.path.basename(origen)}: {exc2}")
+    return hechos
+
+
 def main():
     parser = argparse.ArgumentParser(description="Enlaza los videos de fondo al repo.")
     parser.add_argument("carpeta", nargs="?", default=CARPETA_POR_DEFECTO)
@@ -150,6 +200,19 @@ def main():
         print("  Cada corte se recodifica: en 4K puede tardar varias veces más que en 1080p.")
 
     if args.ver:
+        otros = []
+        for patron in ("tarjeta_plantilla.png", "tarjeta_plantilla.jpg",
+                       "Tarjeta de inicio.png", "musica_*.mp3", "efecto_transicion*"):
+            otros += [os.path.basename(f) for f in glob.glob(os.path.join(carpeta, patron))
+                      if os.path.isfile(f)]
+        if otros:
+            print(f"\n  Además se enlazarían {len(otros)} archivo(s):")
+            for n in otros[:12]:
+                print(f"    {n}")
+            if len(otros) > 12:
+                print(f"    ... y {len(otros) - 12} más")
+        else:
+            print("\n  No hay plantilla, música ni efectos en esa carpeta.")
         print("\n(--ver: no se creó nada)")
         return
 
@@ -179,6 +242,11 @@ def main():
 
     verbo = "copiado(s)" if args.copiar else "enlazado(s)"
     print(f"\n✅ {creados} video(s) {verbo} en la carpeta del repo.")
+
+    otros = vincular_otros_assets(carpeta, args.copiar)
+    if otros:
+        print(f"✅ {otros} archivo(s) más {verbo} (plantilla, música, efectos).")
+
     print("   Comprueba con:  python estado.py")
 
 
