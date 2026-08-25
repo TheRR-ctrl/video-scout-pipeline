@@ -60,12 +60,12 @@ SUBTITULOS_DEFAULT = {
     "escala_activa": 112,
     # Si trae más de un color, el resalte va rotando entre ellos en vez de
     # usar siempre color_activo. Vacío = usar color_activo.
-    "colores_resalte": [],
+    "colores_resalte": ["#3BF07A", "#3BE0F0", "#FFE14D", "#FF6B6B"],
     # Con True, solo se pintan las palabras con carga (sustantivos, verbos):
     # las de relleno ("que", "la", "de") se quedan del color del texto. Es lo
     # que hace que el resalte se sienta como acento y no como un metrónomo.
-    "resaltar_solo_clave": False,
-    "min_letras_resalte": 4,
+    "resaltar_solo_clave": True,
+    "min_letras_resalte": 5,
 }
 
 # Palabras que no aportan y por eso no se pintan cuando resaltar_solo_clave
@@ -86,8 +86,18 @@ PALABRAS_SIN_CARGA = {
 # sola corrida, con --estilo nombre. Lo que pongas suelto en "subtitulos"
 # pisa al preset, para poder tomar uno y cambiarle un detalle.
 PRESETS_SUBTITULOS = {
-    # Vacío a propósito: son los defaults tal cual, el look aprobado.
-    "actual": {},
+    # Vacío a propósito: son los defaults tal cual.
+    # Frase completa legible, y solo las palabras con carga se pintan, con el
+    # color rotando — que es lo medido en los canales del género.
+    "predeterminado": {},
+
+    # El look del primer video renderizado: TODAS las palabras activas del
+    # mismo verde, sin rotación ni filtro de palabras vacías.
+    "verde_fijo": {
+        "colores_resalte": [],
+        "resaltar_solo_clave": False,
+        "color_activo": "#3BF07A",
+    },
 
     "amarillo_clasico": {
         "estilo": "relleno",
@@ -95,6 +105,10 @@ PRESETS_SUBTITULOS = {
         "color_activo": "#FFE14D",
         "italica": False,
         "escala_activa": 100,
+        # El karaoke por relleno se lee mal si el color va cambiando: lo que
+        # comunica es "esto ya se dijo", y eso pide un solo color.
+        "colores_resalte": [],
+        "resaltar_solo_clave": False,
     },
 
     "una_palabra": {
@@ -103,6 +117,9 @@ PRESETS_SUBTITULOS = {
         "color_texto": "#FFFFFF",
         "tamano_short": 96,
         "tamano_largo": 120,
+        # Una palabra a la vez, todas del mismo color (sin rotación).
+        "colores_resalte": [],
+        "resaltar_solo_clave": False,
     },
 
     "sobrio": {
@@ -112,6 +129,9 @@ PRESETS_SUBTITULOS = {
         "italica": False,
         "escala_activa": 104,
         "grosor_borde": 5,
+        # Sin color: la palabra activa solo crece. Lo más discreto.
+        "colores_resalte": [],
+        "resaltar_solo_clave": False,
     },
 
     "alto_contraste": {
@@ -121,26 +141,17 @@ PRESETS_SUBTITULOS = {
         "tamano_short": 100,
         "tamano_largo": 124,
         "palabras_por_frase_short": 3,
+        "colores_resalte": [],
+        "resaltar_solo_clave": False,
     },
 
-    # Los dos siguientes replican lo medido en los canales del género: la
-    # mayoría de las palabras en blanco y solo algunas pintadas, con el color
-    # rotando. El resalte se siente como acento, no como metrónomo.
+    # Igual que el predeterminado en el trato del color, pero con una sola
+    # palabra en pantalla: es el formato exacto del video de referencia.
     "palabras_clave": {
         "estilo": "pop",
         "fuente": "Montserrat Black",
         "tamano_short": 96,
         "tamano_largo": 120,
-        "colores_resalte": ["#3BF07A", "#3BE0F0", "#FFE14D", "#FF6B6B"],
-        "resaltar_solo_clave": True,
-        "min_letras_resalte": 5,
-    },
-
-    "frase_palabras_clave": {
-        "estilo": "frase_activa",
-        "colores_resalte": ["#3BF07A", "#3BE0F0", "#FFE14D", "#FF6B6B"],
-        "resaltar_solo_clave": True,
-        "min_letras_resalte": 5,
     },
 }
 
@@ -175,13 +186,13 @@ def resolver_subtitulos(pedido, preset=None):
     lo que ya funciona sigue igual aunque se agreguen presets nuevos.
     """
     pedido = dict(pedido or {})
-    nombre = preset or pedido.pop("preset", None) or "actual"
+    nombre = preset or pedido.pop("preset", None) or "predeterminado"
     if nombre not in PRESETS_SUBTITULOS:
         print(
             f"⚠️ Preset de subtítulos desconocido: '{nombre}'. "
-            f"Disponibles: {', '.join(PRESETS_SUBTITULOS)}. Se usa 'actual'."
+            f"Disponibles: {', '.join(PRESETS_SUBTITULOS)}. Se usa 'predeterminado'."
         )
-        nombre = "actual"
+        nombre = "predeterminado"
 
     subs = dict(SUBTITULOS_DEFAULT)
     subs.update(PRESETS_SUBTITULOS[nombre])
@@ -779,21 +790,29 @@ def _cfg_subs():
 
 def listar_estilos():
     """Muestra los presets disponibles y en qué se diferencian del actual."""
-    activo = (CONFIG.get("subtitulos") or {}).get("preset", "actual")
+    activo = (CONFIG.get("subtitulos") or {}).get("preset", "predeterminado")
     print(f"\nPresets de subtítulos (activo: {activo})\n")
     for nombre, cambios in PRESETS_SUBTITULOS.items():
         marca = "→" if nombre == activo else " "
-        resuelto = resolver_subtitulos({}, nombre)
-        print(f" {marca} {nombre}")
-        print(
-            f"     {resuelto['estilo']}, {resuelto['fuente']}"
-            f"{', itálica' if resuelto['italica'] else ''}"
-            f", activa {resuelto['color_activo']}"
-        )
-        if cambios:
-            print(f"     cambia: {', '.join(sorted(cambios))}")
+        r = resolver_subtitulos({}, nombre)
+        paleta = r.get("colores_resalte") or []
+
+        if len(paleta) > 1:
+            resalte = f"{len(paleta)} colores rotando ({', '.join(paleta)})"
         else:
-            print("     (los valores por defecto — el look actual)")
+            resalte = f"siempre {paleta[0] if paleta else r['color_activo']}"
+
+        cuales = (
+            f"solo palabras de {r['min_letras_resalte']}+ letras con carga"
+            if r.get("resaltar_solo_clave") else "todas las palabras"
+        )
+        cuantas = "1 palabra" if r["estilo"] == "pop" else f"{r['palabras_por_frase_largo']} palabras"
+
+        print(f" {marca} {nombre}")
+        print(f"     {cuantas} en pantalla · {r['fuente']}{', itálica' if r['italica'] else ''}")
+        print(f"     resalta {cuales}, {resalte}")
+        if not cambios:
+            print("     (los valores por defecto)")
     print(
         "\nPara probar uno sin tocar nada:\n"
         "  python generar_video_maestro.py --estilo amarillo_clasico --historias 1\n"
