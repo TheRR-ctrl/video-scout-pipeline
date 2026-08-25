@@ -18,6 +18,7 @@ Credenciales:
   - GEMINI_API_KEY como variable de entorno (gratis en https://aistudio.google.com/apikey).
 """
 import os
+import re
 import json
 import time
 import logging
@@ -87,7 +88,13 @@ CONFIG_DEFAULT = {
     "idioma": "es",
 }
 
-SCOPES = ["https://www.googleapis.com/auth/youtube.upload"]
+SCOPES = [
+    "https://www.googleapis.com/auth/youtube.upload",
+    # De solo lectura: para poder revisar si un video ya existe en el canal
+    # antes de subirlo (evita duplicados si pipeline_state/publicados.json
+    # se pierde o se corrompe).
+    "https://www.googleapis.com/auth/youtube.readonly",
+]
 MODEL = "gemini-3.5-flash-lite"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -239,6 +246,23 @@ def obtener_servicio_youtube():
     return build("youtube", "v3", credentials=creds)
 
 
+def buscar_video_existente_en_canal(servicio, titulo):
+    """Busca en el propio canal un video con este título exacto, para no
+    duplicar una subida si publicados.json se perdió o se corrompió (nuestro
+    único registro es local, no se sincroniza con YouTube de otra forma).
+    Devuelve el video_id si lo encuentra, o None."""
+    try:
+        resp = servicio.search().list(
+            part="snippet", forMine=True, type="video", q=titulo[:100], maxResults=5
+        ).execute()
+        for item in resp.get("items", []):
+            if item["snippet"]["title"] == titulo[:100]:
+                return item["id"]["videoId"]
+    except Exception as exc:
+        logger.warning(f"No se pudo verificar duplicados en YouTube ({exc}); se sube de todas formas.")
+    return None
+
+
 RUTA_ATRIBUCION_MUSICA = os.path.join(CARPETA_ESTADO, "musica_atribucion.json")
 
 
@@ -247,7 +271,13 @@ def construir_descripcion(metadata, video):
     fuente y aviso de adaptación con IA. Esto no depende del modelo (que puede
     olvidarlo) para cumplir con el requisito de transparencia de Reddit de no
     presentar contenido ajeno como propio."""
-    partes = [metadata["descripcion_youtube"]]
+    # Al inicio: YouTube solo muestra como "chips" clicables arriba del
+    # título los hashtags que detecta cerca del principio de la descripción
+    # (o en el título) — puestos al final, quedan como texto plano sin ese
+    # efecto. Se sanean espacios/símbolos, que igual los invalidarían.
+    hashtags_limpios = [re.sub(r"[^\w]", "", h) for h in metadata["hashtags"]]
+    hashtags_limpios = [h for h in hashtags_limpios if h][:6]
+    partes = [" ".join(f"#{h}" for h in hashtags_limpios), metadata["descripcion_youtube"]]
 
     fuente_url = video.get("fuente_url")
     autor = video.get("autor_original")
@@ -267,7 +297,6 @@ def construir_descripcion(metadata, video):
                 linea_musica += f" — {atribucion['pagina_jamendo']}"
             partes.append(linea_musica)
 
-    partes.append(" ".join(f"#{h}" for h in metadata["hashtags"]))
     return "\n\n".join(partes)
 
 
@@ -297,10 +326,46 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
     return respuesta["id"]
 
 
+DIAS_RETENCION_LOCAL = 7
+
+
+def limpiar_videos_locales_vencidos():
+    """Borra los .mp4 locales de videos que ya llevan DIAS_RETENCION_LOCAL
+    días subidos a YouTube — deja esa ventana a propósito para poder
+    subirlos a mano a TikTok u otras plataformas antes de que se borren."""
+    publicados = cargar_json(RUTA_PUBLICADOS, [])
+    ahora = datetime.now(timezone.utc)
+    cambios = False
+
+    for p in publicados:
+        if p.get("_borrado_local") or not p.get("subido_en"):
+            continue
+        try:
+            fecha_subida = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+
+        if ahora - fecha_subida >= timedelta(days=DIAS_RETENCION_LOCAL):
+            ruta = p["ruta"]
+            if os.path.exists(ruta):
+                try:
+                    os.remove(ruta)
+                    logger.info(f"🗑️  Borrado local (cumplió {DIAS_RETENCION_LOCAL} días subido): {os.path.basename(ruta)}")
+                except Exception as exc:
+                    logger.warning(f"No se pudo borrar {ruta}: {exc}")
+            p["_borrado_local"] = True
+            cambios = True
+
+    if cambios:
+        guardar_json(RUTA_PUBLICADOS, publicados)
+
+
 # ---------------------------------------------------------
 # ORQUESTACIÓN
 # ---------------------------------------------------------
 def main():
+    limpiar_videos_locales_vencidos()
+
     if not conectado_a_wifi():
         logger.info("Sin WiFi activo — se aplaza la subida a YouTube para no gastar datos móviles.")
         return
@@ -367,6 +432,23 @@ def main():
         if servicio_yt is None:
             servicio_yt = obtener_servicio_youtube()
 
+        video_id_existente = buscar_video_existente_en_canal(servicio_yt, metadata["titulo_youtube"][:100])
+        if video_id_existente:
+            logger.warning(
+                f"'{metadata['titulo_youtube']}' ya existe en el canal (video_id={video_id_existente}) — "
+                f"no se vuelve a subir. Registrando para no volver a evaluarlo."
+            )
+            publicados.append({
+                "ruta": ruta,
+                "video_id": video_id_existente,
+                "titulo_youtube": metadata["titulo_youtube"],
+                "publish_at": None,
+                "url_revision": f"https://studio.youtube.com/video/{video_id_existente}/edit",
+                "detectado_como_duplicado": True,
+            })
+            guardar_json(RUTA_PUBLICADOS, publicados)
+            continue
+
         publish_at = datetime.now(timezone.utc) + timedelta(hours=cfg["buffer_horas_revision"])
         publish_at_iso = publish_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
@@ -385,17 +467,13 @@ def main():
             "titulo_youtube": metadata["titulo_youtube"],
             "publish_at": publish_at_iso,
             "url_revision": f"https://studio.youtube.com/video/{video_id}/edit",
+            # Para el borrado retrasado (ver limpiar_videos_locales_vencidos):
+            # se conserva el archivo local unos días para poder subirlo a
+            # mano a TikTok antes de que se borre solo.
+            "subido_en": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
         })
         guardar_json(RUTA_PUBLICADOS, publicados)
         subidas_en_esta_corrida += 1
-
-        # Ya está respaldado en YouTube (aunque siga privado) — no hace falta
-        # seguir ocupando espacio en el teléfono con el archivo local.
-        try:
-            os.remove(ruta)
-            logger.info(f"🗑️  Borrado local: {os.path.basename(ruta)}")
-        except Exception as exc:
-            logger.warning(f"No se pudo borrar {ruta} tras subirlo: {exc}")
 
 
 if __name__ == "__main__":
