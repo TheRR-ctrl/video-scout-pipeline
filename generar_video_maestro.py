@@ -640,7 +640,13 @@ def extraer_fuente_y_autor(texto_raw):
     return fuente, autor
 
 def extraer_titulo_y_cuerpo(texto_raw):
-    es_fem = bool(re.search(r'g[é e]nero:\s*(femenino|mujer)', texto_raw, re.IGNORECASE))
+    # VOZ_FORZADA la pone --voz: sirve para rehacer un video con la otra voz
+    # sin tener que editar el "# Genero:" del guion a mano.
+    forzada = CONFIG.get("_voz_forzada")
+    if forzada in ("femenina", "masculina"):
+        es_fem = forzada == "femenina"
+    else:
+        es_fem = bool(re.search(r'g[é e]nero:\s*(femenino|mujer)', texto_raw, re.IGNORECASE))
     voz_tit, opciones_cue = ("es-MX-DaliaNeural", [("es-MX-DaliaNeural", p) for p in ["-6Hz", "-3Hz", "+0Hz", "+4Hz"]] + [("es-US-PalomaNeural", "+0Hz")]) if es_fem else ("es-MX-JorgeNeural", [("es-MX-JorgeNeural", p) for p in ["-8Hz", "-4Hz", "+0Hz", "+4Hz"]] + [("es-US-AlonsoNeural", "+0Hz")])
     voz_cue, pitch_cue = random.choice(opciones_cue)
 
@@ -1428,6 +1434,8 @@ def renderizar_una_historia(contenido, num=1):
         # producía el amix de dos entradas con normalización).
         partes_audio, etiquetas = [], []
         partes_audio.append(f"[{idx['loc']}:a]volume=0.5[av]"); etiquetas.append("[av]")
+        # (la etiqueta final se decide abajo: con una sola pista no hay que
+        # mezclar, y encadenar algo después de [av] sería inválido)
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
             partes_audio.append(
@@ -1444,7 +1452,11 @@ def renderizar_una_historia(contenido, num=1):
             etiquetas.append("[asfx]")
 
         if len(etiquetas) == 1:
-            fc = f"{video_fc};{partes_audio[0]},anull[aout]"
+            # Sin música ni efecto no hay nada que mezclar: la locución se
+            # etiqueta directamente como salida. Encadenar ",anull[aout]"
+            # después de "[av]" produce un filtro inválido ("Cannot find a
+            # matching stream for unlabeled input pad").
+            fc = f"{video_fc};[{idx['loc']}:a]volume=0.5[aout]"
         else:
             fc = (
                 f"{video_fc};" + ";".join(partes_audio) + ";"
@@ -1711,6 +1723,14 @@ if __name__ == "__main__":
     )
     parser.add_argument("--estilos", action="store_true", help="Listar los presets de subtítulos.")
     parser.add_argument(
+        "--rehacer", action="store_true",
+        help="Volver a renderizar aunque el archivo ya exista (si no, se omite).",
+    )
+    parser.add_argument(
+        "--voz", choices=["masculina", "femenina"],
+        help="Forzar la voz, ignorando el '# Genero:' del guion.",
+    )
+    parser.add_argument(
         "--estilo",
         help="Preset de subtítulos para esta corrida, sin tocar config.json.",
     )
@@ -1741,5 +1761,12 @@ if __name__ == "__main__":
             seleccion = parsear_seleccion(args.historias, total)
         except ValueError as exc:
             sys.exit(f"❌ {exc}")
+
+    # Rehacer implica reemplazar el archivo existente; si no, el render se
+    # salta la historia y el botón "Rehacer" no haría nada.
+    if args.rehacer:
+        CONFIG["reintentar_existentes"] = True
+    if args.voz:
+        CONFIG["_voz_forzada"] = args.voz
 
     renderizar_lote_historias(args.guion, seleccion)

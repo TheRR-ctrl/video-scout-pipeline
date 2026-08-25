@@ -316,11 +316,20 @@ ACCIONES = {
 @app.post("/api/ejecutar/<accion>")
 def api_ejecutar(accion):
     if accion == "renderizar":
-        sel = (request.json or {}).get("historias") or ""
+        d = request.json or {}
+        sel = d.get("historias") or ""
         cmd = [sys.executable, "generar_video_maestro.py"]
         if sel:
             cmd += ["--historias", str(sel)]
-        t, err = lanzar("Renderizando", cmd)
+        # Rehacer reemplaza el archivo; sin esto el render se salta la
+        # historia por existir ya, y el botón no haría nada.
+        if d.get("rehacer"):
+            cmd += ["--rehacer"]
+        if d.get("voz") in ("masculina", "femenina"):
+            cmd += ["--voz", d["voz"]]
+        if d.get("estilo"):
+            cmd += ["--estilo", str(d["estilo"])]
+        t, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando", cmd)
     elif accion in ACCIONES:
         nombre, cmd = ACCIONES[accion]
         t, err = lanzar(nombre, cmd)

@@ -272,12 +272,61 @@ function pintaRevisar(){
           text-transform:uppercase;letter-spacing:.09em;display:block;margin-bottom:5px">Narración</b>${esc(a.cuerpo).slice(0,700)}${a.cuerpo.length>700?'…':''}</div>
         <div style="display:flex;gap:7px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line-soft)">
           <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar pendientes</button>
-          <button class="btn" onclick="ejecutar('renderizar',{historias:'${a.numero||''}'})">↺ Rehacer este</button>
+          <button class="btn" id="b-rehacer">↺ Rehacer este</button>
         </div>
         <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
+
+        <div class="card" id="panel-rehacer" style="display:none;background:var(--surface-2);padding:13px">
+          <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+             color:var(--ink-faint);display:block;margin-bottom:9px">Al rehacer</b>
+          <div class="muted" style="margin-bottom:10px">
+            La música, los cortes del fondo y el tono de la voz ya cambian solos en cada render.
+            Aquí eliges lo que no es al azar:</div>
+
+          <div style="display:flex;flex-direction:column;gap:9px">
+            <label style="display:flex;align-items:center;gap:9px;font-size:13px">
+              <span style="width:96px;color:var(--ink-dim)">Voz</span>
+              <select id="r-voz" class="btn sm" style="flex-grow:1;color:var(--ink)">
+                <option value="">la del guion</option>
+                <option value="masculina">masculina (Jorge)</option>
+                <option value="femenina">femenina (Dalia)</option>
+              </select>
+            </label>
+            <label style="display:flex;align-items:center;gap:9px;font-size:13px">
+              <span style="width:96px;color:var(--ink-dim)">Subtítulos</span>
+              <select id="r-estilo" class="btn sm" style="flex-grow:1;color:var(--ink)">
+                <option value="">el configurado</option>
+                ${E.presets.map(p=>`<option value="${p}">${p}</option>`).join('')}
+              </select>
+            </label>
+          </div>
+
+          <div style="display:flex;gap:7px;margin-top:12px">
+            <button class="btn go" id="b-rehacer-ya">↺ Rehacer ahora</button>
+            <button class="btn" id="b-rehacer-no">Cancelar</button>
+          </div>
+          <div class="muted" style="margin-top:9px">Reemplaza el archivo actual. Tarda lo mismo que un render normal.</div>
+        </div>
       </div>
     </div>`;
   cont.querySelectorAll('.th').forEach(t => t.onclick = ()=>{ elegido = +t.dataset.i; pintaRevisar(); });
+
+  const pr = $('#panel-rehacer');
+  $('#b-rehacer').onclick = ()=>{
+    const abierto = pr.style.display !== 'none';
+    pr.style.display = abierto ? 'none' : 'block';
+    if(!abierto) pr.scrollIntoView({behavior:'smooth', block:'nearest'});
+  };
+  $('#b-rehacer-no').onclick = ()=>{ pr.style.display='none'; };
+  $('#b-rehacer-ya').onclick = ()=>{
+    ejecutar('renderizar', {
+      historias: String(a.numero||''),
+      rehacer: true,
+      voz: $('#r-voz').value,
+      estilo: $('#r-estilo').value,
+    });
+    pr.style.display='none';
+  };
 }
 
 /* ---------- cola ---------- */
