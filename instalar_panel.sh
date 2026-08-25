@@ -79,8 +79,13 @@ echo "      panel"
 echo
 echo "  (abre Chrome solo; se apaga cuando cierras la pestaña)"
 echo
-echo "  Para tenerlo en la pantalla de inicio: instala Termux:Widget desde"
-echo "  F-Droid y agrega su widget; ahí aparecerá '🎬 Panel de videos'."
+echo "  Para tenerlo en la pantalla de inicio, dos formas que se complementan:"
+echo
+echo "   1. Termux:Widget (F-Droid): un toque arranca el servidor y abre"
+echo "      Chrome. El atajo '🎬 Panel de videos' ya quedó creado."
+echo
+echo "   2. Con el panel abierto: menú ⋮ > Agregar a pantalla de inicio."
+echo "      Queda con icono propio y sin barra de navegador."
 echo
 echo "  Funciona ya, en esta misma terminal."
 echo

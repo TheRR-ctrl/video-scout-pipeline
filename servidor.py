@@ -520,6 +520,33 @@ def vigilante(margen):
     os.kill(os.getpid(), signal.SIGINT)
 
 
+@app.get("/manifest.webmanifest")
+def api_manifest():
+    """Permite instalar el panel desde Chrome ("Agregar a pantalla de
+    inicio"): queda con su propio icono y abre sin barra de navegador."""
+    return jsonify({
+        "name": "Mesa de Revisión",
+        "short_name": "Mesa",
+        "start_url": "/",
+        "display": "standalone",
+        "background_color": "#12151a",
+        "theme_color": "#12151a",
+        "icons": [
+            {"src": "/icono-192.png", "sizes": "192x192", "type": "image/png"},
+            {"src": "/icono-512.png", "sizes": "512x512", "type": "image/png",
+             "purpose": "any maskable"},
+        ],
+    })
+
+
+@app.get("/icono-<int:tam>.png")
+def api_icono(tam):
+    ruta = os.path.join(WEB_DIR, f"icono-{tam}.png")
+    if not os.path.exists(ruta):
+        abort(404)
+    return send_file(ruta, mimetype="image/png")
+
+
 @app.get("/")
 def index():
     ruta = os.path.join(WEB_DIR, "index.html")
