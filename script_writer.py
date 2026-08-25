@@ -49,8 +49,16 @@ SCHEMA_HISTORIA = {
             "type": "string",
             "description": "Historia reescrita en primera persona, narrativa, ritmo natural para narración en voz alta, cerrando con un gancho para comentarios.",
         },
+        "cierre": {
+            "type": "string",
+            "description": (
+                "Invitación final de 1-2 frases a comentar, compartir, dar like y "
+                "suscribirse, escrita con las palabras y el tono de ESTA historia en "
+                "particular (no una fórmula genérica). Se narra al final del video."
+            ),
+        },
     },
-    "required": ["titulo_hook", "genero_narrador", "emocion", "cuerpo"],
+    "required": ["titulo_hook", "genero_narrador", "emocion", "cuerpo", "cierre"],
 }
 
 SYSTEM_PROMPT = """Eres guionista de historias virales estilo "Reddit story" para Shorts/TikTok, narradas en español mexicano.
@@ -63,6 +71,7 @@ Reglas:
 - Evita que suene genérico o traducido: cada historia debe conservar su esencia y detalles particulares, no una versión aplanada/intercambiable con cualquier otra.
 - Mantén los hechos centrales de la historia original, pero puedes reordenar para maximizar tensión narrativa.
 - Cierra el cuerpo con una pregunta o gancho que invite a comentar (ej. "¿Ustedes qué hubieran hecho?").
+- El campo cierre es aparte del cuerpo: es la invitación final a compartir, dar like y suscribirse, y se narra después de la historia. Escríbela amarrada a ESTA historia — retoma su tema, su desenlace o su tono, con las mismas palabras que usarías contándola (ej. si fue de una herencia: "Si tú también tienes parientes que solo aparecen cuando hay dinero de por medio, compártele este video... y suscríbete, que historias así me llegan cada semana"). Nunca uses una fórmula intercambiable tipo "no olvides darle like y suscribirte", ni repitas el mismo cierre entre historias distintas. Máximo 2 frases, que suene dicho, no leído.
 - No inventes detalles explícitos, violentos o inapropiados que no estén en el original.
 - No incluyas markdown ni encabezados, solo el texto narrado."""
 
@@ -108,13 +117,23 @@ def construir_bloque_guion(historia, candidato):
     # (transparencia exigida por la Responsible Builder Policy de Reddit: no
     # presentar contenido ajeno como propio).
     genero = "Femenino" if historia["genero_narrador"] == "femenino" else "Masculino"
+
+    # El cierre (invitación a comentar/compartir/suscribirse) se anexa al cuerpo
+    # en vez de ir como campo aparte: así lo narra la misma voz, en la misma
+    # llamada al TTS, y hereda los subtítulos karaoke sincronizados sin que
+    # generar_video_maestro.py tenga que saber que existe.
+    cuerpo = historia["cuerpo"].rstrip()
+    cierre = (historia.get("cierre") or "").strip()
+    if cierre:
+        cuerpo = f"{cuerpo}\n\n{cierre}"
+
     return (
         f"# Genero: {genero}\n"
         f"# Emocion: {historia['emocion']}\n"
         f"# Fuente: {candidato['url']}\n"
         f"# Autor: {candidato.get('autor', '[desconocido]')}\n"
         f"{historia['titulo_hook']}\n"
-        f"{historia['cuerpo']}"
+        f"{cuerpo}"
     )
 
 
