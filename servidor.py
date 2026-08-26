@@ -706,6 +706,11 @@ def api_video(archivo):
 
 CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
 
+# El panel pide todas las miniaturas de golpe, y cada una que falte lanza un
+# ffmpeg. En un teléfono, cinco a la vez compiten con el render que puede
+# estar corriendo. De una en una tardan lo mismo en total y no ahogan nada.
+_LOCK_MINIATURAS = threading.Lock()
+
 
 @app.get("/miniatura/<path:archivo>")
 def api_miniatura(archivo):
@@ -725,18 +730,31 @@ def api_miniatura(archivo):
 
     os.makedirs(CARPETA_MINIATURAS, exist_ok=True)
     jpg = os.path.join(CARPETA_MINIATURAS, nombre + ".jpg")
-    if not os.path.isfile(jpg) or os.path.getmtime(jpg) < os.path.getmtime(video):
-        # Segundo 1, no 0: el primer fotograma suele ser el fundido de
-        # entrada y sale negro, que no distingue un video de otro.
-        try:
-            subprocess.run(
-                ["ffmpeg", "-y", "-ss", "1", "-i", video, "-frames:v", "1",
-                 "-vf", "scale=-2:220", "-q:v", "6", jpg],
-                check=True, capture_output=True, timeout=25,
-            )
-        except Exception as exc:
-            print(f"  No se pudo sacar la miniatura de {nombre}: {exc}", file=sys.stderr)
-            abort(404)
+
+    def hay_que_sacarla():
+        return (not os.path.isfile(jpg)
+                or os.path.getmtime(jpg) < os.path.getmtime(video))
+
+    if hay_que_sacarla():
+        with _LOCK_MINIATURAS:
+            # Otra petición pudo sacarla mientras esperábamos el turno.
+            if hay_que_sacarla():
+                # Segundo 1, no 0: el primer fotograma suele ser el fundido
+                # de entrada y sale negro, que no distingue un video de otro.
+                tmp = jpg + ".tmp.jpg"
+                try:
+                    subprocess.run(
+                        ["ffmpeg", "-y", "-ss", "1", "-i", video, "-frames:v", "1",
+                         "-vf", "scale=-2:220", "-q:v", "6", tmp],
+                        check=True, capture_output=True, timeout=25,
+                    )
+                    os.replace(tmp, jpg)
+                except Exception as exc:
+                    print(f"  No se pudo sacar la miniatura de {nombre}: {exc}",
+                          file=sys.stderr)
+                    if os.path.exists(tmp):
+                        os.remove(tmp)
+                    abort(404)
 
     # Se puede cachear fuerte porque la URL lleva el nombre del archivo y el
     # panel le añade la fecha de modificación cuando cambia.
