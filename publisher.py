@@ -26,6 +26,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+from titulos import recortar_titulo, largo_youtube
 
 from google import genai
 from google.genai import types as genai_types
@@ -171,7 +172,7 @@ SCHEMA_METADATA = {
     "properties": {
         "aprobado": {"type": "boolean", "description": "False si el contenido es clickbait engañoso, inapropiado, o el texto está roto/incoherente."},
         "motivo_rechazo": {"type": "string", "description": "Si aprobado=false, explica por qué. Si aprobado=true, cadena vacía."},
-        "titulo_youtube": {"type": "string", "description": "Título optimizado para YouTube, máx 100 caracteres, sin clickbait engañoso."},
+        "titulo_youtube": {"type": "string", "description": "Título optimizado para YouTube. MÁXIMO 100 caracteres contando espacios — cuéntalos antes de responder; si te pasas, el título se recorta y pierde el final. Apunta a 60-90 para que se lea entero en el móvil. Sin clickbait engañoso."},
         "descripcion_youtube": {"type": "string", "description": "Descripción de 2-4 líneas con hashtags relevantes al final."},
         "hashtags": {"type": "array", "items": {"type": "string"}, "description": "3 a 6 hashtags sin el símbolo #."},
     },
@@ -186,7 +187,12 @@ para generar un video, y debes:
    es clickbait manifiestamente engañoso respecto al contenido, o incluye contenido
    inapropiado (odio, sexual explícito, violencia gráfica gratuita). Historias de
    drama/venganza/conflicto normales SÍ son aptas, es el género del canal.
-2. Si es apta, genera título, descripción y hashtags optimizados para YouTube."""
+2. Si es apta, genera título, descripción y hashtags optimizados para YouTube.
+
+El título es lo único con un límite duro: 100 caracteres. Escríbelo pensando en que
+se lea entero en la miniatura de un móvil, así que 60-90 es la zona buena. Si la idea
+no cabe, reescríbela más corta en vez de dejarla a medias — un título cortado da peor
+impresión que uno menos ambicioso."""
 
 
 def revisar_y_generar_metadata(client, titulo, cuerpo):
@@ -261,7 +267,7 @@ def metadata_de_respaldo(video):
     return {
         "aprobado": True,
         "motivo_rechazo": "",
-        "titulo_youtube": (video.get("titulo") or "Historia de Reddit")[:100],
+        "titulo_youtube": recortar_titulo(video.get("titulo") or "Historia de Reddit"),
         "descripcion_youtube": (
             "Historia real adaptada de Reddit, narrada en español.\n\n"
             "¿Tú qué hubieras hecho? Cuéntamelo en los comentarios 👇"
@@ -302,10 +308,10 @@ def buscar_video_existente_en_canal(servicio, titulo):
     Devuelve el video_id si lo encuentra, o None."""
     try:
         resp = servicio.search().list(
-            part="snippet", forMine=True, type="video", q=titulo[:100], maxResults=5
+            part="snippet", forMine=True, type="video", q=titulo, maxResults=5
         ).execute()
         for item in resp.get("items", []):
-            if item["snippet"]["title"] == titulo[:100]:
+            if item["snippet"]["title"] == titulo:
                 return item["id"]["videoId"]
     except Exception as exc:
         logger.warning(f"No se pudo verificar duplicados en YouTube ({exc}); se sube de todas formas.")
@@ -352,7 +358,7 @@ def construir_descripcion(metadata, video):
 def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
     body = {
         "snippet": {
-            "title": metadata["titulo_youtube"][:100],
+            "title": recortar_titulo(metadata["titulo_youtube"]),
             "description": construir_descripcion(metadata, video),
             "tags": metadata["hashtags"],
             "categoryId": "24",
@@ -494,7 +500,8 @@ def main(forzar_datos=False):
         if servicio_yt is None:
             servicio_yt = obtener_servicio_youtube()
 
-        video_id_existente = buscar_video_existente_en_canal(servicio_yt, metadata["titulo_youtube"][:100])
+        video_id_existente = buscar_video_existente_en_canal(
+            servicio_yt, recortar_titulo(metadata["titulo_youtube"]))
         if video_id_existente:
             logger.warning(
                 f"'{metadata['titulo_youtube']}' ya existe en el canal (video_id={video_id_existente}) — "

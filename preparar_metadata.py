@@ -26,6 +26,7 @@ import logging
 import argparse
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+from titulos import recortar_titulo, limpiar_titulo, largo_youtube
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
@@ -118,10 +119,19 @@ def main():
             m = publisher.metadata_de_respaldo(v)
             m["origen"] = "respaldo"
 
+        # Se recorta al guardar, no al subir: así lo que enseña el panel es
+        # exactamente lo que irá a YouTube. Gemini se pasa del límite a
+        # menudo aunque se le pida que no.
+        crudo = m["titulo_youtube"]
+        m["titulo_youtube"] = recortar_titulo(crudo)
+        if m["titulo_youtube"] != limpiar_titulo(crudo):
+            logger.info(f"  ✂️  Título recortado de {largo_youtube(crudo)} a "
+                        f"{largo_youtube(m['titulo_youtube'])} caracteres.")
+
         almacen[clave] = m
         guardar_json(RUTA_METADATA, almacen)   # se guarda sobre la marcha
         estado = "✅" if m.get("aprobado") else f"⛔ {m.get('motivo_rechazo', '')[:60]}"
-        logger.info(f"  {estado} «{m['titulo_youtube'][:70]}»  #{' #'.join(m['hashtags'][:6])}")
+        logger.info(f"  {estado} «{m['titulo_youtube']}»  #{' #'.join(m['hashtags'][:6])}")
 
     logger.info(f"Listo: {len(pendientes)} preparada(s). Revísalas en el panel antes de publicar.")
 

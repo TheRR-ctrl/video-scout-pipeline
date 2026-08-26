@@ -536,6 +536,8 @@ function bloqueMeta(a){
         style="width:100%;margin-top:5px;background:var(--surface);color:var(--ink);
         border:1px solid var(--line);border-radius:8px;padding:9px;font:13.5px var(--body);
         resize:vertical">${esc(m.titulo_youtube||'')}</textarea>
+      <div class="muted" id="m-recorte" style="display:none;margin-top:6px;
+        border-left:2px solid var(--warn);padding-left:9px"></div>
 
       <div class="muted" style="margin-top:11px">Hashtags
         <span style="color:var(--ink-faint)">· van al inicio de la descripción</span></div>
@@ -562,6 +564,38 @@ function bloqueMeta(a){
     </div>`;
 }
 
+// Vista previa del recorte. El cálculo lo hace el servidor (POST /api/recorte)
+// en vez de repetirse aquí en JavaScript: dos implementaciones del mismo
+// algoritmo acabarían separándose, y esta vista previa solo sirve si dice
+// exactamente lo que se va a subir. El servidor es local, así que preguntar
+// cuesta un milisegundo.
+let recortePedido = 0, recorteReloj = null;
+const recorteCache = new Map();
+
+function pedirRecorte(texto, caja){
+  const pinta = (donde, t) => { if(donde) donde.innerHTML =
+    `Se pasa de 100. Se subirá recortado por palabras:<br>
+     <b style="color:var(--ink)">${esc(t)}</b>`; };
+
+  if(recorteCache.has(texto)){ pinta(caja, recorteCache.get(texto)); return; }
+
+  const token = ++recortePedido;
+  caja.textContent = 'Se pasa de 100. Calculando el recorte…';
+  clearTimeout(recorteReloj);
+  recorteReloj = setTimeout(async ()=>{
+    let r;
+    try{
+      r = await (await fetch('/api/recorte', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({titulo: texto})})).json();
+    }catch(e){ return; }   // sin servidor no hay nada que enseñar
+    if(token !== recortePedido) return;   // ya escribiste algo más
+    recorteCache.set(texto, r.titulo);
+    // Puede haber repintado mientras tanto: se busca el div otra vez.
+    pinta(document.querySelector('#m-recorte'), r.titulo);
+  }, 250);
+}
+
 function conectarMeta(a){
   if(!$('#caja-meta')) return;
   const tit = $('#m-titulo'), cuenta = $('#m-cuenta');
@@ -570,9 +604,17 @@ function conectarMeta(a){
   let tags = [...(a.meta.hashtags || [])];
 
   const contar = ()=>{
+    // .length de JS ya cuenta en unidades UTF-16, que es como mide YouTube
+    // (y como mide largo_youtube en el servidor): coinciden sin convertir.
     const n = tit.value.length;
     cuenta.textContent = `${n}/100`;
     cuenta.style.color = n > 100 ? 'var(--crit)' : (n > 90 ? 'var(--warn)' : 'var(--ink-faint)');
+
+    // Pasarse no es un error: se recorta por palabras. Pero verlo antes de
+    // guardar evita la sorpresa de descubrir en YouTube dónde quedó el corte.
+    const av = $('#m-recorte');
+    if(n > 100){ av.style.display = 'block'; pedirRecorte(tit.value, av); }
+    else { av.style.display = 'none'; recortePedido++; }
   };
   tit.oninput = contar; contar();
 

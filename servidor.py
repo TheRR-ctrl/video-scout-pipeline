@@ -38,6 +38,7 @@ except ImportError:
     )
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+from titulos import recortar_titulo, limpiar_titulo, largo_youtube
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(BASE_DIR, "web")
@@ -346,6 +347,24 @@ AJUSTES_NUMERICOS = {
 }
 
 
+@app.post("/api/recorte")
+def api_recorte():
+    """Cómo quedaría un título tras el recorte.
+
+    El panel lo consulta en vez de repetir el algoritmo en JavaScript: dos
+    implementaciones acabarían divergiendo y la vista previa mentiría justo
+    cuando más importa. El servidor es local, así que preguntar cuesta nada.
+    """
+    titulo = (request.json or {}).get("titulo", "")
+    recortado = recortar_titulo(titulo)
+    return jsonify({
+        "titulo": recortado,
+        "largo": largo_youtube(recortado),
+        "largo_original": largo_youtube(limpiar_titulo(titulo)),
+        "recortado": recortado != limpiar_titulo(titulo),
+    })
+
+
 @app.post("/api/metadata/<path:archivo>")
 def api_metadata_guardar(archivo):
     """Guarda el título, la descripción y los hashtags corregidos a mano.
@@ -361,8 +380,9 @@ def api_metadata_guardar(archivo):
     if not titulo:
         return jsonify({"error": "El título no puede quedar vacío"}), 400
 
-    # YouTube corta a 100 caracteres y rechaza < y > en el título.
-    titulo = titulo.replace("<", "").replace(">", "")[:100]
+    # Se recorta por palabras: YouTube corta a 100 y un tajo seco parte la
+    # última palabra por la mitad.
+    titulo = recortar_titulo(titulo)
 
     hashtags = []
     for h in (d.get("hashtags") or []):
