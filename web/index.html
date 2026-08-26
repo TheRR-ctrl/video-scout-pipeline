@@ -110,9 +110,16 @@
      el turquesa del acento se parecen demasiado en pantalla pequeña. */
   .th.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
   .th .im{position:relative;aspect-ratio:9/16;
-    background:linear-gradient(170deg,#2b3340,#171c23);
+    /* El degradado se queda debajo: si ffmpeg no pudo sacar el fotograma,
+       el recuadro sigue teniendo fondo en vez de quedarse transparente. */
+    background:linear-gradient(170deg,#2b3340,#171c23) center/cover no-repeat;
     display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;
-    font:9px var(--mono);color:rgba(255,255,255,.75)}
+    font:9px var(--mono);color:#fff}
+  .th .im img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  /* La duración va sobre la imagen, con un velo detrás: encima de un
+     fotograma claro el texto blanco solo se perdía. */
+  .th .im span{position:relative;z-index:1;padding:1px 4px;border-radius:4px;
+    background:rgba(0,0,0,.55)}
   .th .cp{font-size:9.5px;color:var(--ink-faint);padding:4px 3px;text-align:center;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .th.on .cp{color:var(--accent)}
@@ -121,7 +128,10 @@
      móvil se come los matices—, así que va con marca ✓ y con la miniatura
      apagada. Lo que queda vivo es lo que aún te toca mirar. */
   .th.sub{border-color:var(--ok)}
-  .th.sub .im{background:var(--ok-soft);color:var(--ok)}
+  /* Con fotograma dentro, el fondo verde no se vería. Lo subido se marca
+     apagando la imagen —queda claro que ya está hecho— más el ✓ y el borde. */
+  .th.sub .im img{opacity:.32}
+  .th.sub.on .im img{opacity:.6}
   .th.sub .cp{color:var(--ok)}
   /* La marca va colgada de .th, no de la miniatura: si colgara de dentro se
      apagaría con ella y en tema claro el ✓ quedaba casi invisible. Como chip
@@ -375,7 +385,8 @@ function firmaRevisar(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('#caja-meta input, #caja-meta textarea'))
     return firmas.revisar;
-  return [v.length, elegido, v.map(x=>x.archivo+x.publicado+JSON.stringify(x.meta)).join('|'),
+  return [v.length, elegido,
+          v.map(x=>x.archivo+x.mtime+x.publicado+JSON.stringify(x.meta)).join('|'),
           abiertoRehacer, JSON.stringify(finos)].join('~');
 }
 function leyendaSubidos(v){
@@ -414,7 +425,9 @@ function pintaRevisar(){
     <div class="thumbs">${v.map((x,i)=>`
       <div class="th ${i===elegido?'on':''} ${x.publicado?'sub':''}" data-i="${i}"
            title="${x.publicado?'ya subido a YouTube':'sin subir'}">
-        <div class="im">${Math.floor(x.duracion_sec/60)}:${String(Math.round(x.duracion_sec%60)).padStart(2,'0')}</div>
+        <div class="im"><img loading="lazy" alt=""
+             src="/miniatura/${encodeURIComponent(x.archivo)}?v=${x.mtime||0}"
+             onerror="this.remove()"><span>${Math.floor(x.duracion_sec/60)}:${String(Math.round(x.duracion_sec%60)).padStart(2,'0')}</span></div>
         <span class="ck">✓</span>
         <div class="cp">${String(x.numero??i+1).padStart(2,'0')}</div>
       </div>`).join('')}</div>

@@ -226,6 +226,10 @@ def videos_renderizados():
             "musica": v.get("musica_archivo"),
             "fuente_url": v.get("fuente_url"),
             "archivo": os.path.basename(ruta),
+            # Va a la URL de la miniatura. Sin esto, rehacer un video sin
+            # cambiarle el nombre dejaría al navegador enseñando la miniatura
+            # vieja durante los siete días de caché.
+            "mtime": int(os.path.getmtime(ruta)),
             "publicado": ruta in ya,
             # Lo que publisher.py subirá tal cual. None mientras no se haya
             # preparado: el panel distingue "todavía no existe" de "existe y
@@ -698,6 +702,47 @@ def api_video(archivo):
     if not os.path.isfile(ruta):
         abort(404)
     return servir_con_rango(ruta, "video/mp4")
+
+
+CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
+
+
+@app.get("/miniatura/<path:archivo>")
+def api_miniatura(archivo):
+    """Un fotograma del video, para que la tira de arriba enseñe de qué va
+    cada uno en vez de un rectángulo gris con la duración.
+
+    Se saca con ffmpeg y se guarda en disco: extraerlo cuesta un momento y
+    el panel pide todas las miniaturas a la vez cada vez que refresca. Se
+    rehace solo si el .mp4 es más nuevo que el .jpg, que es lo que pasa
+    cuando rehaces un video sin cambiarle el nombre.
+    """
+    nombre = os.path.basename(archivo)
+    carpeta = cfg_actual()["carpeta_salida"]
+    video = os.path.join(carpeta, nombre)
+    if not os.path.isfile(video):
+        abort(404)
+
+    os.makedirs(CARPETA_MINIATURAS, exist_ok=True)
+    jpg = os.path.join(CARPETA_MINIATURAS, nombre + ".jpg")
+    if not os.path.isfile(jpg) or os.path.getmtime(jpg) < os.path.getmtime(video):
+        # Segundo 1, no 0: el primer fotograma suele ser el fundido de
+        # entrada y sale negro, que no distingue un video de otro.
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-ss", "1", "-i", video, "-frames:v", "1",
+                 "-vf", "scale=-2:220", "-q:v", "6", jpg],
+                check=True, capture_output=True, timeout=25,
+            )
+        except Exception as exc:
+            print(f"  No se pudo sacar la miniatura de {nombre}: {exc}", file=sys.stderr)
+            abort(404)
+
+    # Se puede cachear fuerte porque la URL lleva el nombre del archivo y el
+    # panel le añade la fecha de modificación cuando cambia.
+    resp = send_file(jpg, mimetype="image/jpeg", conditional=True)
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
 
 
 @app.get("/audio/<path:archivo>")
