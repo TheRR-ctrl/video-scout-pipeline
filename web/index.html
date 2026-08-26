@@ -58,6 +58,7 @@
   .btn.danger{color:var(--crit)}
   .btn:disabled{opacity:.45;cursor:not-allowed}
   .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  select.btn{color:var(--ink)}
 
   .pill{font:10.5px var(--mono);text-transform:uppercase;letter-spacing:.04em;
     padding:3px 7px;border-radius:4px;white-space:nowrap}
@@ -74,15 +75,22 @@
     border:1px solid var(--line-soft);border-radius:6px;padding:7px 9px;color:var(--ink);
     overflow-x:auto;white-space:pre}
 
-  /* trabajo en curso */
+  /* trabajo en curso — deliberadamente quieto: una línea de paso actual que
+     se reemplaza en su sitio, no un registro que va cayendo. */
   .job{background:var(--accent-soft);border:1px solid var(--accent);border-radius:9px;
     padding:12px 14px;margin-bottom:16px}
   .job.err{background:var(--crit-soft);border-color:var(--crit)}
   .job.fin{background:var(--ok-soft);border-color:var(--ok)}
   .job-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .job-top b{flex-grow:1}
+  .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
+    min-height:2.9em;display:flex;align-items:center;
+    overflow:hidden;text-overflow:ellipsis}
+  .barra{height:4px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-top:8px}
+  .barra i{display:block;height:100%;background:var(--accent);width:0;
+    transition:width .4s linear}
   .log{margin-top:9px;background:#0c0f13;border-radius:7px;padding:9px 10px;
-    font:11.5px/1.5 var(--mono);color:#c8d2dc;max-height:190px;overflow:auto;white-space:pre-wrap}
+    font:11.5px/1.5 var(--mono);color:#c8d2dc;height:170px;overflow:auto;white-space:pre-wrap}
   @media (prefers-color-scheme:light){ .log{background:#171b20} }
   .tbtn{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
     background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer}
@@ -123,6 +131,15 @@
   .equiv{font:11.5px var(--mono);color:var(--ink-dim);background:var(--ground);
     border:1px solid var(--line);border-radius:6px;padding:5px 8px}
 
+  /* ajuste fino: las casillas de "al rehacer, cambiar…" */
+  .finos{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .fino{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:9px 11px;
+    border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer}
+  .fino.on{border-color:var(--accent);background:var(--accent-soft)}
+  .fino input{accent-color:var(--accent);width:15px;height:15px;margin:0;flex-shrink:0}
+  .fino.no{opacity:.45;cursor:not-allowed}
+  .sangria{margin:8px 0 4px 24px;display:flex;flex-direction:column;gap:7px}
+
   /* presets */
   .presets{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
   .preset{border:1px solid var(--line);border-radius:9px;background:var(--surface);
@@ -130,6 +147,10 @@
   .preset.on{border-color:var(--accent)}
   .preset h4{margin:0;font:500 13.5px var(--mono)}
   .sw{width:14px;height:14px;border-radius:4px;border:1px solid var(--line);display:inline-block}
+
+  .slider{display:flex;align-items:center;gap:11px}
+  .slider input[type=range]{flex-grow:1;accent-color:var(--accent);min-width:90px}
+  .slider .v{font:11.5px var(--mono);color:var(--ink);width:42px;text-align:right}
 
   .aviso{display:flex;gap:10px;align-items:flex-start;background:var(--surface);
     border:1px solid var(--line);border-left:3px solid var(--accent);
@@ -143,10 +164,20 @@
     opacity:0;pointer-events:none;transition:opacity .18s}
   .toast.on{opacity:1}
 
+  .modal{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.6);
+    display:flex;align-items:center;justify-content:center;padding:20px}
+  .modal .caja{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:18px;max-width:460px;width:100%}
+  .modal textarea{width:100%;height:120px;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:10px;
+    font:11.5px/1.5 var(--mono);resize:vertical}
+  .modal input[type=text]{width:100%;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:10px;font:12px var(--mono)}
+
   @media (max-width:780px){
     .review{grid-template-columns:1fr}
     video{max-width:330px;margin:0 auto}
-    .grid2,.presets{grid-template-columns:1fr}
+    .grid2,.presets,.finos{grid-template-columns:1fr}
     .logo{width:100%;margin-bottom:2px}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -177,6 +208,7 @@
 </div>
 
 <div class="toast" id="toast"></div>
+<audio id="oido" style="display:none"></audio>
 
 <script>
 const $ = s => document.querySelector(s);
@@ -184,6 +216,9 @@ let E = null;            // último estado del servidor
 let elegido = 0;         // índice del video en revisión
 let seleccion = new Set();
 let tocado = false;      // ¿el usuario ya eligió historias a mano?
+let abiertoRehacer = false;
+let finos = {};          // qué casillas de "al rehacer, cambiar…" están marcadas
+let musicaElegida = {};  // nº de historia -> archivo de música fijado a mano
 
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
@@ -195,43 +230,114 @@ async function api(url, opts){
   if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
   return j;
 }
+const post = (url, cuerpo) => api(url, {method:'POST',
+  headers:{'Content-Type':'application/json'}, body: JSON.stringify(cuerpo||{})});
+
 async function ejecutar(accion, cuerpo){
-  try{
-    await api('/api/ejecutar/'+accion, {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify(cuerpo||{})});
-    refrescar();
-  }catch(e){ toast(e.message); }
+  try{ await post('/api/ejecutar/'+accion, cuerpo); refrescar(); }
+  catch(e){ toast(e.message); }
 }
 async function trabajo(que){
   try{ await api('/api/trabajo/'+que, {method:'POST'}); refrescar(); }
   catch(e){ toast(e.message); }
 }
 
-/* ---------- trabajo en curso ---------- */
+/* ---------- previsualizar música ---------- */
+let sonando = null;
+function oir(archivo, boton){
+  const a = $('#oido');
+  if(sonando === archivo){ a.pause(); sonando = null; pintaBotonesOir(); return; }
+  a.src = '/audio/' + encodeURIComponent(archivo);
+  a.play().catch(e => toast('No se pudo reproducir: ' + e.message));
+  sonando = archivo; pintaBotonesOir();
+}
+function pintaBotonesOir(){
+  document.querySelectorAll('[data-oir]').forEach(b=>{
+    b.textContent = b.dataset.oir === sonando ? '⏸' : '▶';
+  });
+}
+$('#oido').onended = ()=>{ sonando = null; pintaBotonesOir(); };
+
+/* =========================================================
+   TRABAJO EN CURSO
+
+   Se construye una vez y después solo se reemplaza el texto de los nodos.
+   Repintar el bloque entero en cada refresco es lo que hacía que el registro
+   pareciera una cascada: el navegador redibujaba las 120 líneas cada 1.5 s.
+   ========================================================= */
+let jobMontado = null;   // nombre+arranque del trabajo ya dibujado
+
 function pintaJob(){
   const j = E && E.trabajo, slot = $('#job-slot');
-  if(!j){ slot.innerHTML=''; return; }
+  if(!j){ slot.innerHTML=''; jobMontado=null; return; }
+
+  const id = j.nombre;
+  if(jobMontado !== id){
+    jobMontado = id;
+    slot.innerHTML = `
+      <div class="job" id="job-caja">
+        <div class="job-top">
+          <b id="job-nom"></b>
+          <span class="pill acc" id="job-estado"></span>
+          <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+          <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
+          <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>
+        </div>
+        <div class="paso" id="job-paso"></div>
+        <div class="barra"><i id="job-barra"></i></div>
+        <button class="btn sm" id="b-detalle" style="margin-top:9px">Ver detalle</button>
+        <div class="log" id="log" style="display:none"></div>
+      </div>`;
+    $('#b-pausa').onclick = ()=>trabajo(E.trabajo.estado==='pausado'?'reanudar':'pausar');
+    $('#b-abort').onclick = ()=>{ if(confirm('¿Abortar lo que está corriendo?')) trabajo('abortar'); };
+    $('#b-detalle').onclick = ()=>{
+      const l = $('#log'), abierto = l.style.display !== 'none';
+      l.style.display = abierto ? 'none' : 'block';
+      $('#b-detalle').textContent = abierto ? 'Ver detalle' : 'Ocultar detalle';
+      if(!abierto) l.scrollTop = l.scrollHeight;
+    };
+  }
+
   const corriendo = j.estado==='corriendo' || j.estado==='pausado';
-  const clase = j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : '');
   const mins = Math.floor(j.segundos/60), segs = j.segundos%60;
-  slot.innerHTML = `
-    <div class="job${clase}">
-      <div class="job-top">
-        <b>${esc(j.nombre)}</b>
-        <span class="pill ${j.estado==='ok'?'ok':j.estado==='error'?'crit':'acc'}">${esc(j.estado)}</span>
-        <span class="row-m" style="font:11.5px var(--mono);color:var(--ink-dim)">${mins}:${String(segs).padStart(2,'0')}</span>
-        ${corriendo ? `
-          <button class="tbtn" id="b-pausa" title="${j.estado==='pausado'?'Reanudar':'Pausar'}">${j.estado==='pausado'?'▶':'⏸'}</button>
-          <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>` : ''}
-      </div>
-      ${j.lineas.length ? `<div class="log" id="log">${esc(j.lineas.join('\n'))}</div>` : ''}
-    </div>`;
-  const log = $('#log'); if(log) log.scrollTop = log.scrollHeight;
-  if($('#b-pausa')) $('#b-pausa').onclick = ()=>trabajo(j.estado==='pausado'?'reanudar':'pausar');
-  if($('#b-abort')) $('#b-abort').onclick = ()=>{ if(confirm('¿Abortar lo que está corriendo?')) trabajo('abortar'); };
+  $('#job-caja').className = 'job' + (j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : ''));
+  $('#job-nom').textContent = j.nombre;
+  $('#job-estado').textContent = j.estado;
+  $('#job-estado').className = 'pill ' + (j.estado==='ok'?'ok':j.estado==='error'?'crit':'acc');
+  $('#job-t').textContent = `${mins}:${String(segs).padStart(2,'0')}`;
+  $('#b-pausa').style.display = corriendo ? '' : 'none';
+  $('#b-abort').style.display = corriendo ? '' : 'none';
+  $('#b-pausa').textContent = j.estado==='pausado' ? '▶' : '⏸';
+
+  // El paso actual es la última línea con contenido. El HUD del render ya
+  // trae el porcentaje entre corchetes: se saca de ahí para la barra en vez
+  // de inventar un avance que no se puede saber.
+  const ultima = j.lineas.length ? j.lineas[j.lineas.length-1] : '(arrancando…)';
+  $('#job-paso').textContent = ultima;
+  const m = ultima.match(/(\d{1,3}(?:\.\d)?)\s*%/);
+  $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
+
+  const log = $('#log');
+  if(log.style.display !== 'none'){
+    // Solo sigue el final si ya estabas al final: si subiste a leer algo,
+    // que no te lo arrastre hacia abajo en el siguiente refresco.
+    const alFinal = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    const texto = j.lineas.join('\n');
+    if(log.textContent !== texto){
+      log.textContent = texto;
+      if(alFinal) log.scrollTop = log.scrollHeight;
+    }
+  }
 }
 
-/* ---------- revisar ---------- */
+/* =========================================================
+   REVISAR
+   ========================================================= */
+function firmaRevisar(){
+  const v = E.videos;
+  return [v.length, elegido, v.map(x=>x.archivo+x.publicado).join('|'),
+          abiertoRehacer, JSON.stringify(finos)].join('~');
+}
 function pintaRevisar(){
   const v = E.videos, cont = $('#v-revisar');
   if(!v.length){
@@ -246,6 +352,7 @@ function pintaRevisar(){
   if(elegido >= v.length) elegido = 0;
   const a = v[elegido];
   const mins = Math.floor(a.duracion_sec/60), segs = Math.round(a.duracion_sec%60);
+  const pistas = E.musica || [];
 
   cont.innerHTML = `
     <h2>${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}</h2>
@@ -268,7 +375,8 @@ function pintaRevisar(){
             <span><b>${mins}:${String(segs).padStart(2,'0')}</b></span>
             <span>${a.es_short?'Short':'Largo'}</span>
             <span>Emoción <b>${esc(a.emocion)}</b></span>
-            ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>`:''}
+            ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
+              <button class="btn sm" data-oir="${esc(a.musica)}" style="padding:2px 8px">▶</button>`:''}
             ${a.publicado?'<span class="pill ok">ya publicado</span>':''}
           </div>
         </div>
@@ -280,30 +388,59 @@ function pintaRevisar(){
         </div>
         <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
 
-        <div class="card" id="panel-rehacer" style="display:none;background:var(--surface-2);padding:13px">
+        <div class="card" id="panel-rehacer" style="display:${abiertoRehacer?'block':'none'};background:var(--surface-2);padding:13px">
           <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
-             color:var(--ink-faint);display:block;margin-bottom:9px">Al rehacer</b>
+             color:var(--ink-faint);display:block;margin-bottom:9px">Al rehacer, cambiar…</b>
           <div class="muted" style="margin-bottom:10px">
-            La música, los cortes del fondo y el tono de la voz ya cambian solos en cada render.
-            Aquí eliges lo que no es al azar:</div>
+            Los cortes del fondo y el ritmo del TTS ya salen distintos en cada render.
+            Marca lo que además quieras forzar:</div>
 
-          <div style="display:flex;flex-direction:column;gap:9px">
-            <label style="display:flex;align-items:center;gap:9px;font-size:13px">
-              <span style="width:96px;color:var(--ink-dim)">Voz</span>
-              <select id="r-voz" class="btn sm" style="flex-grow:1;color:var(--ink)">
-                <option value="">la del guion</option>
-                <option value="masculina">masculina (Jorge)</option>
-                <option value="femenina">femenina (Dalia)</option>
-              </select>
-            </label>
-            <label style="display:flex;align-items:center;gap:9px;font-size:13px">
-              <span style="width:96px;color:var(--ink-dim)">Subtítulos</span>
-              <select id="r-estilo" class="btn sm" style="flex-grow:1;color:var(--ink)">
-                <option value="">el configurado</option>
-                ${E.presets.map(p=>`<option value="${p}">${p}</option>`).join('')}
-              </select>
-            </label>
+          <div class="finos">
+            <label class="fino ${finos.musica?'on':''}"><input type="checkbox" data-fino="musica"
+              ${finos.musica?'checked':''}> Otra música</label>
+            <label class="fino ${finos.voz?'on':''}"><input type="checkbox" data-fino="voz"
+              ${finos.voz?'checked':''}> Otra voz</label>
+            <label class="fino ${finos.fondo?'on':''} ${(E.fondos||[]).length>1?'':'no'}">
+              <input type="checkbox" data-fino="fondo" ${finos.fondo?'checked':''}
+              ${(E.fondos||[]).length>1?'':'disabled'}> Otro video de fondo</label>
+            <label class="fino ${finos.estilo?'on':''}"><input type="checkbox" data-fino="estilo"
+              ${finos.estilo?'checked':''}> Otro estilo de subtítulos</label>
+            <label class="fino ${finos.volumen?'on':''}"><input type="checkbox" data-fino="volumen"
+              ${finos.volumen?'checked':''}> Otro volumen de música</label>
           </div>
+
+          ${finos.musica ? `<div class="sangria">
+            <select id="r-musica" class="btn sm" style="width:100%">
+              <option value="">otra al azar de su emoción</option>
+              ${pistas.map(p=>`<option value="${esc(p.archivo)}" ${p.archivo===a.musica?'disabled':''}>
+                ${esc(p.emocion)} · ${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}
+                ${p.archivo===a.musica?'(la actual)':''}</option>`).join('')}
+            </select>
+            <div style="display:flex;gap:6px"><button class="btn sm" id="b-oir-sel">▶ Oír la elegida</button></div>
+          </div>` : ''}
+
+          ${finos.voz ? `<div class="sangria">
+            <select id="r-voz" class="btn sm" style="width:100%">
+              <option value="masculina">masculina (Jorge)</option>
+              <option value="femenina">femenina (Dalia)</option>
+            </select></div>` : ''}
+
+          ${finos.fondo ? `<div class="sangria">
+            <select id="r-fondo" class="btn sm" style="width:100%">
+              ${(E.fondos||[]).map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}
+            </select></div>` : ''}
+
+          ${finos.estilo ? `<div class="sangria">
+            <select id="r-estilo" class="btn sm" style="width:100%">
+              ${E.presets.map(p=>`<option value="${p}">${p}</option>`).join('')}
+            </select></div>` : ''}
+
+          ${finos.volumen ? `<div class="sangria">
+            <div class="slider"><input type="range" id="r-vol" min="0" max="30" step="1"
+                value="${Math.round((E.ajustes.volumen_musica ?? .09)*100)}">
+              <span class="v" id="r-vol-v">${Math.round((E.ajustes.volumen_musica ?? .09)*100)}%</span></div>
+            <div class="muted">Solo para este render; no cambia el ajuste general.</div>
+          </div>` : ''}
 
           <div style="display:flex;gap:7px;margin-top:12px">
             <button class="btn go" id="b-rehacer-ya">↺ Rehacer ahora</button>
@@ -313,32 +450,62 @@ function pintaRevisar(){
         </div>
       </div>
     </div>`;
-  cont.querySelectorAll('.th').forEach(t => t.onclick = ()=>{ elegido = +t.dataset.i; pintaRevisar(); });
 
-  const pr = $('#panel-rehacer');
-  $('#b-rehacer').onclick = ()=>{
-    const abierto = pr.style.display !== 'none';
-    pr.style.display = abierto ? 'none' : 'block';
-    if(!abierto) pr.scrollIntoView({behavior:'smooth', block:'nearest'});
+  cont.querySelectorAll('.th').forEach(t => t.onclick = ()=>{ elegido = +t.dataset.i; pintar(); });
+  cont.querySelectorAll('[data-fino]').forEach(c => c.onchange = ()=>{
+    finos[c.dataset.fino] = c.checked; pintar();
+  });
+  cont.querySelectorAll('[data-oir]').forEach(b => b.onclick = ()=>oir(b.dataset.oir, b));
+
+  const bOirSel = $('#b-oir-sel');
+  if(bOirSel) bOirSel.onclick = ()=>{
+    const f = $('#r-musica').value;
+    if(!f) return toast('Elige una pista concreta para oírla');
+    oir(f);
   };
-  $('#b-rehacer-no').onclick = ()=>{ pr.style.display='none'; };
+  const vol = $('#r-vol');
+  if(vol) vol.oninput = ()=>{ $('#r-vol-v').textContent = vol.value + '%'; };
+
+  $('#b-rehacer').onclick = ()=>{ abiertoRehacer = !abiertoRehacer; pintar();
+    if(abiertoRehacer) $('#panel-rehacer').scrollIntoView({behavior:'smooth', block:'nearest'}); };
+  $('#b-rehacer-no').onclick = ()=>{ abiertoRehacer = false; pintar(); };
   $('#b-rehacer-ya').onclick = ()=>{
-    ejecutar('renderizar', {
-      historias: String(a.numero||''),
-      rehacer: true,
-      voz: $('#r-voz').value,
-      estilo: $('#r-estilo').value,
-    });
-    pr.style.display='none';
+    const cuerpo = { historias: String(a.numero||''), rehacer: true };
+    if(finos.musica){
+      const f = $('#r-musica').value;
+      // Sin pista concreta se pide "otra al azar": se excluye la actual
+      // eligiendo una distinta de la misma emoción aquí, porque el render
+      // sortea de nuevo y podría repetir la que ya tienes.
+      const alt = f || otraPistaDe(a.emocion, a.musica);
+      if(alt) cuerpo.musica = {[String(a.numero||'*')]: alt};
+    }
+    if(finos.voz)     cuerpo.voz = $('#r-voz').value;
+    if(finos.fondo)   cuerpo.fondo = $('#r-fondo').value;
+    if(finos.estilo)  cuerpo.estilo = $('#r-estilo').value;
+    if(finos.volumen) cuerpo.volumen_musica = (+$('#r-vol').value / 100).toFixed(2);
+    ejecutar('renderizar', cuerpo);
+    abiertoRehacer = false;
   };
 }
+function otraPistaDe(emocion, evitar){
+  const pool = (E.musica||[]).filter(p => p.emocion === emocion && p.archivo !== evitar);
+  const alt = pool.length ? pool : (E.musica||[]).filter(p => p.archivo !== evitar);
+  return alt.length ? alt[Math.floor(Math.random()*alt.length)].archivo : '';
+}
 
-/* ---------- cola ---------- */
+/* =========================================================
+   COLA
+   ========================================================= */
 function rangoTexto(){
   const a = [...seleccion].sort((x,y)=>x-y), p=[]; let i=0;
   while(i<a.length){ let j=i; while(j+1<a.length && a[j+1]===a[j]+1) j++;
     p.push(j>i+1 ? a[i]+'-'+a[j] : a.slice(i,j+1).join(',')); i=j+1; }
   return p.join(',');
+}
+function firmaCola(){
+  return [E.historias.length, E.historias.map(h=>h.n+h.titulo).join('|'),
+          [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
+          (E.musica||[]).length].join('~');
 }
 function pintaCola(){
   const h = E.historias, cont = $('#v-cola');
@@ -352,6 +519,13 @@ function pintaCola(){
     return;
   }
   if(!tocado && !seleccion.size) h.slice(0,3).forEach(x=>seleccion.add(x.n));
+  const pistas = E.musica || [];
+  const elegidas = h.filter(x=>seleccion.has(x.n));
+
+  // El scroll de la lista se guarda y se repone: sin esto, repintar mientras
+  // recorres las historias te devuelve al principio de la lista.
+  const cajaPrevia = cont.querySelector('#caja-lista');
+  const scrollPrevio = cajaPrevia ? cajaPrevia.scrollTop : 0;
 
   cont.innerHTML = `
     <h2>${h.length} historias listas para renderizar</h2>
@@ -364,7 +538,7 @@ function pintaCola(){
           <button class="btn sm" id="q-ning">Ninguna</button>
         </div>
       </div>
-      <div style="max-height:340px;overflow:auto">${h.map(x=>`
+      <div id="caja-lista" style="max-height:340px;overflow:auto">${h.map(x=>`
         <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
           <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
           <span class="n">${String(x.n).padStart(2,'0')}</span>
@@ -379,7 +553,29 @@ function pintaCola(){
           <button class="btn go" id="b-render">▶ Renderizar</button>
         </div>
       </div>
-    </div>`;
+    </div>
+
+    <h3 class="sec">Música de cada una</h3>
+    ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
+      Ve a <b>Ajustes → Música</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
+    : !elegidas.length ? `<div class="aviso"><span>·</span><div>Selecciona historias arriba para elegirles música.</div></div>`
+    : `<p class="sub">Por omisión sale una al azar de la emoción que detectó el guion. Si eliges
+       una a mano, óyela antes — así no descubres que no pegaba después de esperar el render.
+       Lo que dejes en «al azar» sigue funcionando sin ti, que es lo que necesita el cron.</p>
+    <div class="list">${elegidas.map(x=>`
+      <div class="row" style="grid-template-columns:26px 1fr auto auto">
+        <span class="n">${String(x.n).padStart(2,'0')}</span>
+        <select class="btn sm" data-mus="${x.n}" style="min-width:0">
+          <option value="">al azar · ${esc(x.emocion)}</option>
+          ${pistas.map(p=>`<option value="${esc(p.archivo)}" ${musicaElegida[x.n]===p.archivo?'selected':''}>
+            ${esc(p.emocion)} · ${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</option>`).join('')}
+        </select>
+        <button class="btn sm" data-oir-fila="${x.n}" style="padding:6px 9px">▶</button>
+        <span class="m">${musicaElegida[x.n] ? 'fijada' : 'auto'}</span>
+      </div>`).join('')}</div>`}`;
+
+  const caja = cont.querySelector('#caja-lista');
+  if(caja) caja.scrollTop = scrollPrevio;
 
   const sync = ()=>{
     $('#cuenta').textContent = `${seleccion.size} de ${h.length} seleccionadas`;
@@ -393,16 +589,36 @@ function pintaCola(){
       tocado = true;
       const n = +r.dataset.n;
       e.target.checked ? seleccion.add(n) : seleccion.delete(n);
-      r.classList.toggle('on', e.target.checked); sync();
+      r.classList.toggle('on', e.target.checked);
+      sync(); pintar();
     };
   });
-  $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintaCola(); };
-  $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintaCola(); };
-  $('#b-render').onclick = ()=> ejecutar('renderizar', {historias: rangoTexto()});
+  cont.querySelectorAll('[data-mus]').forEach(s => s.onchange = ()=>{
+    const n = s.dataset.mus;
+    if(s.value) musicaElegida[n] = s.value; else delete musicaElegida[n];
+    pintar();
+  });
+  cont.querySelectorAll('[data-oir-fila]').forEach(b => b.onclick = ()=>{
+    const n = b.dataset.oirFila;
+    const f = musicaElegida[n] || (E.historias.find(x=>x.n==n)
+      ? otraPistaDe(E.historias.find(x=>x.n==n).emocion, null) : '');
+    if(!f) return toast('No hay pista que oír');
+    oir(f, b);
+  });
+  $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintar(); };
+  $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintar(); };
+  $('#b-render').onclick = ()=>{
+    const mus = {};
+    for(const n of seleccion) if(musicaElegida[n]) mus[String(n)] = musicaElegida[n];
+    ejecutar('renderizar', {historias: rangoTexto(), musica: mus});
+  };
   sync();
+  pintaBotonesOir();
 }
 
-/* ---------- estilo ---------- */
+/* =========================================================
+   ESTILO
+   ========================================================= */
 const DESCR = {
   predeterminado:'Frase completa; solo las palabras con carga se pintan, rotando colores.',
   verde_fijo:'Todas las palabras activas del mismo verde, sin rotación.',
@@ -412,6 +628,7 @@ const DESCR = {
   alto_contraste:'Bebas Neue, resalte rojo, menos palabras por frase.',
   palabras_clave:'Una palabra a la vez, algunas pintadas rotando. El del video de referencia.'
 };
+function firmaEstilo(){ return JSON.stringify(E.subtitulos); }
 function pintaEstilo(){
   const s = E.subtitulos, act = s.preset || 'predeterminado';
   const paleta = (s.colores_resalte||[]);
@@ -447,15 +664,17 @@ function pintaEstilo(){
 
   document.querySelectorAll('.preset').forEach(el=>{
     el.onclick = async ()=>{
-      try{ await api('/api/preset',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({preset:el.dataset.p})});
+      try{ await post('/api/preset',{preset:el.dataset.p});
         toast('Estilo: '+el.dataset.p); refrescar();
       }catch(e){ toast(e.message); }
     };
   });
 }
 
-/* ---------- publicados ---------- */
+/* =========================================================
+   PUBLICADOS
+   ========================================================= */
+function firmaPublicados(){ return JSON.stringify(E.publicados); }
 function pintaPublicados(){
   const p = E.publicados;
   const porBorrar = p.filter(x=>x.dias_restantes!==null && x.dias_restantes<=2 && !x.borrado_local);
@@ -481,15 +700,43 @@ function pintaPublicados(){
     </div>`;
 }
 
-/* ---------- ajustes ---------- */
-async function pintaAjustes(){
-  const m = E.material, cr = E.credenciales;
-  let secretos = [];
-  try{ secretos = await api('/api/secretos'); }catch(e){}
+/* =========================================================
+   AJUSTES
+   ========================================================= */
+let secretosCache = [];
+function firmaAjustes(){
+  return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
+          JSON.stringify(E.ajustes), E.solo_wifi,
+          JSON.stringify(E.musica), secretosCache.length].join('~');
+}
+function pintaAjustes(){
+  const m = E.material, cr = E.credenciales, aj = E.ajustes, pistas = E.musica || [];
+  const pct = v => Math.round((v ?? 0) * 100);
 
   $('#v-ajustes').innerHTML = `
     <h2>Ajustes</h2>
-    <p class="sub">Material, credenciales y lo que se actualiza de vez en cuando.</p>
+    <p class="sub">Material, mezcla, credenciales y lo que se actualiza de vez en cuando.</p>
+
+    <h3 class="sec">Mezcla de audio</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Música de fondo</div><div class="m">se guarda al soltar</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_musica" min="0" max="30" step="1" value="${pct(aj.volumen_musica)}">
+          <span class="v">${pct(aj.volumen_musica)}%</span></div>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Narración</div><div class="m">bájala solo si satura</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_locucion" min="10" max="100" step="5" value="${pct(aj.volumen_locucion)}">
+          <span class="v">${pct(aj.volumen_locucion)}%</span></div>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Efecto de transición</div><div class="m">el golpe tras la tarjeta</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_sonido_transicion" min="0" max="100" step="5" value="${pct(aj.volumen_sonido_transicion)}">
+          <span class="v">${pct(aj.volumen_sonido_transicion)}%</span></div>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
+      Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
 
     <h3 class="sec">Material</h3>
     <div class="grid2">
@@ -511,6 +758,23 @@ async function pintaAjustes(){
       </div>
     </div>
 
+    <h3 class="sec">Pistas que hay ahora</h3>
+    ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>Ninguna. Sin música los videos salen solo con la voz.</div></div>`
+    : `<div class="list">${pistas.map(p=>`
+      <div class="row" style="grid-template-columns:auto 1fr 120px">
+        <button class="btn sm" data-oir="${esc(p.archivo)}" style="padding:6px 9px">▶</button>
+        <div style="min-width:0"><div class="t">${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</div>
+          <div class="m">${esc(p.artista || 'sin atribución')} · ${p.kb} KB</div></div>
+        <select class="btn sm" data-emo="${esc(p.archivo)}">
+          ${['drama','venganza','suspenso','comedia','fondo'].map(e=>`
+            <option value="${e}" ${p.emocion===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>`).join('')}</div>
+    <div class="muted" style="margin-top:8px">La emoción vive en el nombre del archivo, que es lo que mira el render:
+      cambiarla aquí lo renombra. Para sumar pistas de Pixabay (que no tiene API), descárgalas
+      al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
+      «Re-enlazar material» y clasifícalas aquí.</div>`}
+
     <h3 class="sec">Credenciales</h3>
     <div class="list">${cr.map(c=>`
       <div class="row" style="grid-template-columns:1fr auto">
@@ -523,12 +787,14 @@ async function pintaAjustes(){
     <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
       <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
          style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
-    <div class="list">${secretos.map(s=>`
+    <div class="list">${secretosCache.map(s=>`
       <div class="row" style="grid-template-columns:1fr auto auto">
         <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
           <div class="m">${esc(s.pista)}</div></div>
         <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
-        <button class="btn sm" ${s.disponible?'':'disabled'} data-sec="${esc(s.nombre)}">Copiar</button>
+        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
+          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
+          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
       </div>`).join('')}</div>
 
     <h3 class="sec">Subida</h3>
@@ -539,46 +805,142 @@ async function pintaAjustes(){
       </div>
     </div>`;
 
-  document.querySelectorAll('[data-sec]').forEach(b=>{
-    b.onclick = async ()=>{
-      try{
-        const j = await api('/api/secretos/'+encodeURIComponent(b.dataset.sec));
-        await navigator.clipboard.writeText(j.valor);
-        toast('Copiado: '+j.nombre);
-      }catch(e){ toast('No se pudo copiar: '+e.message); }
+  // Sliders: se muestra en vivo, se guarda al soltar (un POST por pixel
+  // arrastrado reescribiría config.json decenas de veces por segundo).
+  document.querySelectorAll('[data-aj]').forEach(r=>{
+    const eti = r.parentElement.querySelector('.v');
+    r.oninput = ()=>{ eti.textContent = r.value + '%'; };
+    r.onchange = async ()=>{
+      try{ await post('/api/ajuste', {clave: r.dataset.aj, valor: +r.value / 100});
+        E.ajustes[r.dataset.aj] = +r.value / 100;
+        toast('Guardado');
+      }catch(e){ toast(e.message); }
     };
   });
+  document.querySelectorAll('[data-emo]').forEach(s => s.onchange = async ()=>{
+    try{ const j = await post('/api/musica/emocion', {archivo: s.dataset.emo, emocion: s.value});
+      toast('Ahora es ' + s.value); refrescar();
+    }catch(e){ toast(e.message); refrescar(); }
+  });
+  document.querySelectorAll('[data-oir]').forEach(b => b.onclick = ()=>oir(b.dataset.oir, b));
+  document.querySelectorAll('[data-sec]').forEach(b => b.onclick = ()=>abrirSecreto(b.dataset.sec, b.dataset.tipo));
   $('#b-wifi').onclick = async ()=>{
-    try{ const j = await api('/api/wifi',{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({solo_wifi: !E.solo_wifi})});
+    try{ const j = await post('/api/wifi',{solo_wifi: !E.solo_wifi});
       toast(j.solo_wifi ? 'Solo con WiFi' : 'Permite datos móviles'); refrescar();
     }catch(e){ toast(e.message); }
   };
+  pintaBotonesOir();
 }
 
-/* ---------- ciclo ---------- */
+/* ---------- ver / copiar / poner un secreto ----------
+   Copiar directamente tras el fetch fallaba: para cuando llega la respuesta,
+   Chrome ya no considera el clic "reciente" y niega el portapapeles sin
+   decir nada. Por eso primero se muestra el valor y el botón de copiar actúa
+   sobre algo que ya está en memoria — y si aun así el portapapeles falla,
+   el texto queda a la vista para seleccionarlo a mano. */
+async function abrirSecreto(nombre, tipo){
+  let valor = '';
+  try{ valor = (await api('/api/secretos/'+encodeURIComponent(nombre))).valor; }
+  catch(e){ valor = ''; }
+
+  const editable = tipo === 'entorno';
+  const caja = document.createElement('div');
+  caja.className = 'modal';
+  caja.innerHTML = `
+    <div class="caja">
+      <b style="font:12px var(--mono)">${esc(nombre)}</b>
+      <div class="muted" style="margin:8px 0 10px">
+        ${editable ? 'Pégala aquí para guardarla en secretos.env, o cópiala para GitHub.'
+                   : 'Contenido del archivo. Pégalo tal cual en el Secret de GitHub.'}</div>
+      ${editable ? `<input type="text" id="s-val" value="${esc(valor)}" spellcheck="false"
+                      placeholder="pega aquí la clave">`
+                 : `<textarea id="s-val" readonly spellcheck="false">${esc(valor)}</textarea>`}
+      <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn go" id="s-copiar">Copiar</button>
+        ${editable ? '<button class="btn" id="s-guardar">Guardar</button>' : ''}
+        <button class="btn" id="s-cerrar" style="margin-left:auto">Cerrar</button>
+      </div>
+      <div class="muted" id="s-nota" style="margin-top:9px"></div>
+    </div>`;
+  document.body.appendChild(caja);
+  const campo = caja.querySelector('#s-val');
+  const nota = caja.querySelector('#s-nota');
+
+  caja.querySelector('#s-copiar').onclick = async ()=>{
+    const texto = campo.value;
+    if(!texto) return nota.textContent = 'No hay nada que copiar todavía.';
+    campo.select(); campo.setSelectionRange(0, texto.length);
+    try{
+      await navigator.clipboard.writeText(texto);
+      nota.textContent = '✓ Copiado al portapapeles.';
+    }catch(e){
+      // Reserva para cuando el portapapeles está bloqueado.
+      const ok = document.execCommand && document.execCommand('copy');
+      nota.textContent = ok ? '✓ Copiado al portapapeles.'
+        : 'El navegador no dejó copiar. El texto ya está seleccionado: usa «Copiar» del menú largo.';
+    }
+  };
+  if(editable) caja.querySelector('#s-guardar').onclick = async ()=>{
+    try{ await post('/api/secretos/'+encodeURIComponent(nombre), {valor: campo.value.trim()});
+      nota.textContent = '✓ Guardada en secretos.env — ya sobrevive a cerrar Termux.';
+      secretosCache = []; refrescar();
+    }catch(e){ nota.textContent = 'No se pudo guardar: ' + e.message; }
+  };
+  const cerrar = ()=>caja.remove();
+  caja.querySelector('#s-cerrar').onclick = cerrar;
+  caja.onclick = e => { if(e.target === caja) cerrar(); };
+}
+
+/* =========================================================
+   CICLO DE PINTADO
+
+   Cada vista declara una firma de lo que muestra. Si la firma no cambió, no
+   se repinta: reescribir el HTML en cada refresco reiniciaba el <video>, te
+   devolvía al inicio de las listas y hacía perder lo que estabas escribiendo.
+   ========================================================= */
+const VISTAS = {
+  revisar:    [firmaRevisar,    pintaRevisar],
+  cola:       [firmaCola,       pintaCola],
+  estilo:     [firmaEstilo,     pintaEstilo],
+  publicados: [firmaPublicados, pintaPublicados],
+  ajustes:    [firmaAjustes,    pintaAjustes],
+};
+let firmas = {};
+
+function vistaActual(){ return document.querySelector('.tabs button.on').dataset.v; }
+
 function pintar(){
+  if(!E) return;
   $('#c-rev').textContent = E.videos.length;
   $('#c-col').textContent = E.historias.length;
   $('#c-pub').textContent = E.publicados.length;
   pintaJob();
-  const v = document.querySelector('.tabs button.on').dataset.v;
-  if(v==='revisar') pintaRevisar();
-  else if(v==='cola') pintaCola();
-  else if(v==='estilo') pintaEstilo();
-  else if(v==='publicados') pintaPublicados();
-  else pintaAjustes();
+
+  const v = vistaActual();
+  const [firma, pinta] = VISTAS[v];
+  const f = firma();
+  if(firmas[v] !== f){ firmas[v] = f; pinta(); }
 }
+
 async function refrescar(){
-  try{ E = await api('/api/estado'); pintar(); }
+  try{
+    E = await api('/api/estado');
+    // Los secretos van aparte: el valor no viaja aquí, solo si están puestos.
+    if(vistaActual() === 'ajustes' && !secretosCache.length){
+      try{ secretosCache = await api('/api/secretos'); }catch(e){}
+    }
+    pintar();
+  }
   catch(e){ $('#job-slot').innerHTML =
     `<div class="aviso crit"><span>✕</span><div>Se perdió la conexión con el servidor. ¿Sigue corriendo <code style="font:12px var(--mono)">python servidor.py</code>?</div></div>`; }
 }
+
 document.querySelectorAll('.tabs button').forEach(b=>{
   b.onclick = ()=>{
     document.querySelectorAll('.tabs button').forEach(o=>o.classList.toggle('on', o===b));
     document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+b.dataset.v));
-    window.scrollTo(0,0); pintar();
+    window.scrollTo(0,0);
+    refrescar();
   };
 });
 refrescar();

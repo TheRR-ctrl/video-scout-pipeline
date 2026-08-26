@@ -106,6 +106,19 @@ EOF
 chmod +x "$ATAJOS/🎬 Panel de videos"
 echo "  ✓ Atajo creado en ~/.shortcuts"
 
+# ---- 5. puerta de entrada portátil ---------------------------------------
+# Un HTML suelto que detecta el panel y entra solo. Se copia a Descargas
+# porque desde ahí se abre con dos toques y se puede arrastrar a la pantalla
+# de inicio; el original se queda en el repo de todas formas.
+if [ -d "$HOME/storage/downloads" ]; then
+  cp "$REPO/abrir_panel.html" "$HOME/storage/downloads/abrir_panel.html" 2>/dev/null \
+    && echo "  ✓ abrir_panel.html copiado a Descargas" \
+    || echo "  · No se pudo copiar abrir_panel.html a Descargas"
+else
+  echo "  · Descargas no accesible (corre 'termux-setup-storage' para copiar ahí"
+  echo "    abrir_panel.html). Está en: $REPO/abrir_panel.html"
+fi
+
 echo
 echo "  Listo. Para abrir el panel:"
 echo
@@ -113,12 +126,15 @@ echo "      panel"
 echo
 echo "  (abre Chrome solo; se apaga cuando cierras la pestaña)"
 echo
-echo "  Para tenerlo en la pantalla de inicio, dos formas que se complementan:"
+echo "  Para tenerlo en la pantalla de inicio, tres formas que se complementan:"
 echo
-echo "   1. Termux:Widget (F-Droid): un toque arranca el servidor y abre"
+echo "   1. abrir_panel.html (en Descargas): ábrelo desde donde quieras."
+echo "      Si el panel está vivo entra solo; si no, te da el comando."
+echo
+echo "   2. Termux:Widget (F-Droid): un toque arranca el servidor y abre"
 echo "      Chrome. El atajo '🎬 Panel de videos' ya quedó creado."
 echo
-echo "   2. Con el panel abierto: menú ⋮ > Agregar a pantalla de inicio."
+echo "   3. Con el panel abierto: menú ⋮ > Agregar a pantalla de inicio."
 echo "      Queda con icono propio y sin barra de navegador."
 echo
 echo "  Funciona ya, en esta misma terminal."

@@ -182,6 +182,12 @@ CONFIG_DEFAULT = {
     # cadena vacía se desactiva.
     "sonido_transicion": "efecto_transicion",
     "volumen_sonido_transicion": 0.5,
+    # Niveles de la mezcla. Se fijan a mano (amix va con normalize=0), así
+    # que son absolutos: subir la música NO baja la locución sola. La música
+    # va muy por debajo a propósito — compite con la voz en el rango medio y
+    # a 0.20 ya empieza a tapar consonantes en el altavoz de un teléfono.
+    "volumen_musica": 0.09,
+    "volumen_locucion": 0.5,
     # Segundos que el efecto se adelanta respecto al final de la tarjeta.
     # Con 0 arranca justo cuando empieza a hablar y compite con la primera
     # palabra; adelantarlo un poco hace que su golpe caiga en la transición
@@ -519,6 +525,17 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
         or [c for c in cands if 'fondo' in c]
         or cands
     )
+    # --fondo limita el material a un archivo concreto. Sirve para rehacer un
+    # video con otro gameplay cuando hay varios; sin él se usan todos, que es
+    # lo que da variedad. Si el filtro no deja nada se ignora, porque quedarse
+    # sin fondo aborta el render entero.
+    filtro_fondo = (CONFIG.get("_fondo_forzado") or "").strip().lower()
+    if filtro_fondo:
+        acotados = [c for c in vids_base if filtro_fondo in c.lower()]
+        if acotados:
+            vids_base = acotados
+        else:
+            print(f" ├─ ⚠️  Ningún fondo coincide con '{filtro_fondo}'; se usan todos.")
     if not vids_base: return None
 
     w_res, h_res = (1080, 1920) if es_short else (1920, 1080)
@@ -608,11 +625,17 @@ def detectar_emocion_historia(texto):
 def seleccionar_fondo_video(es_short):
     return next((f for p in ["fondo_vertical" if es_short else "fondo_horizontal", "fondo_gameplay"] for ext in ['.webm', '.mp4', '.mkv'] if os.path.exists(p+ext)), next((f for f in os.listdir('.') if f.endswith(('.webm', '.mp4', '.mkv'))), None))
 
-def seleccionar_musica_fondo(emocion='fondo'):
+def seleccionar_musica_fondo(emocion='fondo', num=None):
     """Elige al azar entre todas las pistas disponibles para la emoción (p.ej.
     musica_drama_artista_123.mp3, descargadas por actualizar_musica.py), para
     no repetir siempre la misma canción. Si no hay ninguna con ese prefijo
-    exacto, cae a musica_fondo_*, y si tampoco hay, a cualquier musica_*."""
+    exacto, cae a musica_fondo_*, y si tampoco hay, a cualquier musica_*.
+
+    Con --musica se puede fijar la pista de antemano (el panel deja oírlas
+    antes de renderizar). Es una elección por historia: lo que no se eligió
+    sigue saliendo al azar, para que el cron no dependa de que alguien esté
+    mirando.
+    """
     exts = ('.m4a', '.mp3', '.wav', '.aac')
 
     def candidatas(prefijo):
@@ -620,6 +643,13 @@ def seleccionar_musica_fondo(emocion='fondo'):
             f for f in os.listdir('.')
             if f.startswith(prefijo) and f.endswith(exts) and archivo_valido(f)
         ]
+
+    forzada = CONFIG.get("_musica_forzada") or {}
+    elegida = forzada.get(str(num)) or forzada.get("*")
+    if elegida:
+        if archivo_valido(elegida):
+            return elegida
+        print(f" ├─ ⚠️  La música elegida no existe ({elegida}); se usa una al azar.")
 
     for prefijo in (f"musica_{emocion}", "musica_fondo"):
         opciones = candidatas(prefijo)
@@ -1271,7 +1301,7 @@ def renderizar_una_historia(contenido, num=1):
     gestor = GestorTemporales()
     try:
         v_tit, v_cue, p_cue, r_cue, emocion, tit, cue, n_arch, fuente_url, autor_original = extraer_titulo_y_cuerpo(contenido)
-        musica = seleccionar_musica_fondo(emocion)
+        musica = seleccionar_musica_fondo(emocion, num)
         os.makedirs(CARPETA_SALIDA, exist_ok=True)
         ruta_out = os.path.join(CARPETA_SALIDA, f"{num:02d}_{n_arch}.mp4")
 
@@ -1432,14 +1462,16 @@ def renderizar_una_historia(contenido, num=1):
         # niveles se fijan a mano y agregar el efecto no altera la mezcla
         # que ya existía (locución 0.5 + música 0.09 es exactamente lo que
         # producía el amix de dos entradas con normalización).
+        vol_loc = float(CONFIG.get("volumen_locucion", 0.5) or 0.0)
+        vol_mus = float(CONFIG.get("volumen_musica", 0.09) or 0.0)
         partes_audio, etiquetas = [], []
-        partes_audio.append(f"[{idx['loc']}:a]volume=0.5[av]"); etiquetas.append("[av]")
+        partes_audio.append(f"[{idx['loc']}:a]volume={vol_loc}[av]"); etiquetas.append("[av]")
         # (la etiqueta final se decide abajo: con una sola pista no hay que
         # mezclar, y encadenar algo después de [av] sería inválido)
         if musica:
             fade_inicio = max(0.0, dur_sec - 2.0)
             partes_audio.append(
-                f"[{idx['musica']}:a]volume=0.09,afade=t=out:st={fade_inicio:.2f}:d=2[am]"
+                f"[{idx['musica']}:a]volume={vol_mus},afade=t=out:st={fade_inicio:.2f}:d=2[am]"
             )
             etiquetas.append("[am]")
         if sonido:
@@ -1456,7 +1488,7 @@ def renderizar_una_historia(contenido, num=1):
             # etiqueta directamente como salida. Encadenar ",anull[aout]"
             # después de "[av]" produce un filtro inválido ("Cannot find a
             # matching stream for unlabeled input pad").
-            fc = f"{video_fc};[{idx['loc']}:a]volume=0.5[aout]"
+            fc = f"{video_fc};[{idx['loc']}:a]volume={vol_loc}[aout]"
         else:
             fc = (
                 f"{video_fc};" + ";".join(partes_audio) + ";"
@@ -1734,6 +1766,20 @@ if __name__ == "__main__":
         "--estilo",
         help="Preset de subtítulos para esta corrida, sin tocar config.json.",
     )
+    parser.add_argument(
+        "--musica",
+        help="Fijar la música en vez de sacarla al azar. Un nombre de archivo "
+             "la aplica a todas las historias de la corrida; para elegir por "
+             "historia usa pares: --musica '3=musica_drama_x.mp3,7=musica_fondo_y.mp3'.",
+    )
+    parser.add_argument(
+        "--volumen-musica", type=float, metavar="0..1",
+        help="Volumen de la música solo para esta corrida (por defecto 0.09).",
+    )
+    parser.add_argument(
+        "--fondo",
+        help="Usar solo los videos de fondo cuyo nombre contenga este texto.",
+    )
     args = parser.parse_args()
 
     # --estilo aplica solo a esta corrida: se recarga la config con el preset
@@ -1768,5 +1814,22 @@ if __name__ == "__main__":
         CONFIG["reintentar_existentes"] = True
     if args.voz:
         CONFIG["_voz_forzada"] = args.voz
+    if args.fondo:
+        CONFIG["_fondo_forzado"] = args.fondo
+    if args.volumen_musica is not None:
+        CONFIG["volumen_musica"] = max(0.0, min(1.0, args.volumen_musica))
+    if args.musica:
+        # "archivo.mp3" -> para todas;  "3=a.mp3,7=b.mp3" -> por historia.
+        elegidas = {}
+        for parte in args.musica.split(","):
+            parte = parte.strip()
+            if not parte:
+                continue
+            if "=" in parte:
+                n, archivo = parte.split("=", 1)
+                elegidas[n.strip()] = archivo.strip()
+            else:
+                elegidas["*"] = parte
+        CONFIG["_musica_forzada"] = elegidas
 
     renderizar_lote_historias(args.guion, seleccion)

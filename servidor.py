@@ -248,6 +248,118 @@ def material():
     }
 
 
+EXT_AUDIO = (".mp3", ".m4a", ".wav", ".aac", ".ogg")
+
+# Las mismas cuatro de detectar_emocion_historia. "fondo" es el cajón para
+# pistas que sirven con cualquier emoción.
+EMOCIONES = ("drama", "venganza", "suspenso", "comedia", "fondo")
+
+
+def pistas_musica():
+    """Las pistas del repo, con su emoción y su atribución.
+
+    La emoción sale del nombre del archivo (musica_<emocion>_...) porque es
+    justo lo que mira el render al elegir: mostrar otra cosa aquí haría que
+    el panel y el video no coincidieran.
+    """
+    atrib = leer_json(os.path.join(CARPETA_ESTADO, "musica_atribucion.json"), {})
+    out = []
+    for f in sorted(os.listdir(BASE_DIR)):
+        if not f.startswith("musica_") or not f.lower().endswith(EXT_AUDIO):
+            continue
+        resto = f[len("musica_"):]
+        emocion = next((e for e in EMOCIONES if resto.startswith(e + "_")), "fondo")
+        a = atrib.get(f) or {}
+        out.append({
+            "archivo": f,
+            "emocion": emocion,
+            "artista": a.get("artista") or "",
+            "titulo": a.get("titulo") or "",
+            "kb": os.path.getsize(os.path.join(BASE_DIR, f)) // 1024,
+        })
+    return out
+
+
+@app.get("/api/musica")
+def api_musica():
+    return jsonify(pistas_musica())
+
+
+@app.post("/api/musica/emocion")
+def api_musica_emocion():
+    """Reclasifica una pista renombrándola.
+
+    El render decide por el nombre del archivo, así que mover una pista de
+    emoción ES renombrarla; guardar la etiqueta en otro lado dejaría el panel
+    diciendo una cosa y el render haciendo otra. Se arrastra la atribución
+    para no perder el crédito del autor.
+    """
+    d = request.json or {}
+    archivo = os.path.basename(d.get("archivo") or "")
+    emocion = (d.get("emocion") or "").strip().lower()
+    if emocion not in EMOCIONES:
+        return jsonify({"error": "Emoción desconocida"}), 400
+    if not archivo.startswith("musica_") or not archivo.lower().endswith(EXT_AUDIO):
+        return jsonify({"error": "No es una pista de música"}), 400
+
+    origen = os.path.join(BASE_DIR, archivo)
+    if not os.path.isfile(origen):
+        return jsonify({"error": "No existe esa pista"}), 404
+
+    resto = archivo[len("musica_"):]
+    for e in EMOCIONES:
+        if resto.startswith(e + "_"):
+            resto = resto[len(e) + 1:]
+            break
+    nuevo = f"musica_{emocion}_{resto}"
+    if nuevo == archivo:
+        return jsonify({"ok": True, "archivo": archivo})
+    destino = os.path.join(BASE_DIR, nuevo)
+    if os.path.exists(destino):
+        return jsonify({"error": f"Ya existe {nuevo}"}), 409
+
+    os.rename(origen, destino)
+    ruta_atrib = os.path.join(CARPETA_ESTADO, "musica_atribucion.json")
+    atrib = leer_json(ruta_atrib, {})
+    if archivo in atrib:
+        atrib[nuevo] = atrib.pop(archivo)
+        os.makedirs(CARPETA_ESTADO, exist_ok=True)
+        with open(ruta_atrib, "w", encoding="utf-8") as f:
+            json.dump(atrib, f, ensure_ascii=False, indent=2)
+    return jsonify({"ok": True, "archivo": nuevo})
+
+
+# Ajustes numéricos que el panel puede tocar, con su rango. La lista blanca
+# evita que una petición pueda escribir cualquier clave arbitraria en
+# config.json — que es el archivo del que depende todo el render.
+AJUSTES_NUMERICOS = {
+    "volumen_musica": (0.0, 1.0),
+    "volumen_locucion": (0.0, 1.0),
+    "volumen_sonido_transicion": (0.0, 1.0),
+    "velo_blanco_fondo": (0.0, 1.0),
+}
+
+
+@app.post("/api/ajuste")
+def api_ajuste():
+    d = request.json or {}
+    clave = d.get("clave")
+    if clave not in AJUSTES_NUMERICOS:
+        return jsonify({"error": "Ajuste desconocido"}), 400
+    try:
+        valor = float(d.get("valor"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Valor no numérico"}), 400
+    lo, hi = AJUSTES_NUMERICOS[clave]
+    valor = max(lo, min(hi, valor))
+
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg[clave] = valor
+    with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"ok": True, "clave": clave, "valor": valor})
+
+
 def credenciales():
     out = []
     for clave, tiene, origen in secretos.estado():
@@ -295,6 +407,13 @@ def api_estado():
         "subtitulos": cfg["subtitulos"],
         "presets": list(gvm.PRESETS_SUBTITULOS.keys()),
         "solo_wifi": cfg.get("solo_wifi", True),
+        "musica": pistas_musica(),
+        "fondos": sorted(
+            os.path.basename(f) for p in ("fondo_vertical*", "fondo_horizontal*", "fondo_gameplay*")
+            for f in glob.glob(os.path.join(BASE_DIR, p))
+            if f.lower().endswith((".mp4", ".webm", ".mkv", ".mov"))
+        ),
+        "ajustes": {k: cfg.get(k) for k in AJUSTES_NUMERICOS},
         "trabajo": TRABAJO["actual"].como_dict() if TRABAJO["actual"] else None,
     })
 
@@ -329,6 +448,17 @@ def api_ejecutar(accion):
             cmd += ["--voz", d["voz"]]
         if d.get("estilo"):
             cmd += ["--estilo", str(d["estilo"])]
+        # Música elegida a mano: {"3": "musica_x.mp3"} o {"*": "..."} para
+        # todas. Lo que no venga aquí sale al azar, igual que en el cron.
+        elegidas = d.get("musica") or {}
+        if isinstance(elegidas, dict):
+            pares = [f"{k}={v}" for k, v in elegidas.items() if v]
+            if pares:
+                cmd += ["--musica", ",".join(pares)]
+        if d.get("fondo"):
+            cmd += ["--fondo", str(d["fondo"])]
+        if d.get("volumen_musica") is not None:
+            cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando", cmd)
     elif accion in ACCIONES:
         nombre, cmd = ACCIONES[accion]
@@ -435,6 +565,51 @@ def api_secreto_valor(nombre):
     return jsonify({"nombre": nombre, "valor": valor})
 
 
+@app.post("/api/secretos/<nombre>")
+def api_secreto_guardar(nombre):
+    """Guarda una clave en secretos.env desde el panel.
+
+    Antes solo se podían mirar: si faltaba GEMINI_API_KEY había que volver a
+    Termux, escribir un export y reiniciar todo. Se escribe en el archivo
+    (que sobrevive a cerrar la terminal) y también en el entorno de este
+    proceso, para que los trabajos que lance a continuación ya la vean.
+    """
+    if nombre not in SECRETOS_COPIABLES:
+        return jsonify({"error": "Secreto desconocido"}), 404
+    tipo, ref = SECRETOS_COPIABLES[nombre]
+    if tipo != "entorno":
+        return jsonify({"error": "Los archivos de credenciales no se editan aquí"}), 400
+
+    valor = (request.json or {}).get("valor", "").strip()
+    if not valor:
+        return jsonify({"error": "Valor vacío"}), 400
+
+    lineas = []
+    if os.path.exists(secretos.RUTA_SECRETOS):
+        with open(secretos.RUTA_SECRETOS, "r", encoding="utf-8") as f:
+            lineas = f.read().splitlines()
+    # Se reemplaza la línea existente en su sitio en vez de añadir otra:
+    # con dos líneas de la misma clave ganaría la primera, y editar desde el
+    # panel parecería no haber hecho nada.
+    salida, puesta = [], False
+    for linea in lineas:
+        if linea.strip().startswith(ref + "="):
+            if not puesta:
+                salida.append(f"{ref}={valor}")
+                puesta = True
+        else:
+            salida.append(linea)
+    if not puesta:
+        salida.append(f"{ref}={valor}")
+
+    with open(secretos.RUTA_SECRETOS, "w", encoding="utf-8") as f:
+        f.write("\n".join(salida).rstrip() + "\n")
+    os.chmod(secretos.RUTA_SECRETOS, 0o600)   # es una credencial, no un config
+    os.environ[ref] = valor
+    secretos._DESDE_ARCHIVO.add(ref)
+    return jsonify({"ok": True, "nombre": nombre})
+
+
 @app.get("/video/<path:archivo>")
 def api_video(archivo):
     """Sirve el .mp4 con soporte de Range, que es lo que permite adelantar
@@ -444,15 +619,35 @@ def api_video(archivo):
     ruta = os.path.join(carpeta, os.path.basename(archivo))
     if not os.path.isfile(ruta):
         abort(404)
+    return servir_con_rango(ruta, "video/mp4")
 
+
+@app.get("/audio/<path:archivo>")
+def api_audio(archivo):
+    """Sirve una pista de música para poder oírla en el panel antes de
+    comprometer un render de varios minutos con ella."""
+    nombre = os.path.basename(archivo)
+    # Solo música del repo: cualquier otra ruta se rechaza en vez de
+    # dejar que un nombre con ../ saque archivos de otro sitio.
+    if not nombre.startswith("musica_") or not nombre.lower().endswith(EXT_AUDIO):
+        abort(404)
+    ruta = os.path.join(BASE_DIR, nombre)
+    if not os.path.isfile(ruta):
+        abort(404)
+    tipos = {".mp3": "audio/mpeg", ".m4a": "audio/mp4", ".wav": "audio/wav",
+             ".aac": "audio/aac", ".ogg": "audio/ogg"}
+    return servir_con_rango(ruta, tipos.get(os.path.splitext(nombre)[1].lower(), "audio/mpeg"))
+
+
+def servir_con_rango(ruta, mimetype):
     tam = os.path.getsize(ruta)
     rango = request.headers.get("Range")
     if not rango:
-        return send_file(ruta, mimetype="video/mp4", conditional=True)
+        return send_file(ruta, mimetype=mimetype, conditional=True)
 
     m = re.match(r"bytes=(\d+)-(\d*)", rango)
     if not m:
-        return send_file(ruta, mimetype="video/mp4", conditional=True)
+        return send_file(ruta, mimetype=mimetype, conditional=True)
     ini = int(m.group(1))
     fin = int(m.group(2)) if m.group(2) else min(ini + 1024 * 1024 * 4, tam - 1)
     fin = min(fin, tam - 1)
@@ -469,7 +664,7 @@ def api_video(archivo):
                 restante -= len(datos)
                 yield datos
 
-    resp = Response(trozo(), 206, mimetype="video/mp4", direct_passthrough=True)
+    resp = Response(trozo(), 206, mimetype=mimetype, direct_passthrough=True)
     resp.headers["Content-Range"] = f"bytes {ini}-{fin}/{tam}"
     resp.headers["Accept-Ranges"] = "bytes"
     resp.headers["Content-Length"] = str(largo)
