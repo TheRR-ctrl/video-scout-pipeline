@@ -44,6 +44,7 @@ WEB_DIR = os.path.join(BASE_DIR, "web")
 CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
 RUTA_CONFIG = os.path.join(BASE_DIR, "config.json")
+RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
 
 ES_TERMUX = "PREFIX" in os.environ or os.path.exists("/sdcard")
 
@@ -203,6 +204,7 @@ def videos_renderizados():
     publicados = leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), [])
     rechazados = leer_json(os.path.join(CARPETA_ESTADO, "rechazados.json"), [])
     ya = {p.get("ruta") for p in publicados} | {r.get("ruta") for r in rechazados}
+    metadatos = leer_json(RUTA_METADATA, {})
 
     out = []
     for v in completados:
@@ -224,6 +226,10 @@ def videos_renderizados():
             "fuente_url": v.get("fuente_url"),
             "archivo": os.path.basename(ruta),
             "publicado": ruta in ya,
+            # Lo que publisher.py subirá tal cual. None mientras no se haya
+            # preparado: el panel distingue "todavía no existe" de "existe y
+            # dice esto", que no es lo mismo para quien va a aprobarlo.
+            "meta": metadatos.get(os.path.basename(ruta)),
         })
     return out
 
@@ -340,6 +346,48 @@ AJUSTES_NUMERICOS = {
 }
 
 
+@app.post("/api/metadata/<path:archivo>")
+def api_metadata_guardar(archivo):
+    """Guarda el título, la descripción y los hashtags corregidos a mano.
+
+    Se marca origen="manual" para que ni publisher.py ni preparar_metadata
+    la regeneren después: perder una corrección tuya porque un paso posterior
+    volvió a preguntarle a Gemini sería justo lo contrario de poder editarla.
+    """
+    nombre = os.path.basename(archivo)
+    d = request.json or {}
+
+    titulo = (d.get("titulo_youtube") or "").strip()
+    if not titulo:
+        return jsonify({"error": "El título no puede quedar vacío"}), 400
+
+    # YouTube corta a 100 caracteres y rechaza < y > en el título.
+    titulo = titulo.replace("<", "").replace(">", "")[:100]
+
+    hashtags = []
+    for h in (d.get("hashtags") or []):
+        limpio = re.sub(r"[^\w]", "", str(h))
+        if limpio and limpio not in hashtags:
+            hashtags.append(limpio)
+    hashtags = hashtags[:6]   # el mismo tope que aplica construir_descripcion
+
+    almacen = leer_json(RUTA_METADATA, {})
+    previa = almacen.get(nombre) or {}
+    almacen[nombre] = {
+        "aprobado": True,          # si lo estás guardando, lo estás aprobando
+        "motivo_rechazo": "",
+        "titulo_youtube": titulo,
+        "descripcion_youtube": (d.get("descripcion_youtube") or "").strip(),
+        "hashtags": hashtags,
+        "origen": "manual",
+        "origen_previo": previa.get("origen", ""),
+    }
+    os.makedirs(CARPETA_ESTADO, exist_ok=True)
+    with open(RUTA_METADATA, "w", encoding="utf-8") as f:
+        json.dump(almacen, f, ensure_ascii=False, indent=2)
+    return jsonify({"ok": True, "meta": almacen[nombre]})
+
+
 @app.post("/api/ajuste")
 def api_ajuste():
     d = request.json or {}
@@ -429,6 +477,7 @@ ACCIONES = {
     "publicar":   ("Publicando en YouTube", [sys.executable, "publisher.py"]),
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),
     "previsualizar": ("Generando comparación de estilos", [sys.executable, "previsualizar_estilos.py"]),
+    "metadata":   ("Preparando títulos y hashtags", [sys.executable, "preparar_metadata.py"]),
 }
 
 
@@ -460,6 +509,15 @@ def api_ejecutar(accion):
         if d.get("volumen_musica") is not None:
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando", cmd)
+    elif accion == "regenerar_metadata":
+        # Volver a preguntarle a Gemini por UN video. --forzar porque el
+        # botón solo aparece cuando ya la estás mirando: pedirlo ahí es
+        # pedirlo a sabiendas de que reemplaza lo que hay.
+        d = request.json or {}
+        cmd = [sys.executable, "preparar_metadata.py", "--rehacer", "--forzar"]
+        if d.get("numero") is not None:
+            cmd += ["--solo", str(d["numero"])]
+        t, err = lanzar("Regenerando con Gemini", cmd)
     elif accion in ACCIONES:
         nombre, cmd = ACCIONES[accion]
         t, err = lanzar(nombre, cmd)

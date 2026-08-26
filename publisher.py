@@ -40,6 +40,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 RUTA_PUBLICADOS = os.path.join(CARPETA_ESTADO, "publicados.json")
 RUTA_RECHAZADOS = os.path.join(CARPETA_ESTADO, "rechazados.json")
+# Título, descripción y hashtags de cada video, por nombre de archivo. Existe
+# para poder verlos y corregirlos ANTES de subir: antes se generaban aquí
+# mismo, un instante antes de la subida, así que no había momento en que
+# alguien pudiera mirarlos.
+RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
 RUTA_CLIENT_SECRET = os.path.join(BASE_DIR, "client_secret.json")
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 
@@ -206,6 +211,44 @@ HASHTAGS_DE_RESPALDO_POR_EMOCION = {
     "suspenso": ["misterio", "suspenso"],
     "comedia": ["humor", "comedia"],
 }
+
+
+def clave_metadata(ruta):
+    """El nombre del archivo, no la ruta completa: la carpeta de salida puede
+    cambiar (o venir normalizada distinto desde la SD) y la metadata seguiría
+    siendo la misma."""
+    return os.path.basename(ruta)
+
+
+def metadata_para(video, client, almacen):
+    """La metadata que se va a subir, priorizando lo que ya esté guardado.
+
+    Si el panel la generó y la corregiste, se usa TAL CUAL: volver a
+    preguntarle a Gemini aquí tiraría tus ediciones sin avisar, y el punto
+    de poder editarlas es que lo editado sea lo que se sube.
+
+    Si no hay nada guardado (el caso del cron sin pasar por el panel), se
+    genera aquí como siempre y se guarda, para que quede constancia de lo
+    que se publicó con cada video.
+    """
+    clave = clave_metadata(video["ruta"])
+    guardada = almacen.get(clave)
+    if guardada and guardada.get("titulo_youtube"):
+        origen = guardada.get("origen", "guardada")
+        logger.info(f"  Metadata {origen}: «{guardada['titulo_youtube'][:60]}»")
+        return guardada
+
+    try:
+        metadata = revisar_y_generar_metadata(client, video["titulo"], video.get("cuerpo", ""))
+        metadata["origen"] = "gemini"
+    except Exception as exc:
+        logger.warning(f"Falló la revisión de Gemini ({exc}); usando metadata de respaldo.")
+        metadata = metadata_de_respaldo(video)
+        metadata["origen"] = "respaldo"
+
+    almacen[clave] = metadata
+    guardar_json(RUTA_METADATA, almacen)
+    return metadata
 
 
 def metadata_de_respaldo(video):
@@ -409,6 +452,7 @@ def main(forzar_datos=False):
 
     publicados = cargar_json(RUTA_PUBLICADOS, [])
     rechazados = cargar_json(RUTA_RECHAZADOS, [])
+    almacen_metadata = cargar_json(RUTA_METADATA, {})
     rutas_ya_procesadas = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
 
     pendientes = [v for v in completados if v["ruta"] not in rutas_ya_procesadas]
@@ -439,11 +483,7 @@ def main(forzar_datos=False):
             guardar_json(RUTA_RECHAZADOS, rechazados)
             continue
 
-        try:
-            metadata = revisar_y_generar_metadata(client, video["titulo"], video.get("cuerpo", ""))
-        except Exception as exc:
-            logger.warning(f"Falló la revisión de Gemini ({exc}); usando metadata de respaldo.")
-            metadata = metadata_de_respaldo(video)
+        metadata = metadata_para(video, client, almacen_metadata)
 
         if not metadata["aprobado"]:
             logger.warning(f"Rechazado (contenido): {metadata['motivo_rechazo']}")
