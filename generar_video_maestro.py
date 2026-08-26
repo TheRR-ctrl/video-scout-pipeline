@@ -186,7 +186,7 @@ CONFIG_DEFAULT = {
     # que son absolutos: subir la música NO baja la locución sola. La música
     # va muy por debajo a propósito — compite con la voz en el rango medio y
     # a 0.20 ya empieza a tapar consonantes en el altavoz de un teléfono.
-    "volumen_musica": 0.09,
+    "volumen_musica": 0.04,
     "volumen_locucion": 0.5,
     # Segundos que el efecto se adelanta respecto al final de la tarjeta.
     # Con 0 arranca justo cuando empieza a hablar y compite con la primera

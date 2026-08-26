@@ -437,8 +437,8 @@ function pintaRevisar(){
 
           ${finos.volumen ? `<div class="sangria">
             <div class="slider"><input type="range" id="r-vol" min="0" max="30" step="1"
-                value="${Math.round((E.ajustes.volumen_musica ?? .09)*100)}">
-              <span class="v" id="r-vol-v">${Math.round((E.ajustes.volumen_musica ?? .09)*100)}%</span></div>
+                value="${Math.round((E.ajustes.volumen_musica ?? .04)*100)}">
+              <span class="v" id="r-vol-v">${Math.round((E.ajustes.volumen_musica ?? .04)*100)}%</span></div>
             <div class="muted">Solo para este render; no cambia el ajuste general.</div>
           </div>` : ''}
 
