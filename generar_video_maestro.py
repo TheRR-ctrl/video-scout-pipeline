@@ -605,25 +605,158 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
         actualizar_hud([f"{txt_base} [ Fallo] [{'❌'*anch}]"], True)
         return None
 
-def detectar_emocion_historia(texto):
-    """Detecta emoción explícita y, si no existe, busca palabras clave."""
-    m = re.search(r'emoci[óo]n\s*[:=]\s*([\w-]+)', texto, re.IGNORECASE)
-    val = m.group(1) if m else texto.lower()
+# Vocabulario por género. Se compara sobre texto sin acentos y con límites
+# de palabra, así que aquí va todo sin tildes. Cada entrada es una raíz: se
+# admite lo que siga pegado (llor -> lloré, llorando, lloraba), por eso las
+# raíces tienen que ser lo bastante largas para no cazar otra cosa. "veng"
+# cazaría "vengo de casa", así que las formas de vengar van explícitas.
+VOCABULARIO_EMOCION = {
+    "venganza": [
+        "venganza", "vengarme", "vengarse", "vengue", "vengo a cobrar",
+        "vengativ", "justicia", "injusticia", "demand", "abogad", "denunci",
+        "juicio", "tribunal", "despidieron", "despedid", "karma",
+        "se lo merecia", "merecido", "escarmiento", "le salio caro",
+        "pago caro", "desenmascar", "represalia", "delante de todos",
+        "recuper lo mio", "me las pago", "vuelta la tortilla", "castig",
+    ],
+    "suspenso": [
+        "suspenso", "misterio", "secreto", "ocult", "escondi", "descubri",
+        "revelacion", "revelo", "sospech", "inquietante", "escalofri",
+        "aterrad", "madrugada", "anonim", "desconocid", "desaparecio",
+        "nunca supe", "fraude", "estafa", "mintio", "mentira", "camara de",
+        "no me lo esperaba", "algo no encajaba", "sin explicacion",
+    ],
+    "drama": [
+        "drama", "triste", "tristeza", "luto", "duelo", "dolor", "lagrima",
+        "llor", "murio", "muerte", "fallecio", "fallecimiento", "funeral",
+        "enfermedad", "cancer", "hospital", "abandon", "divorcio",
+        "traicion", "humill", "soledad", "arrepent", "perdon", "despedida",
+        "nunca volvi a ver", "se me rompio", "no pude despedirme",
+    ],
+    "comedia": [
+        "comedia", "humor", "carcajada", "chiste", "divertid", "gracios",
+        "ridicul", "absurd", "comic", "hilarante", "payaso", "torpe",
+        "verguenza ajena", "no pude parar de reir", "me parti de risa",
+        "risas", "reimos", "se me escapo la risa",
+    ],
+}
 
-    dic = {
-        'venganza': ['venganza', 'justicia', 'despojo', 'demanda', 'abogado'],
-        'suspenso': ['suspenso', 'tensión', 'tension', 'fraude', 'secreto'],
-        'drama': ['drama', 'triste', 'luto', 'dolor', 'lágrimas', 'lagrimas'],
-        'comedia': ['comedia', 'humor', 'risa', 'chiste', 'divertido'],
-    }
-    val = str(val).lower()
-    return next(
-        (em for em, kws in dic.items() if any(k in val for k in kws)),
-        'fondo'
+# Lo que Gemini u otra fuente pueda escribir en "# Emocion:" sin ser una de
+# las cuatro palabras exactas. Lo que no esté aquí no se descarta: se pasa a
+# leer el texto, que es mejor pista que rendirse.
+SINONIMOS_EMOCION = {
+    "venganza": "venganza", "justicia": "venganza", "revancha": "venganza",
+    "desquite": "venganza", "karma": "venganza",
+    "suspenso": "suspenso", "misterio": "suspenso", "tension": "suspenso",
+    "intriga": "suspenso", "thriller": "suspenso", "terror": "suspenso",
+    "drama": "drama", "tristeza": "drama", "melancolia": "drama",
+    "emotivo": "drama", "duelo": "drama", "perdida": "drama",
+    "comedia": "comedia", "humor": "comedia", "gracioso": "comedia",
+    "divertido": "comedia",
+}
+
+# Orden de desempate. No es alfabético: refleja lo que pide el canal cuando
+# una historia toca varios géneros por igual.
+PRIORIDAD_EMOCION = ("venganza", "suspenso", "drama", "comedia")
+
+
+def _sin_acentos(texto):
+    import unicodedata
+    return "".join(
+        c for c in unicodedata.normalize("NFD", str(texto).lower())
+        if unicodedata.category(c) != "Mn"
     )
+
+
+def puntuar_emociones(texto):
+    """Cuántas veces asoma cada género, con el título pesando más.
+
+    Se devuelve el marcador entero y no solo el ganador para poder explicar
+    por qué salió lo que salió: el render lo imprime, que si no una
+    clasificación rara no hay manera de discutirla.
+    """
+    lineas = [
+        l.strip() for l in texto.splitlines()
+        if l.strip() and not l.strip().startswith(("#", "===", "📌", "🎙️"))
+    ]
+    # El peso extra del título solo tiene sentido si hay título Y cuerpo. Con
+    # una sola línea no hay tal cosa: multiplicarla por tres convertía
+    # cualquier palabra suelta en señal suficiente.
+    if len(lineas) >= 2:
+        titulo = _sin_acentos(lineas[0])
+        cuerpo = _sin_acentos(" ".join(lineas[1:]))
+    else:
+        titulo = ""
+        cuerpo = _sin_acentos(lineas[0]) if lineas else ""
+
+    marcador = {}
+    for emocion, raices in VOCABULARIO_EMOCION.items():
+        puntos, en_titulo = 0, 0
+        for raiz in raices:
+            # \b delante y nada detrás: la raíz puede llevar terminación
+            # (llor -> lloraba) pero no puede empezar a media palabra, que es
+            # lo que hacía que "absoluto" contara como luto.
+            patron = r"\b" + re.escape(raiz)
+            en_titulo += len(re.findall(patron, titulo))
+            puntos += len(re.findall(patron, cuerpo))
+        # El título es una frase pensada para resumir la historia: lo que
+        # aparece ahí pesa más que una palabra suelta en mitad del cuerpo.
+        marcador[emocion] = {"total": en_titulo * 3 + puntos,
+                             "titulo": en_titulo, "cuerpo": puntos}
+    return marcador
+
+
+def detectar_emocion_historia(texto, explicar=False):
+    """El género de la historia: decide la música y el color del montaje.
+
+    Manda lo que declare "# Emocion:" —lo escribe script_writer.py y viene
+    de haber leído la historia entera—. Si no hay declaración, o dice algo
+    que no reconocemos, se lee el texto en vez de rendirse a 'fondo': un
+    guion escrito a mano o recuperado no trae cabecera, y esos son justo los
+    que acababan todos con la misma música genérica.
+    """
+    m = re.search(r"emoci[oó]n\s*[:=]\s*([\w-]+)", texto, re.IGNORECASE)
+    if m:
+        declarada = _sin_acentos(m.group(1))
+        if declarada in SINONIMOS_EMOCION:
+            return SINONIMOS_EMOCION[declarada]
+
+    marcador = puntuar_emociones(texto)
+    if explicar:
+        orden = sorted(marcador.items(), key=lambda kv: -kv[1]["total"])
+        print("   Marcador de género: " + "  ".join(
+            f"{e}={d['total']}" + (f" (título {d['titulo']})" if d["titulo"] else "")
+            for e, d in orden if d["total"]) or "   Marcador de género: vacío")
+
+    mejor = max(
+        PRIORIDAD_EMOCION,
+        key=lambda e: (marcador[e]["total"], marcador[e]["titulo"],
+                       -PRIORIDAD_EMOCION.index(e)),
+    )
+    # Con un solo acierto suelto no hay señal: una historia de oficina que
+    # menciona "abogado" de pasada no es una historia de venganza. Mejor la
+    # música neutra que una equivocada, que se nota más.
+    return mejor if marcador[mejor]["total"] >= 2 else "fondo"
 
 def seleccionar_fondo_video(es_short):
     return next((f for p in ["fondo_vertical" if es_short else "fondo_horizontal", "fondo_gameplay"] for ext in ['.webm', '.mp4', '.mkv'] if os.path.exists(p+ext)), next((f for f in os.listdir('.') if f.endswith(('.webm', '.mp4', '.mkv'))), None))
+
+def origen_emocion(texto):
+    """De dónde salió el género, para que la línea del render se pueda leer.
+
+    Si sale mal, saber si vino de la cabecera del guion (culpa de Gemini al
+    escribirlo) o del recuento de palabras (culpa del vocabulario de aquí)
+    es la diferencia entre arreglarlo y adivinar.
+    """
+    m = re.search(r"emoci[oó]n\s*[:=]\s*([\w-]+)", texto, re.IGNORECASE)
+    if m and _sin_acentos(m.group(1)) in SINONIMOS_EMOCION:
+        return "declarada en el guion"
+    marcador = puntuar_emociones(texto)
+    vivos = sorted(((d["total"], e) for e, d in marcador.items() if d["total"]), reverse=True)
+    if not vivos:
+        return "sin pistas en el texto"
+    return "del texto: " + ", ".join(f"{e} {t}" for t, e in vivos[:3])
+
 
 def seleccionar_musica_fondo(emocion='fondo', num=None):
     """Elige al azar entre todas las pistas disponibles para la emoción (p.ej.
@@ -1311,7 +1444,7 @@ def renderizar_una_historia(contenido, num=1):
             return
 
         print(f"\n🎬 [Video {num}] Procesando: {n_arch}")
-        print(f" ├─ ⚙️  Emoción: {emocion.upper()} | Música: {musica or 'Ninguna'}")
+        print(f" ├─ ⚙️  Emoción: {emocion.upper()} ({origen_emocion(contenido)}) | Música: {musica or 'Ninguna'}")
         
         t_tit, t_cue = gestor.registrar(f"t_tit_{num}.txt"), gestor.registrar(f"t_cue_{num}.txt")
         a_tit, a_cue = gestor.registrar(f"a_tit_{num}.m4a"), gestor.registrar(f"a_cue_{num}.m4a")
