@@ -26,7 +26,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 
 import secretos  # carga secretos.env si las claves no están en el entorno
-from titulos import recortar_titulo, largo_youtube
+from titulos import recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE
 
 from google import genai
 from google.genai import types as genai_types
@@ -195,8 +195,10 @@ no cabe, reescríbela más corta en vez de dejarla a medias — un título corta
 impresión que uno menos ambicioso."""
 
 
-def revisar_y_generar_metadata(client, titulo, cuerpo):
-    prompt = f"Título/hook: {titulo}\n\nCuerpo:\n{cuerpo[:3000]}"
+INTENTOS_TITULO = 3
+
+
+def _pedir_metadata(client, prompt):
     response = client.models.generate_content(
         model=MODEL,
         contents=prompt,
@@ -207,6 +209,56 @@ def revisar_y_generar_metadata(client, titulo, cuerpo):
         ),
     )
     return json.loads(response.text)
+
+
+def revisar_y_generar_metadata(client, titulo, cuerpo):
+    """Metadata de publicación, con el título ya dentro del límite.
+
+    Gemini no cuenta caracteres de forma fiable por mucho que se le pida en
+    el prompt: escribe el título que le parece bueno y a veces se pasa. Así
+    que se comprueba aquí y, si se pasó, se le devuelve el título con la
+    cuenta exacta y cuánto le sobra para que lo reescriba él.
+
+    Reescribir es mejor que recortar: un título que el modelo acorta sigue
+    siendo una frase pensada, mientras que uno recortado por máquina pierde
+    el final. El recorte mecánico sigue existiendo (titulos.py) pero pasa a
+    ser la red de seguridad, no el camino normal.
+    """
+    prompt = f"Título/hook: {titulo}\n\nCuerpo:\n{cuerpo[:3000]}"
+
+    for intento in range(1, INTENTOS_TITULO + 1):
+        metadata = _pedir_metadata(client, prompt)
+        propuesto = limpiar_titulo(metadata.get("titulo_youtube", ""))
+        largo = largo_youtube(propuesto)
+
+        if largo <= LIMITE_YOUTUBE:
+            metadata["titulo_youtube"] = propuesto
+            if intento > 1:
+                logger.info(f"  Título dentro del límite al intento {intento}: {largo} caracteres.")
+            return metadata
+
+        sobran = largo - LIMITE_YOUTUBE
+        logger.warning(
+            f"  Intento {intento}: el título tiene {largo} caracteres, "
+            f"{sobran} de más. Pidiendo uno más corto."
+        )
+        if intento == INTENTOS_TITULO:
+            # Se agotaron los reintentos: se devuelve tal cual y el recorte
+            # por palabras se encarga. Nunca se sube un título largo.
+            logger.warning("  Gemini no consiguió acortarlo; se recortará por palabras.")
+            return metadata
+
+        prompt = (
+            f"{prompt}\n\n"
+            f"--- CORRECCIÓN ---\n"
+            f"El título que propusiste tiene {largo} caracteres y el máximo son "
+            f"{LIMITE_YOUTUBE}: te sobran {sobran}.\n"
+            f"Era: «{propuesto}»\n"
+            f"Reescríbelo entero para que quepa, apuntando a 70-90 caracteres. No lo "
+            f"cortes ni le pongas puntos suspensivos: quita o resume lo menos importante "
+            f"y deja una frase completa que siga funcionando como gancho. "
+            f"El resto de campos puedes mantenerlos."
+        )
 
 
 # Hashtags genéricos por emoción, para cuando falla la llamada a Gemini y no
