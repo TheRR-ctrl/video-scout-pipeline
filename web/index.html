@@ -104,15 +104,45 @@
   .script{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
     padding:11px 13px;font-size:13.5px;color:var(--ink-dim);line-height:1.55;max-height:150px;overflow:auto}
   .thumbs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px}
-  .th{flex-shrink:0;width:64px;border:1px solid var(--line);border-radius:7px;
-    overflow:hidden;cursor:pointer;background:var(--surface)}
-  .th.on{border-color:var(--accent)}
-  .th .im{aspect-ratio:9/16;background:linear-gradient(170deg,#2b3340,#171c23);
+  .th{position:relative;flex-shrink:0;width:64px;border:1px solid var(--line);
+    border-radius:7px;overflow:hidden;cursor:pointer;background:var(--surface)}
+  /* El elegido lleva anillo, no solo borde de color: el verde de "subido" y
+     el turquesa del acento se parecen demasiado en pantalla pequeña. */
+  .th.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .th .im{position:relative;aspect-ratio:9/16;
+    background:linear-gradient(170deg,#2b3340,#171c23);
     display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;
     font:9px var(--mono);color:rgba(255,255,255,.75)}
   .th .cp{font-size:9.5px;color:var(--ink-faint);padding:4px 3px;text-align:center;
     overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .th.on .cp{color:var(--accent)}
+
+  /* Ya subido: el color solo no basta —hay quien no lo distingue y el sol del
+     móvil se come los matices—, así que va con marca ✓ y con la miniatura
+     apagada. Lo que queda vivo es lo que aún te toca mirar. */
+  .th.sub{border-color:var(--ok)}
+  .th.sub .im{background:var(--ok-soft);color:var(--ok)}
+  .th.sub .cp{color:var(--ok)}
+  /* La marca va colgada de .th, no de la miniatura: si colgara de dentro se
+     apagaría con ella y en tema claro el ✓ quedaba casi invisible. Como chip
+     sólido se lee igual sobre cualquier fondo y en cualquier tema. */
+  .th .ck{position:absolute;top:4px;right:4px;display:none;width:15px;height:15px;
+    border-radius:50%;background:var(--ok);color:var(--ground);
+    align-items:center;justify-content:center;font-size:9.5px;font-weight:700;
+    line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+  .th.sub .ck{display:flex}
+  /* El elegido gana al estado: si lo estás mirando, tiene que verse cuál es. */
+  .th.sub.on{border-color:var(--accent)}
+
+  .leyenda{display:flex;gap:13px;align-items:center;flex-wrap:wrap;
+    margin:-2px 0 8px;font-size:11.5px;color:var(--ink-faint)}
+  .leyenda b{color:var(--ink-dim);font-weight:600}
+  .leyenda .pt{display:inline-flex;align-items:center;gap:5px}
+  .leyenda .mu{width:13px;height:13px;border-radius:50%;border:1px solid var(--line);
+    background:var(--surface-2)}
+  .leyenda .mu.sub{border-color:var(--ok);background:var(--ok);color:var(--ground);
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:8.5px;font-weight:700;line-height:1}
 
   /* listas */
   .list{border:1px solid var(--line);border-radius:9px;overflow:hidden}
@@ -348,6 +378,19 @@ function firmaRevisar(){
   return [v.length, elegido, v.map(x=>x.archivo+x.publicado+JSON.stringify(x.meta)).join('|'),
           abiertoRehacer, JSON.stringify(finos)].join('~');
 }
+function leyendaSubidos(v){
+  // El recuento delante de la tira: cuántos quedan es lo que de verdad
+  // quieres saber al abrir el panel, y el número lo dice antes de que te
+  // pongas a contar miniaturas.
+  const subidos = v.filter(x => x.publicado).length;
+  const faltan = v.length - subidos;
+  return `<div class="leyenda">
+    <span class="pt"><span class="mu sub">✓</span><b>${subidos}</b> subido${subidos===1?'':'s'}</span>
+    <span class="pt"><span class="mu"></span><b>${faltan}</b> sin subir</span>
+    ${faltan ? '' : '<span style="color:var(--ok)">todo al día</span>'}
+  </div>`;
+}
+
 function pintaRevisar(){
   const v = E.videos, cont = $('#v-revisar');
   if(!v.length){
@@ -367,9 +410,12 @@ function pintaRevisar(){
   cont.innerHTML = `
     <h2>${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}</h2>
     <p class="sub">Míralo aquí mismo — el archivo está en este teléfono. Toca el video para pantalla completa.</p>
+    ${leyendaSubidos(v)}
     <div class="thumbs">${v.map((x,i)=>`
-      <div class="th ${i===elegido?'on':''}" data-i="${i}">
+      <div class="th ${i===elegido?'on':''} ${x.publicado?'sub':''}" data-i="${i}"
+           title="${x.publicado?'ya subido a YouTube':'sin subir'}">
         <div class="im">${Math.floor(x.duracion_sec/60)}:${String(Math.round(x.duracion_sec%60)).padStart(2,'0')}</div>
+        <span class="ck">✓</span>
         <div class="cp">${String(x.numero??i+1).padStart(2,'0')}</div>
       </div>`).join('')}</div>
 
@@ -387,7 +433,8 @@ function pintaRevisar(){
             <span>Emoción <b>${esc(a.emocion)}</b></span>
             ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
               <button class="btn sm" data-oir="${esc(a.musica)}" style="padding:2px 8px">▶</button>`:''}
-            ${a.publicado?'<span class="pill ok">ya publicado</span>':''}
+            ${a.publicado ? '<span class="pill ok">✓ ya subido a YouTube</span>'
+                          : '<span class="pill idle">sin subir</span>'}
           </div>
         </div>
         <div class="script"><b style="color:var(--ink-faint);font:10px var(--mono);
