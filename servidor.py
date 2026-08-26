@@ -186,6 +186,9 @@ def historias_del_guion():
             "n": i,
             "titulo": titulo,
             "emocion": gvm.detectar_emocion_historia(b),
+            # La voz con la que se va a narrar. Verla antes de renderizar
+            # ahorra descubrir en el video ya hecho que salió la contraria.
+            "genero": gvm.decidir_genero_narrador(b),
             "duracion": f"{segs // 60}:{segs % 60:02d}",
             "palabras": palabras,
         })

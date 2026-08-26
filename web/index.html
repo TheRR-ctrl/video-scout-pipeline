@@ -159,7 +159,7 @@
   .row{display:grid;gap:10px;align-items:center;padding:10px 13px;
     border-bottom:1px solid var(--line-soft);background:var(--surface);font-size:13px}
   .row:last-child{border-bottom:0}
-  .row.sel{grid-template-columns:20px 26px 1fr 56px 46px;cursor:pointer}
+  .row.sel{grid-template-columns:20px 26px 1fr 56px 14px 46px;cursor:pointer}
   .row.sel.on{background:var(--accent-soft)}
   .row.sel input{accent-color:var(--accent);width:15px;height:15px;margin:0}
   .row .n,.row .m{font:11.5px var(--mono);color:var(--ink-faint)}
@@ -817,6 +817,8 @@ function pintaCola(){
           <span class="n">${String(x.n).padStart(2,'0')}</span>
           <span class="t">${esc(x.titulo)}</span>
           <span class="m">${esc(x.emocion).slice(0,5)}</span>
+          <span class="m" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
+            >${x.genero==='femenino'?'♀':'♂'}</span>
           <span class="m">${x.duracion}</span>
         </label>`).join('')}</div>
       <div class="list-foot">

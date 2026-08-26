@@ -13,6 +13,7 @@ import json
 import logging
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+import narrador  # comprobar que el género declarado casa con el texto escrito
 
 from google import genai
 from google.genai import types as genai_types
@@ -43,7 +44,14 @@ SCHEMA_HISTORIA = {
         "genero_narrador": {
             "type": "string",
             "enum": ["masculino", "femenino"],
-            "description": "Género gramatical de quien narra la historia en primera persona.",
+            "description": (
+                "Género de quien narra en primera persona, TAL COMO lo escribiste en "
+                "el cuerpo. Léete tu propio texto antes de responder: si ahí dice "
+                "«me quedé callada» o «yo era la esposa», es femenino; si dice "
+                "«me quedé callado» o «soy el hijo», es masculino. Este campo elige "
+                "la voz que narra el video, así que equivocarlo hace que toda la "
+                "historia se escuche con la voz del género contrario."
+            ),
         },
         "emocion": {
             "type": "string",
@@ -76,6 +84,7 @@ Reescribes historias reales (de Reddit) en narrativa en primera persona, natural
 Reglas:
 - El titulo_hook debe enganchar en 1-2 frases, generando curiosidad o tensión inmediata (no reveles el final).
 - ESCRIBE CADA HISTORIA CON EL LARGO QUE PIDA, sin mínimo ni máximo. No la recortes para que quepa en un formato corto, ni la estires con relleno, repeticiones o descripciones de más para alcanzar una duración. Si la historia se cuenta bien en 40 segundos, que dure 40 segundos; si necesita ocho minutos de escenas, diálogo y tensión antes del desenlace, tómatelos. Lo único que decide el largo es cuánto necesita ESA historia para escucharse bien; el formato (short o video largo) se determina después, solo, a partir de la duración que resulte.
+- El narrador es quien vivió la historia. Decide su género a partir del original y mantenlo coherente en TODO el cuerpo: si narra una mujer, toda la concordancia va en femenino ("me quedé sola", "estaba agotada", "yo era su hija"), y genero_narrador debe decir "femenino". No mezcles: media historia en masculino y media en femenino se escucha como un error, porque el video se narra con una sola voz elegida por ese campo. Si el original no deja claro quién narra, elige un género y sé consistente.
 - El cuerpo debe sonar como alguien contando la historia de viva voz: frases cortas, ritmo natural, sin lenguaje de texto escrito (nada de "en resumen", "por lo tanto").
 - Usa español mexicano real y cotidiano, no español neutro de doblaje: modismos, muletillas y giros naturales de México ("neta", "qué onda", "se me hizo raro", "no manches", "wey" solo si el tono de la historia lo permite, etc.), sin forzarlos ni exagerar el acento a caricatura. La historia original puede ser de cualquier país — adapta el modo de contarla al mexicano, no la ubiques falsamente en México si el contexto no calza.
 - Evita que suene genérico o traducido: cada historia debe conservar su esencia y detalles particulares, no una versión aplanada/intercambiable con cualquier otra.
@@ -115,7 +124,21 @@ def construir_bloque_guion(historia, candidato):
     # Fuente/Autor se conservan para dar atribución en la descripción del video
     # (transparencia exigida por la Responsible Builder Policy de Reddit: no
     # presentar contenido ajeno como propio).
-    genero = "Femenino" if historia["genero_narrador"] == "femenino" else "Masculino"
+    # Se comprueba contra el texto que Gemini acaba de escribir. Declarar un
+    # género y narrar en el otro es un fallo fácil de cometer y caro de notar:
+    # no se ve leyendo el guion, se oye en el video ya renderizado. Aquí
+    # todavía se arregla solo.
+    declarado = historia["genero_narrador"]
+    del_texto = narrador.detectar_genero_narrador(historia["cuerpo"], margen=3)
+    if del_texto and del_texto != declarado:
+        marcas = narrador.puntuar_genero(historia["cuerpo"])[del_texto][:3]
+        logger.warning(
+            f"  Dijo narrador {declarado} pero escribió en {del_texto} "
+            f"({', '.join(marcas)}…). Se corrige a {del_texto}."
+        )
+        declarado = del_texto
+
+    genero = "Femenino" if declarado == "femenino" else "Masculino"
 
     # El cierre (invitación a comentar/compartir/suscribirse) se anexa al cuerpo
     # en vez de ir como campo aparte: así lo narra la misma voz, en la misma

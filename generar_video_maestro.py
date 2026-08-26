@@ -14,9 +14,12 @@ import subprocess
 import textwrap
 import tempfile
 import collections
+import unicodedata
 from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
+
+import narrador   # género de quien narra: decide la voz del video
 
 try:
     import edge_tts
@@ -660,12 +663,9 @@ SINONIMOS_EMOCION = {
 PRIORIDAD_EMOCION = ("venganza", "suspenso", "drama", "comedia")
 
 
-def _sin_acentos(texto):
-    import unicodedata
-    return "".join(
-        c for c in unicodedata.normalize("NFD", str(texto).lower())
-        if unicodedata.category(c) != "Mn"
-    )
+# La misma normalización que usa narrador.py; se reexporta desde allí para no
+# tener dos versiones que puedan separarse.
+_sin_acentos = narrador._sin_acentos
 
 
 def puntuar_emociones(texto):
@@ -802,6 +802,38 @@ def extraer_fuente_y_autor(texto_raw):
     autor = m_autor.group(1).strip() if m_autor else ""
     return fuente, autor
 
+def decidir_genero_narrador(texto_raw):
+    """Con qué voz se narra: la cabecera del guion, comprobada contra el texto.
+
+    La cabecera la escribe Gemini y suele acertar, pero cuando falla nadie la
+    corregía y la historia entera salía con la voz cambiada. Lo que se narra
+    es el cuerpo, así que si el cuerpo lo contradice con claridad —"me quedé
+    callada" no lo dice un narrador masculino— gana el cuerpo.
+
+    Se exige más ventaja para llevar la contraria a la cabecera (3 marcas
+    netas) que para decidir cuando no hay cabecera (2): pisar una elección
+    deliberada tiene que costar más que rellenar un hueco. Tres concordancias
+    independientes apuntando al mismo lado ya no son ruido.
+    """
+    cabecera = narrador.leer_cabecera_genero(texto_raw)
+    del_texto = narrador.detectar_genero_narrador(texto_raw, margen=2)
+
+    if cabecera is None:
+        if del_texto:
+            print(f" ├─ 🗣️  Sin '# Genero:' en el guion; por el texto se narra en {del_texto}.")
+            return del_texto
+        print(" ├─ 🗣️  Sin '# Genero:' y el texto no lo aclara; se usa voz masculina.")
+        return "masculino"
+
+    contrario = narrador.detectar_genero_narrador(texto_raw, margen=3)
+    if contrario and contrario != cabecera:
+        marcas = narrador.puntuar_genero(texto_raw)[contrario][:3]
+        print(f" ├─ 🗣️  El guion dice {cabecera} pero el texto está en {contrario} "
+              f"({', '.join(marcas)}…); se narra en {contrario}.")
+        return contrario
+    return cabecera
+
+
 def extraer_titulo_y_cuerpo(texto_raw):
     # VOZ_FORZADA la pone --voz: sirve para rehacer un video con la otra voz
     # sin tener que editar el "# Genero:" del guion a mano.
@@ -809,7 +841,7 @@ def extraer_titulo_y_cuerpo(texto_raw):
     if forzada in ("femenina", "masculina"):
         es_fem = forzada == "femenina"
     else:
-        es_fem = bool(re.search(r'g[é e]nero:\s*(femenino|mujer)', texto_raw, re.IGNORECASE))
+        es_fem = decidir_genero_narrador(texto_raw) == "femenino"
     voz_tit, opciones_cue = ("es-MX-DaliaNeural", [("es-MX-DaliaNeural", p) for p in ["-6Hz", "-3Hz", "+0Hz", "+4Hz"]] + [("es-US-PalomaNeural", "+0Hz")]) if es_fem else ("es-MX-JorgeNeural", [("es-MX-JorgeNeural", p) for p in ["-8Hz", "-4Hz", "+0Hz", "+4Hz"]] + [("es-US-AlonsoNeural", "+0Hz")])
     voz_cue, pitch_cue = random.choice(opciones_cue)
 
