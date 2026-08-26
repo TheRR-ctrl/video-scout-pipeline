@@ -62,6 +62,13 @@ later get TikTok API access approved, a `publisher_tiktok.py` mirroring
 
 ## Setup
 
+On a phone (Termux), `instalar.sh` does the whole thing in one command —
+system packages, Python deps, storage permission, the panel, and a report of
+which credentials and media are still missing. See **[INSTALAR.md](INSTALAR.md)**
+(Spanish, since that is where it runs).
+
+On a PC:
+
 ```bash
 pip install -r requirements.txt
 ```
