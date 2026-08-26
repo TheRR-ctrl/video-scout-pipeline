@@ -17,3 +17,8 @@ video_maestro.log
 __pycache__/
 *.pyc
 secretos.env
+
+# Copias y guiones de prueba: nunca al repo
+guion.bak
+guion_prueba.txt
+*.bak
