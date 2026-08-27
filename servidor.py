@@ -469,6 +469,10 @@ def api_estado():
             "titulo": p.get("titulo_youtube", ""),
             "video_id": p.get("video_id"),
             "publish_at": p.get("publish_at"),
+            # Lo que YouTube dice de verdad. Si pedimos ventana de revisión y
+            # no la aplicó, quieres verlo aquí y no descubrirlo en el canal.
+            "programado_ok": p.get("programado_ok"),
+            "privacidad_real": p.get("privacidad_real"),
             "dias_restantes": dias,
             "borrado_local": bool(p.get("_borrado_local")),
         })

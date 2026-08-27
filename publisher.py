@@ -433,6 +433,60 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
     return respuesta["id"]
 
 
+def leer_estado_publicacion(servicio, video_id):
+    """Cómo quedó el video EN YouTube: privacidad y fecha programada.
+
+    Pedir la programación y darla por hecha no basta. YouTube acepta el
+    'publishAt' en la subida y luego puede no aplicarlo —el caso conocido es
+    un canal sin verificar por teléfono, que no tiene permitido programar—,
+    así que el registro decía "se publica el día X" mientras el video ya
+    estaba público. Preguntar cuesta una llamada y convierte una suposición
+    en un dato.
+    """
+    try:
+        r = servicio.videos().list(part="status", id=video_id).execute()
+        items = r.get("items") or []
+        if not items:
+            return None
+        st = items[0].get("status", {})
+        return {"privacidad": st.get("privacyStatus"), "publish_at": st.get("publishAt")}
+    except Exception as exc:
+        logger.warning(f"No se pudo comprobar cómo quedó {video_id} en YouTube: {exc}")
+        return None
+
+
+def avisar_si_no_quedo_programado(real, pedido_iso, video_id):
+    """True si quedó programado, False si consta que no, None si no se supo.
+
+    Se avisa fuerte a propósito: que un video salga público antes de tiempo
+    no se puede deshacer del todo —la gente ya lo vio— y el aviso tiene que
+    doler más que una línea de log entre otras cincuenta.
+    """
+    if real is None:
+        # No se pudo comprobar: no es lo mismo que haber fallado. Se devuelve
+        # None para no anotar en el registro un fallo que no consta.
+        logger.warning(f"  No se pudo confirmar la programación de {video_id}; "
+                       f"compruébala a mano si te importa esa ventana.")
+        return None
+    if real.get("publish_at") and real.get("privacidad") == "private":
+        return True
+
+    logger.error("=" * 62)
+    logger.error("  ⚠️  YouTube NO aplicó la programación de este video.")
+    logger.error(f"     Se pidió: privado hasta {pedido_iso}")
+    logger.error(f"     Quedó:    {real.get('privacidad')}"
+                 + (f", sin fecha programada" if not real.get("publish_at") else ""))
+    if real.get("privacidad") == "public":
+        logger.error("     El video YA ESTÁ PÚBLICO. No hubo ventana de revisión.")
+    logger.error("     Causa habitual: el canal no está verificado por teléfono,")
+    logger.error("     y sin verificar YouTube no deja programar publicaciones.")
+    logger.error("     Verifícalo en https://www.youtube.com/verify y vuelve a probar.")
+    logger.error(f"     Mientras tanto, ponlo privado a mano:")
+    logger.error(f"     https://studio.youtube.com/video/{video_id}/edit")
+    logger.error("=" * 62)
+    return False
+
+
 DIAS_RETENCION_LOCAL = 7
 
 
@@ -588,12 +642,22 @@ def main(forzar_datos=False):
             logger.warning(f"Fallo al subir {ruta} (se reintentará más adelante): {exc}")
             continue
 
-        logger.info(f"✅ Subido como privado, se publica solo el {publish_at_iso} — https://studio.youtube.com/video/{video_id}/edit")
+        real = leer_estado_publicacion(servicio_yt, video_id)
+        programado = avisar_si_no_quedo_programado(real, publish_at_iso, video_id)
+        if programado is not False:
+            logger.info(f"✅ Subido como privado, se publica solo el {publish_at_iso} — "
+                        f"https://studio.youtube.com/video/{video_id}/edit")
         publicados.append({
             "ruta": ruta,
             "video_id": video_id,
             "titulo_youtube": metadata["titulo_youtube"],
             "publish_at": publish_at_iso,
+            # Lo que YouTube dice de verdad, no lo que le pedimos. El panel
+            # enseña esto: si no coinciden, quieres enterarte ahí y no en el
+            # canal.
+            "privacidad_real": (real or {}).get("privacidad"),
+            "publish_at_real": (real or {}).get("publish_at"),
+            "programado_ok": programado,
             "url_revision": f"https://studio.youtube.com/video/{video_id}/edit",
             # Para el borrado retrasado (ver limpiar_videos_locales_vencidos):
             # se conserva el archivo local unos días para poder subirlo a
@@ -604,6 +668,52 @@ def main(forzar_datos=False):
         subidas_en_esta_corrida += 1
 
 
+def revisar_programados():
+    """Qué estado tienen AHORA en YouTube los videos que ya subimos.
+
+    Sirve para responder «¿se está respetando la ventana de revisión?» sin
+    tener que subir otro video y esperar: pregunta por los que ya están y
+    enseña lo que YouTube dice de cada uno.
+    """
+    publicados = cargar_json(RUTA_PUBLICADOS, [])
+    con_id = [p for p in publicados if p.get("video_id")]
+    if not con_id:
+        print("No hay videos subidos que revisar.")
+        return
+
+    servicio = obtener_servicio_youtube()
+    print(f"\n  {len(con_id)} video(s) subidos:\n")
+    fallos = 0
+    for p in con_id:
+        real = leer_estado_publicacion(servicio, p["video_id"]) or {}
+        privacidad = real.get("privacidad") or "?"
+        cuando = real.get("publish_at")
+        pedido = p.get("publish_at")
+
+        if privacidad == "private" and cuando:
+            marca, nota = "✅", f"privado hasta {cuando}"
+        elif privacidad == "public":
+            marca, nota = "⛔", "PÚBLICO" + (f" (se pidió esperar a {pedido})" if pedido else "")
+            fallos += 1
+        elif privacidad == "private":
+            marca, nota = "⚠️ ", "privado pero SIN fecha: no se publicará solo"
+            fallos += 1
+        else:
+            marca, nota = "· ", privacidad
+
+        print(f"  {marca} {(p.get('titulo_youtube') or '')[:44]:<44} {nota}")
+        print(f"       https://studio.youtube.com/video/{p['video_id']}/edit")
+
+    print()
+    if fallos:
+        print(f"  {fallos} video(s) no quedaron programados.")
+        print("  Causa habitual: el canal no está verificado por teléfono, y sin")
+        print("  verificar YouTube no deja programar publicaciones.")
+        print("  Verifícalo en https://www.youtube.com/verify\n")
+    else:
+        print("  Todos respetan su ventana de revisión.\n")
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -612,5 +722,12 @@ if __name__ == "__main__":
         "--con-datos", action="store_true",
         help="Subir aunque no haya WiFi (usa datos móviles). Solo para esta corrida.",
     )
+    parser.add_argument(
+        "--revisar-programados", action="store_true",
+        help="No sube nada: enseña el estado real en YouTube de los ya subidos.",
+    )
     args = parser.parse_args()
-    main(forzar_datos=args.con_datos)
+    if args.revisar_programados:
+        revisar_programados()
+    else:
+        main(forzar_datos=args.con_datos)

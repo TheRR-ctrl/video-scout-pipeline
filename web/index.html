@@ -949,6 +949,17 @@ function pintaEstilo(){
 /* =========================================================
    PUBLICADOS
    ========================================================= */
+function estadoPublicacion(x){
+  // Se distingue "lo pedimos y YouTube lo aplicó" de "lo pedimos y no".
+  // Antes solo se enseñaba lo que habíamos pedido, así que un video ya
+  // público seguía apareciendo como "programado" y nada lo delataba.
+  if(x.programado_ok === false)
+    return `<span style="color:var(--crit)">⛔ YouTube no respetó la ventana` +
+           (x.privacidad_real ? ` — quedó ${esc(x.privacidad_real)}` : '') + `</span>`;
+  if(x.publish_at) return 'programado ' + esc(x.publish_at.slice(0,16).replace('T',' '));
+  return 'público';
+}
+
 function firmaPublicados(){ return JSON.stringify(E.publicados); }
 function pintaPublicados(){
   const p = E.publicados;
@@ -956,12 +967,20 @@ function pintaPublicados(){
   $('#v-publicados').innerHTML = `
     <h2>Publicados</h2>
     <p class="sub">Los archivos se quedan 7 días en el teléfono tras subirse, para que te dé tiempo de pasarlos a TikTok.</p>
+    ${(()=>{ const mal = p.filter(x=>x.programado_ok === false).length;
+      return mal ? `<div class="aviso crit"><span>⛔</span><div>
+        <b>${mal} video(s) se publicaron sin ventana de revisión.</b>
+        YouTube ignoró la fecha que se le pidió. Suele ser porque el canal no
+        está verificado por teléfono: sin verificar no deja programar.
+        <div style="margin-top:7px"><a class="btn sm" target="_blank" rel="noopener"
+          href="https://www.youtube.com/verify">Verificar el canal ↗</a></div>
+      </div></div>` : ''; })()}
     ${porBorrar.length ? `<div class="aviso crit"><span>↓</span><div><b>${porBorrar.length} se borran pronto.</b> Si los quieres para TikTok, descárgalos ya.</div></div>`:''}
     ${!p.length ? `<div class="aviso"><span>·</span><div>Todavía no hay nada publicado.</div></div>` : `
     <div class="list">${p.map(x=>`
       <div class="row" style="grid-template-columns:1fr 110px auto">
         <div><div class="t">${esc(x.titulo)}</div>
-          <div class="m">${x.publish_at ? 'programado '+esc(x.publish_at.slice(0,16).replace('T',' ')) : 'público'}</div></div>
+          <div class="m">${estadoPublicacion(x)}</div></div>
         <span class="m">${x.borrado_local ? 'borrado local' : (x.dias_restantes!==null ? x.dias_restantes+'d en disco' : '')}</span>
         ${x.video_id?`<a class="btn sm" target="_blank" rel="noopener"
           href="https://studio.youtube.com/video/${esc(x.video_id)}/edit">Studio ↗</a>`:'<span></span>'}
