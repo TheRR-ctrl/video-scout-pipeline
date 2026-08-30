@@ -171,14 +171,16 @@ def motivo_error_gemini(exc):
                 "La clave tiene restricción de aplicación (web/Android/IP) y Termux "
                 "no la cumple.")
     if "PERMISSION_DENIED" in texto or "are blocked" in texto:
-        # No es el modelo: es la clave. Este 403 sale cuando la clave está
-        # restringida a otras APIs — el caso típico es haber pegado la clave
-        # de YouTube, que también empieza por AIzaSy y solo tiene permiso
-        # para YouTube Data API.
+        # No es el modelo: es la clave. Google devuelve este mismo 403 en dos
+        # situaciones que desde fuera no se distinguen — la clave restringida a
+        # otras APIs, y la clave de un proyecto donde generativelanguage no está
+        # habilitada. La segunda engaña porque la consola puede estar enseñando
+        # "Habilitada" en un proyecto distinto al de la clave, y las claves no
+        # dicen a qué proyecto pertenecen.
         return ("clave_sin_gemini",
                 "Esa clave existe, pero no tiene permiso para la API de Gemini "
-                "(generativelanguage). Suele ser la clave de YouTube, o una de "
-                "Cloud restringida a otras APIs.")
+                "(generativelanguage): o está restringida a otras APIs, o es de "
+                "otro proyecto de Google Cloud.")
     if "RESOURCE_EXHAUSTED" in texto or "429" in texto or "quota" in texto.lower():
         return ("sin_cuota", "Se agotó la cuota de Gemini por ahora.")
     if "UNAUTHENTICATED" in texto:
@@ -194,11 +196,14 @@ ARREGLOS = {
         "--guardar-clave. Ojo: la de Gemini y la de YouTube son distintas.",
     ),
     "clave_sin_gemini": (
-        "Lo más rápido: saca una clave de Gemini en",
-        "https://aistudio.google.com/apikey — esa nace sin restricciones.",
-        "Si prefieres seguir con la de Google Cloud, en Credenciales → esa clave",
-        "→ 'Restricciones de API' añade 'Generative Language API', y habilítala",
-        "en https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com",
+        "Son dos causas posibles, y se comprueban en el mismo sitio:",
+        "APIs y servicios → Credenciales, en el proyecto donde habilitaste la API.",
+        "1) Si la clave NO aparece en esa lista, es de otro proyecto: crea una",
+        "   ahí mismo con '+ Crear credenciales → Clave de API'.",
+        "2) Si aparece, ábrela y en 'Restricciones de API' añade",
+        "   'Generative Language API' (o ponla en 'No restringir clave').",
+        "Y comprueba que la API esté encendida en ESE proyecto:",
+        "https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com",
     ),
     "api_apagada": (
         "Habilítala en",
