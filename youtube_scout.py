@@ -371,6 +371,49 @@ def obtener_transcripcion(video_id, idiomas):
     return re.sub(r"\s+", " ", texto).strip()
 
 
+def probar_clave():
+    """Comprueba que YOUTUBE_API_KEY sirve, con una sola llamada barata.
+
+    Existe porque los tres fallos posibles se parecen desde fuera (no hay
+    clave, la clave es inválida, la API no está habilitada en ese proyecto)
+    y cada uno se arregla en un sitio distinto de la consola de Google.
+    """
+    if not hay_api_key():
+        print(" ✗ No hay YOUTUBE_API_KEY.")
+        print("   Ponla con:  echo 'YOUTUBE_API_KEY=AIza...' >> secretos.env")
+        print("   Se saca en: consola de Google Cloud → APIs y servicios →")
+        print("   Credenciales → Crear credenciales → Clave de API.")
+        print("   (Ojo: client_secret.json NO sirve para esto; ese es para subir.)")
+        return False
+
+    clave = os.environ["YOUTUBE_API_KEY"].strip()
+    print(f" Clave encontrada: {clave[:8]}…{clave[-4:]} ({len(clave)} caracteres)")
+    try:
+        servicio = _servicio_youtube()
+        resp = servicio.videos().list(part="snippet", chart="mostPopular",
+                                      regionCode="MX", maxResults=1).execute()
+    except Exception as exc:
+        texto = str(exc)
+        print(" ✗ La clave no funcionó.")
+        if "API_KEY_INVALID" in texto or "not valid" in texto:
+            print("   Motivo: la clave es inválida. Vuelve a copiarla, sin espacios.")
+        elif "has not been used" in texto or "disabled" in texto or "SERVICE_DISABLED" in texto:
+            print("   Motivo: la YouTube Data API v3 no está habilitada EN ESE proyecto.")
+            print("   Revisa que la clave sea del mismo proyecto donde la habilitaste.")
+        elif "quota" in texto.lower():
+            print("   Motivo: cuota agotada por hoy. Se renueva a medianoche (hora del Pacífico).")
+        elif "referer" in texto.lower() or "blocked" in texto.lower():
+            print("   Motivo: la clave tiene restricciones. En la consola, ponla")
+            print("   sin restricción de aplicación, o restringida solo a YouTube Data API.")
+        print(f"   Detalle: {texto[:300]}")
+        return False
+
+    titulo = (resp.get("items") or [{}])[0].get("snippet", {}).get("title", "?")
+    print(" ✓ La clave funciona. YouTube respondió correctamente.")
+    print(f"   (prueba: video más popular en MX ahora — «{titulo[:60]}»)")
+    return True
+
+
 def _titulo_excluido(titulo, cfg):
     t = titulo.lower()
     return any(mal in t for mal in cfg["youtube_titulos_excluidos"])
@@ -565,7 +608,12 @@ def main(argv=None):
                     help="Escanea y explica por qué salieron (o no) historias nuevas.")
     ap.add_argument("--canal", action="append", metavar="@CANAL",
                     help="Escanear solo este canal (se puede repetir). Ignora la lista de config.")
+    ap.add_argument("--probar-clave", action="store_true",
+                    help="Comprueba que YOUTUBE_API_KEY sirve, sin escanear nada.")
     args = ap.parse_args(argv or [])
+
+    if args.probar_clave:
+        return 0 if probar_clave() else 1
 
     cfg = cargar_config()
     if args.canal:
@@ -585,4 +633,4 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1:])
+    sys.exit(main(sys.argv[1:]) or 0)

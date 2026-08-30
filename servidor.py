@@ -509,6 +509,7 @@ ACCIONES = {
     "diagnostico_busqueda": ("Revisando la búsqueda", [sys.executable, "trend_scout.py", "--diagnostico"]),
     "buscar_youtube": ("Buscando historias en YouTube", [sys.executable, "youtube_scout.py"]),
     "diagnostico_youtube": ("Revisando la búsqueda en YouTube", [sys.executable, "youtube_scout.py", "--diagnostico"]),
+    "probar_clave_youtube": ("Probando la clave de YouTube", [sys.executable, "youtube_scout.py", "--probar-clave"]),
     "guiones":    ("Escribiendo guiones", [sys.executable, "script_writer.py"]),
     "publicar":   ("Publicando en YouTube", [sys.executable, "publisher.py"]),
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),

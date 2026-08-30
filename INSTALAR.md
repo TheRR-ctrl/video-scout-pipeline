@@ -84,12 +84,22 @@ elegir canales de YouTube o apagar esa fuente, copia
 (si no, solo se ven los videos recién subidos, que todavía no tienen vistas):
 
 1. Entra a https://console.cloud.google.com/apis/library/youtube.googleapis.com
-2. "Habilitar" → menú "Credenciales" → "Crear credenciales" → "Clave de API"
-3. Pégala en el teléfono:
+   y pulsa "Habilitar". Si ya dice "API habilitada", sáltate este paso: pasa
+   cuando se generaron las credenciales para **subir** videos.
+2. Menú ☰ → "APIs y servicios" → "Credenciales" → "+ Crear credenciales" →
+   "Clave de API". Ojo: `client_secret.json` NO sirve para esto — ese es de
+   OAuth, para subir en tu nombre; buscar necesita una *clave de API*, que es
+   otro tipo de credencial del mismo proyecto.
+3. Pégala en el teléfono y compruébala:
 
 ```bash
 echo 'YOUTUBE_API_KEY=AIza...' >> secretos.env
+python youtube_scout.py --probar-clave
 ```
+
+`--probar-clave` hace una sola llamada y distingue los tres fallos que desde
+fuera se parecen: no hay clave, la clave es inválida, o la API no está
+habilitada en ese proyecto.
 
 Con eso, `youtube_scout.py` busca por número de vistas sin importar la fecha,
 y además busca por tema en todo YouTube (`youtube_busquedas`), no solo en los
