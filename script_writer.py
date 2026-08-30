@@ -79,6 +79,56 @@ SCHEMA_HISTORIA = {
     "required": ["titulo_hook", "genero_narrador", "emocion", "cuerpo", "cierre"],
 }
 
+# De un episodio largo (un podcast de anécdotas puede traer diez) se toman
+# solo las mejores: si no, un solo video llenaría la cola y todo el canal
+# acabaría contando lo mismo.
+MAX_ANECDOTAS_POR_VIDEO = 3
+
+SCHEMA_SEGMENTOS = {
+    "type": "object",
+    "properties": {
+        "anecdotas": {
+            "type": "array",
+            "description": (
+                "Las anécdotas o confesiones completas e independientes que contiene "
+                "la transcripción, de la más fuerte a la más floja. Solo historias que "
+                "empiecen y terminen dentro del texto: nada de conversación suelta, "
+                "presentaciones, patrocinios ni despedidas."
+            ),
+            "items": {
+                "type": "object",
+                "properties": {
+                    "resumen": {
+                        "type": "string",
+                        "description": "De qué trata la anécdota, en una frase. Sirve para identificarla.",
+                    },
+                    "historia": {
+                        "type": "string",
+                        "description": (
+                            "La anécdota con todos sus hechos y detalles, contada de corrido "
+                            "y ya limpia de muletillas, risas, interrupciones y errores de "
+                            "transcripción. Es el material que después se reescribe."
+                        ),
+                    },
+                },
+                "required": ["resumen", "historia"],
+            },
+        }
+    },
+    "required": ["anecdotas"],
+}
+
+SYSTEM_PROMPT_SEGMENTAR = """Recibes la transcripción automática de un video de YouTube de anécdotas o confesiones en español.
+Tu trabajo es localizar las historias completas que contiene y devolver cada una por separado.
+
+Reglas:
+- Solo historias COMPLETAS: con situación, desarrollo y desenlace dentro del texto. Si una empieza pero se corta, no la incluyas.
+- Ignora todo lo que no sea la anécdota: saludos, presentación del programa, patrocinios, comentarios entre los conductores, despedidas, "suscríbete".
+- La transcripción es automática: trae errores de reconocimiento, palabras pegadas, risas y muletillas. Reconstruye lo que se quiso decir; no arrastres esa basura al resultado.
+- Conserva TODOS los hechos y detalles concretos de cada anécdota (quién, dónde, qué pasó, cómo terminó). No resumas: es material para reescribir después.
+- Si el video no contiene ninguna historia completa, devuelve la lista vacía. Es una respuesta correcta; no inventes una.
+- No inventes hechos que no estén en la transcripción."""
+
 SYSTEM_PROMPT = """Eres guionista de historias virales estilo "Reddit story", narradas en español mexicano.
 Reescribes historias reales (de Reddit) en narrativa en primera persona, natural para ser leída en voz alta por un locutor mexicano.
 
@@ -100,11 +150,25 @@ logger = logging.getLogger("script_writer")
 
 
 def reescribir_historia(client, candidato):
-    prompt = (
-        f"Historia original (r/{candidato['subreddit']}):\n\n"
-        f"Título: {candidato['titulo_original']}\n\n"
-        f"{candidato['texto_original']}"
-    )
+    if candidato.get("fuente") == "youtube":
+        # El material vino de lo que alguien contó hablando en un video ajeno,
+        # no de un texto que su autor publicó. Se deja claro en el prompt para
+        # que Gemini lo vuelva a contar con sus propias palabras en vez de
+        # pulir la transcripción, que es lo que haría por defecto.
+        prompt = (
+            f"Anécdota contada en el canal de YouTube «{candidato.get('canal', candidato['subreddit'])}»"
+            f" (video: {candidato['titulo_original']}).\n\n"
+            "Está transcrita de alguien hablando. NO la edites ni la pulas: vuelve a "
+            "contarla desde cero, con tus propias palabras y tu propia estructura, "
+            "conservando los hechos. No copies frases del original.\n\n"
+            f"{candidato['texto_original']}"
+        )
+    else:
+        prompt = (
+            f"Historia original (r/{candidato['subreddit']}):\n\n"
+            f"Título: {candidato['titulo_original']}\n\n"
+            f"{candidato['texto_original']}"
+        )
 
     response = client.models.generate_content(
         model=MODEL,
@@ -117,6 +181,41 @@ def reescribir_historia(client, candidato):
     )
 
     return json.loads(response.text)
+
+
+def segmentar_transcripcion(client, candidato):
+    """Parte la transcripción de un video en las anécdotas que contiene.
+
+    Devuelve una lista de candidatos derivados, cada uno con el mismo formato
+    que un candidato normal (para que el resto del flujo no cambie) pero con la
+    historia ya aislada. Un episodio de podcast trae varias anécdotas sin
+    relación entre sí: mandárselo entero al escritor de guiones daría un solo
+    video revuelto en vez de varios buenos.
+    """
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=candidato["texto_original"],
+        config=genai_types.GenerateContentConfig(
+            system_instruction=SYSTEM_PROMPT_SEGMENTAR,
+            response_mime_type="application/json",
+            response_schema=SCHEMA_SEGMENTOS,
+        ),
+    )
+    anecdotas = (json.loads(response.text) or {}).get("anecdotas") or []
+
+    # El tope se aplica DESPUÉS de descartar las que no sirven: si se cortara
+    # antes, una entrada corta o vacía se comería un cupo y perderíamos una
+    # anécdota buena que venía detrás.
+    utiles = [a for a in anecdotas if len(((a.get("historia") or "").strip()).split()) >= 80]
+
+    derivados = []
+    for i, a in enumerate(utiles[:MAX_ANECDOTAS_POR_VIDEO], 1):
+        derivado = dict(candidato)
+        derivado["id"] = f"{candidato['id']}#{i}"
+        derivado["titulo_original"] = (a.get("resumen") or candidato["titulo_original"]).strip()
+        derivado["texto_original"] = a["historia"].strip()
+        derivados.append(derivado)
+    return derivados
 
 
 def construir_bloque_guion(historia, candidato):
@@ -177,12 +276,40 @@ def main():
     quedan = []      # candidatos que vuelven a la cola para el próximo intento
 
     for i, candidato in enumerate(candidatos, 1):
-        logger.info(f"[{i}/{len(candidatos)}] Reescribiendo: {candidato['titulo_original'][:60]}...")
+        logger.info(f"[{i}/{len(candidatos)}] {candidato['titulo_original'][:60]}...")
         try:
-            historia = reescribir_historia(client, candidato)
-            bloques.append(construir_bloque_guion(historia, candidato))
-            usados.append(candidato["id"])
-            continue
+            # Un video de YouTube no es una historia: es un episodio con varias
+            # dentro. Primero se separan, y cada una se reescribe aparte.
+            if candidato.get("tipo") == "transcripcion":
+                partes = segmentar_transcripcion(client, candidato)
+                if not partes:
+                    logger.warning(
+                        f"  Sin anécdotas completas en {candidato['id']}; se descarta el video."
+                    )
+                    descartados.append(candidato["id"])
+                    continue
+                logger.info(f"  {len(partes)} anécdota(s) encontrada(s) en el video.")
+            else:
+                partes = [candidato]
+
+            # El fallo de una anécdota no tumba a las demás. Y basta con que
+            # una salga para dar el video por consumido: reintentarlo entero
+            # volvería a escribir las que ya están en el guion.
+            escritas = 0
+            for parte in partes:
+                if len(partes) > 1:
+                    logger.info(f"  → Reescribiendo: {parte['titulo_original'][:60]}...")
+                try:
+                    historia = reescribir_historia(client, parte)
+                    bloques.append(construir_bloque_guion(historia, parte))
+                    escritas += 1
+                except Exception as exc:
+                    logger.warning(f"  Fallo en {parte['id']}: {exc}")
+
+            if escritas:
+                usados.append(candidato["id"])
+                continue
+            raise RuntimeError("ninguna parte se pudo reescribir")
         except genai_errors.APIError as exc:
             logger.warning(f"Fallo de API en candidato {candidato['id']}: {exc}")
         except Exception as exc:

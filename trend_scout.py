@@ -30,6 +30,7 @@ Nota sobre el acceso a Reddit:
   corridas (ver RATE_LIMIT_SEG) o retomar la vía de la API oficial.
 """
 import os
+import sys
 import re
 import html
 import json
@@ -255,18 +256,21 @@ def escanear(cfg, contar=None):
 
 def explicar(cfg, contar, pendientes_antes, agregados, total_cola):
     """Informe legible de por qué salieron (o no salieron) historias nuevas."""
+    # Se lee con .get porque este informe existe justo para cuando algo salió
+    # mal: si el escaneo abortó antes de llenar los contadores, un KeyError
+    # aquí taparía el error de verdad con uno mío.
     vistos = cargar_historial()
     print("")
     print("─── Diagnóstico del escaneo ───")
-    print(f" Subreddits leídos ok : {contar['subs_ok']} de {len(cfg['subreddits'])}"
-          + (f"  ({contar['subs_fallidos']} fallaron)" if contar["subs_fallidos"] else ""))
-    print(f" Posts leídos         : {contar['leidos']}")
-    print(f"   • ya usados antes  : {contar['ya_vistos']}")
-    print(f"   • ya en la cola    : {contar['ya_en_cola']}")
-    print(f"   • sin texto (link) : {contar['sin_texto']}")
-    print(f"   • muy cortos (<{cfg['min_palabras_texto']} palabras) : {contar['muy_corto']}")
-    print(f"   • muy largos (>{cfg['max_palabras_texto']} palabras) : {contar['muy_largo']}")
-    print(f"   • NUEVOS           : {contar['nuevos']}")
+    print(f" Subreddits leídos ok : {contar.get('subs_ok', 0)} de {len(cfg['subreddits'])}"
+          + (f"  ({contar.get('subs_fallidos', 0)} fallaron)" if contar.get('subs_fallidos', 0) else ""))
+    print(f" Posts leídos         : {contar.get('leidos', 0)}")
+    print(f"   • ya usados antes  : {contar.get('ya_vistos', 0)}")
+    print(f"   • ya en la cola    : {contar.get('ya_en_cola', 0)}")
+    print(f"   • sin texto (link) : {contar.get('sin_texto', 0)}")
+    print(f"   • muy cortos (<{cfg['min_palabras_texto']} palabras) : {contar.get('muy_corto', 0)}")
+    print(f"   • muy largos (>{cfg['max_palabras_texto']} palabras) : {contar.get('muy_largo', 0)}")
+    print(f"   • NUEVOS           : {contar.get('nuevos', 0)}")
     print("")
     print(f" Cola antes           : {pendientes_antes} candidato(s) sin usar")
     print(f" Agregados ahora      : {agregados}")
@@ -274,24 +278,27 @@ def explicar(cfg, contar, pendientes_antes, agregados, total_cola):
     print(f" Historial            : {len(vistos)} post(s) ya convertidos en guion")
     print("")
 
-    if contar["subs_ok"] == 0:
+    if contar.get('subs_ok', 0) == 0:
         print(" ⛔ Reddit no respondió en ningún subreddit. Suele ser bloqueo por")
         print("    rate limit (429/403). Espera un rato y vuelve a correrlo, o sube")
         print("    RATE_LIMIT_SEG en trend_scout.py.")
-    elif contar["nuevos"] == 0 and contar["ya_vistos"] >= max(1, contar["leidos"] // 2):
+    elif contar.get('nuevos', 0) == 0 and contar.get('ya_vistos', 0) >= max(1, contar.get('leidos', 0) // 2):
         print(" ℹ️  Casi todo el /top/ del día ya se usó. Opciones:")
         print("    • cambiar \"time_filter\" a \"week\" o \"month\" en config_trends.json")
         print("    • agregar más subreddits")
         print("    • olvidar el historial viejo:  python trend_scout.py --olvidar-historial 30")
-    elif contar["nuevos"] == 0 and total_cola > 0:
+    elif contar.get('nuevos', 0) == 0 and total_cola > 0:
         print(" ℹ️  No hay posts nuevos, pero la cola NO está vacía: corre")
         print("    python script_writer.py  para convertir los que quedan.")
-    elif contar["nuevos"] == 0:
+    elif contar.get('nuevos', 0) == 0:
         print(" ℹ️  No hay nada nuevo que cumpla los filtros de longitud.")
         print("    Prueba a bajar min_palabras_texto o a subir limite_por_subreddit.")
 
 
-def main():
+def main(argv=None):
+    # argv explícito, y sin caer a sys.argv por omisión: pipeline.py llama a
+    # main() sin argumentos, y argparse se comería los flags del pipeline
+    # (--hasta, --forzar…) abortando la etapa con un error de uso absurdo.
     ap = argparse.ArgumentParser(description="Busca historias nuevas en Reddit y las deja en la cola.")
     ap.add_argument("--diagnostico", action="store_true",
                     help="Escanea y explica por qué salieron (o no) historias nuevas.")
@@ -299,7 +306,7 @@ def main():
                     help="Solo muestra el estado de la cola y del historial, sin escanear.")
     ap.add_argument("--olvidar-historial", nargs="?", const=0, type=int, metavar="N",
                     help="Borra el historial de posts vistos (deja los N más recientes; sin N, lo borra entero).")
-    args = ap.parse_args()
+    args = ap.parse_args(argv or [])
 
     cfg = cargar_config()
 
@@ -337,4 +344,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main(sys.argv[1:])

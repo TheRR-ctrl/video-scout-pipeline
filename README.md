@@ -7,24 +7,32 @@ schedule (cron, Termux, or GitHub Actions).
 
 ## How it works
 
-1. **`trend_scout.py`** — read-only scan of a fixed list of subreddits, using
-   reddit.com's public `top/.json` endpoints (no OAuth/API-key needed — see
-   "Reddit access" below). Filters by score/comment thresholds and text
-   length, and stores up to ~15-20 candidates/day in
-   `pipeline_state/candidatos.json`. Already-seen post IDs are tracked
-   locally so nothing is re-fetched. No write access to Reddit at any point
-   (no posting, commenting, voting, or messaging).
-2. **`script_writer.py`** — sends each candidate's text to Gemini (free tier,
-   outside Reddit, no further Reddit access) to adapt it into a first-person
-   narration script, preserving the core facts. Each rewritten story keeps a
-   `# Fuente:` / `# Autor:` reference back to the original post.
-3. **`generar_video_maestro.py`** — renders the narration (edge-tts), karaoke
+1. **`trend_scout.py`** — read-only scan of a fixed list of subreddits via
+   each subreddit's public RSS feed (no OAuth/API-key needed — see "Reddit
+   access" below). Filters by feed rank and text length, and appends
+   candidates to a queue in `pipeline_state/candidatos.json`. No write access
+   to Reddit at any point (no posting, commenting, voting, or messaging).
+   `--diagnostico` explains a scan that came back empty; `--estado` shows the
+   queue.
+2. **`youtube_scout.py`** — second source feeding the *same* queue: public
+   channel RSS feeds surface viral story/confession videos (the feed carries
+   the view count, which is the virality filter), and public captions supply
+   the text. Audio and video are never downloaded or reused — see "YouTube
+   sources" below.
+3. **`script_writer.py`** — sends each candidate's text to Gemini (free tier)
+   to adapt it into a first-person narration script, preserving the core
+   facts. A YouTube episode is first split into the separate anecdotes it
+   contains, each becoming its own story. Every rewritten story keeps a
+   `# Fuente:` / `# Autor:` reference back to the original. A candidate is
+   only marked as consumed once its script is on disk, so a failed run never
+   burns the story.
+4. **`generar_video_maestro.py`** — renders the narration (edge-tts), karaoke
    subtitles, and background video locally with ffmpeg into a finished video
    file, and writes `resultado_lote.json` describing what was produced. Shorts
    vs. long-form isn't decided up front: it falls out of the finished
    narration's real duration (`duracion_max_short_sec`, default 180 s), so the
    script is never padded or trimmed to hit a format.
-4. **`publisher.py`** — runs a technical + content quality check (Gemini free
+5. **`publisher.py`** — runs a technical + content quality check (Gemini free
    tier, with an automatic fallback description/hashtags if that check
    fails), then uploads the video to YouTube as **private**, scheduled to go
    public only after a manual review window. Hashtags are placed at the
@@ -34,20 +42,42 @@ schedule (cron, Termux, or GitHub Actions).
    while connected to WiFi, and local video files are kept for 7 days after
    upload (so you can still cross-post them to TikTok manually) before
    being deleted automatically.
-5. **`pipeline.py`** — orchestrates all four stages in one command, so the
+6. **`pipeline.py`** — orchestrates every stage in one command, so the
    whole thing can be triggered by cron/CI without babysitting it.
 
 ## Reddit access
 
 Reddit's official Data API (PRAW / OAuth "script" app) requires app approval
-that isn't always granted for personal projects. `trend_scout.py` instead
-reads reddit.com's public, unauthenticated `top/.json` endpoints — the same
-data a logged-out browser sees. It's still 100% read-only (no posting,
+that isn't always granted for personal projects, and the unauthenticated
+`top/.json` endpoints are blocked by Reddit's anti-bot filter. `trend_scout.py`
+instead reads each subreddit's public RSS feed — the same read-only access any
+news aggregator uses. It's still 100% read-only (no posting,
 voting, or messaging) and keeps a conservative delay between requests, but
 it's not the "official" API path, so: keep run frequency low (once or twice
 a day is plenty), and if you start seeing consistent 429/403s, space runs out
 further. If you're later approved for the official API, swapping back to
 PRAW in `trend_scout.py` is a small, isolated change.
+
+## YouTube sources
+
+`youtube_scout.py` treats other people's videos more carefully than Reddit
+posts, not less: a Reddit post is text its own author published, while a
+podcast episode is a creator's edited recording.
+
+- Only public captions are read. The audio and video are never downloaded,
+  clipped, or reused in any form.
+- Captions are raw material, never output: `script_writer.py` retells the
+  anecdote from scratch in its own words rather than polishing the
+  transcript, and the prompt says so explicitly.
+- Channel name and video URL travel with the candidate into `# Fuente:` /
+  `# Autor:`, and `publisher.py` credits the channel with a link in the
+  published description.
+- Defaults point at channels built on audience-submitted anecdotes, which
+  have the clearest provenance. Keep that criterion when adding channels.
+
+Configure channels and thresholds in `config_trends.json` (see
+`config_trends.ejemplo.json`), or set `"youtube_activo": false` to turn the
+source off.
 
 ## Publishing beyond YouTube (TikTok)
 

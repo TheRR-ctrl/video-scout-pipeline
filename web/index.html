@@ -786,7 +786,8 @@ function pintaCola(){
     cont.innerHTML = `<h2>Sin historias</h2>
       <p class="sub">No hay guion.txt. Busca historias en Reddit y conviértelas en guiones.</p>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
-        <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar historias</button>
+        <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
+        <button class="btn go" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
         <button class="btn" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
         <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
       </div>`;
@@ -825,7 +826,8 @@ function pintaCola(){
       <div class="list-foot">
         <code class="equiv" id="equiv"></code>
         <div style="display:flex;gap:7px">
-          <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar más</button>
+          <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
+          <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn go" id="b-render">▶ Renderizar</button>
         </div>

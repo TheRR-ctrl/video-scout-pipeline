@@ -1,0 +1,17 @@
+{
+  "_comentario": "Copia este archivo como config_trends.json y edita lo que quieras. Todo lo que no pongas usa el valor por defecto del código.",
+
+  "subreddits": ["AmItheAsshole", "ProRevenge", "tifu", "confession"],
+  "time_filter": "day",
+  "min_palabras_texto": 80,
+  "max_palabras_texto": 1800,
+
+  "youtube_activo": true,
+  "youtube_canales": [
+    "@LaCotorrisa",
+    "@RelatosdelaNoche"
+  ],
+  "youtube_min_vistas": 50000,
+  "youtube_max_videos_por_canal": 5,
+  "youtube_min_palabras": 300
+}

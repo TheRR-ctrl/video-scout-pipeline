@@ -389,9 +389,16 @@ def construir_descripcion(metadata, video):
     fuente_url = video.get("fuente_url")
     autor = video.get("autor_original")
     if fuente_url:
-        linea_fuente = f"Historia inspirada en una publicación pública de Reddit"
-        if autor:
-            linea_fuente += f" de {autor}"
+        # La frase cambia según de dónde salió: un post de Reddit lo escribió
+        # su propio autor, mientras que una anécdota de YouTube se contó en el
+        # canal de alguien más. Dar el crédito equivocado es peor que no darlo.
+        if "youtube.com" in fuente_url or "youtu.be" in fuente_url:
+            linea_fuente = "Historia inspirada en una anécdota contada en el canal"
+            linea_fuente += f" {autor}" if autor else " de un tercero"
+        else:
+            linea_fuente = "Historia inspirada en una publicación pública de Reddit"
+            if autor:
+                linea_fuente += f" de {autor}"
         linea_fuente += f", adaptada con fines narrativos. Fuente: {fuente_url}"
         partes.append(linea_fuente)
 

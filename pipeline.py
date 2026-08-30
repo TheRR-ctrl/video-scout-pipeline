@@ -107,6 +107,17 @@ def main():
         import trend_scout
         resultados["candidatos"] = correr_etapa("candidatos (trend_scout)", trend_scout.main)
 
+        # YouTube es una segunda fuente para la MISMA cola, no una etapa
+        # aparte: si Reddit está bloqueado o ya se agotó el /top/ del día, de
+        # aquí siguen saliendo historias. Va después a propósito, para que un
+        # fallo suyo (falta youtube-transcript-api, canal caído) no impida que
+        # los candidatos de Reddit lleguen al escritor de guiones.
+        import youtube_scout
+        if youtube_scout.cargar_config().get("youtube_activo", True):
+            resultados["candidatos_youtube"] = correr_etapa(
+                "candidatos (youtube_scout)", youtube_scout.main
+            )
+
     if not frena_generacion and i_desde <= ETAPAS.index("guion") <= i_hasta:
         import script_writer
         resultados["guion"] = correr_etapa("guion (script_writer)", script_writer.main)

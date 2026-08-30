@@ -66,6 +66,20 @@ panel               # abre el panel en el navegador
 python pipeline.py  # una tanda completa sin tocar nada
 ```
 
+De dónde salen las historias:
+
+```bash
+python trend_scout.py                 # busca en Reddit
+python youtube_scout.py               # busca en YouTube (anécdotas y confesiones)
+python trend_scout.py --estado        # qué hay en la cola
+python trend_scout.py --diagnostico   # por qué un escaneo no trajo nada
+python youtube_scout.py --diagnostico
+```
+
+Las dos fuentes llenan la misma cola y `pipeline.py` corre las dos. Para
+elegir canales de YouTube o apagar esa fuente, copia
+`config_trends.ejemplo.json` como `config_trends.json` y edítalo.
+
 El panel también está como acceso directo en la pantalla de inicio, y como
 `abrir_panel.html` en Descargas: ese HTML arranca el panel aunque lo muevas
 de sitio.
