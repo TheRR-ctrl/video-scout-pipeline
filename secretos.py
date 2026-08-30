@@ -16,6 +16,7 @@ Formato de secretos.env (una por línea, se ignoran comentarios y comillas):
 
     GEMINI_API_KEY=AIza...
     JAMENDO_CLIENT_ID=abc123
+    YOUTUBE_API_KEY=AIza...
 
 El archivo está en .gitignore: nunca se sube al repo.
 """
@@ -24,7 +25,7 @@ import os
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_SECRETOS = os.path.join(BASE_DIR, "secretos.env")
 
-CLAVES_CONOCIDAS = ("GEMINI_API_KEY", "JAMENDO_CLIENT_ID")
+CLAVES_CONOCIDAS = ("GEMINI_API_KEY", "JAMENDO_CLIENT_ID", "YOUTUBE_API_KEY")
 
 # Qué claves acabaron viniendo del archivo. Se registra al cargar, porque
 # después no hay forma de saberlo: en os.environ ya no se distingue el

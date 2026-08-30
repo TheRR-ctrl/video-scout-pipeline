@@ -14,11 +14,12 @@ schedule (cron, Termux, or GitHub Actions).
    to Reddit at any point (no posting, commenting, voting, or messaging).
    `--diagnostico` explains a scan that came back empty; `--estado` shows the
    queue.
-2. **`youtube_scout.py`** — second source feeding the *same* queue: public
-   channel RSS feeds surface viral story/confession videos (the feed carries
-   the view count, which is the virality filter), and public captions supply
-   the text. Audio and video are never downloaded or reused — see "YouTube
-   sources" below.
+2. **`youtube_scout.py`** — second source feeding the *same* queue. With a
+   free `YOUTUBE_API_KEY` it searches by view count, so a three-year-old video
+   with two million views is found (age is never a filter — only views are);
+   without a key it falls back to channel RSS feeds, which only expose the
+   ~15 newest uploads. Public captions supply the text; audio and video are
+   never downloaded or reused — see "YouTube sources" below.
 3. **`script_writer.py`** — sends each candidate's text to Gemini (free tier)
    to adapt it into a first-person narration script, preserving the core
    facts. A YouTube episode is first split into the separate anecdotes it
@@ -75,9 +76,24 @@ podcast episode is a creator's edited recording.
 - Defaults point at channels built on audience-submitted anecdotes, which
   have the clearest provenance. Keep that criterion when adding channels.
 
-Configure channels and thresholds in `config_trends.json` (see
+### Finding the viral ones
+
+Virality lives in a channel's back catalogue, not its latest upload, and the
+two discovery paths differ sharply on that:
+
+- **With `YOUTUBE_API_KEY`** (free, from Google Cloud Console — enable
+  "YouTube Data API v3"): `search.list` with `order=viewCount` returns the
+  most-viewed videos ever, plus keyword searches across all of YouTube via
+  `youtube_busquedas`, so the channel list stops being a bottleneck.
+- **Without a key**: only each channel's RSS feed, which carries the ~15 most
+  recent uploads. Those rarely have views yet, so a whole scan getting
+  discarded as "pocas vistas" is the expected outcome, not a misconfiguration.
+  `--diagnostico` says so explicitly rather than leaving you guessing.
+
+Configure channels, searches and thresholds in `config_trends.json` (see
 `config_trends.ejemplo.json`), or set `"youtube_activo": false` to turn the
-source off.
+source off. Verify any `@handle` you add by opening it in a browser first — a
+handle that 404s silently wastes a run.
 
 ## Publishing beyond YouTube (TikTok)
 

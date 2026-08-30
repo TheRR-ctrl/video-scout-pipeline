@@ -80,6 +80,21 @@ Las dos fuentes llenan la misma cola y `pipeline.py` corre las dos. Para
 elegir canales de YouTube o apagar esa fuente, copia
 `config_trends.ejemplo.json` como `config_trends.json` y edítalo.
 
+**Para encontrar los virales viejos de YouTube** hace falta una clave gratis
+(si no, solo se ven los videos recién subidos, que todavía no tienen vistas):
+
+1. Entra a https://console.cloud.google.com/apis/library/youtube.googleapis.com
+2. "Habilitar" → menú "Credenciales" → "Crear credenciales" → "Clave de API"
+3. Pégala en el teléfono:
+
+```bash
+echo 'YOUTUBE_API_KEY=AIza...' >> secretos.env
+```
+
+Con eso, `youtube_scout.py` busca por número de vistas sin importar la fecha,
+y además busca por tema en todo YouTube (`youtube_busquedas`), no solo en los
+canales de la lista.
+
 El panel también está como acceso directo en la pantalla de inicio, y como
 `abrir_panel.html` en Descargas: ese HTML arranca el panel aunque lo muevas
 de sitio.

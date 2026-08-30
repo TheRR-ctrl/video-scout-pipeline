@@ -7,11 +7,18 @@
   "max_palabras_texto": 1800,
 
   "youtube_activo": true,
+  "_canales": "Copia el @handle tal cual sale en la URL del canal. Si da 404 al abrirlo en el navegador, está mal escrito.",
   "youtube_canales": [
-    "@LaCotorrisa",
-    "@RelatosdelaNoche"
+    "@LaCotorrisaOficial"
+  ],
+  "youtube_busquedas": [
+    "anécdotas reales contadas",
+    "confesiones reales historias",
+    "historias de venganza reales"
   ],
   "youtube_min_vistas": 50000,
   "youtube_max_videos_por_canal": 5,
+  "youtube_max_candidatos_salida": 8,
+  "youtube_publicado_desde": "",
   "youtube_min_palabras": 300
 }

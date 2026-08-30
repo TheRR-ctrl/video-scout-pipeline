@@ -614,6 +614,7 @@ SECRETOS_COPIABLES = {
     "YOUTUBE_CLIENT_SECRET": ("archivo", "client_secret.json"),
     "GEMINI_API_KEY": ("entorno", "GEMINI_API_KEY"),
     "JAMENDO_CLIENT_ID": ("entorno", "JAMENDO_CLIENT_ID"),
+    "YOUTUBE_API_KEY": ("entorno", "YOUTUBE_API_KEY"),
 }
 
 
