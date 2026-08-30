@@ -388,6 +388,22 @@ def probar_clave():
 
     clave = os.environ["YOUTUBE_API_KEY"].strip()
     print(f" Clave encontrada: {clave[:8]}…{clave[-4:]} ({len(clave)} caracteres)")
+
+    # Pegar el texto de ejemplo en vez de la clave real es el error más fácil
+    # de cometer y el más confuso de leer: Google responde "API key not valid",
+    # que manda a revisar permisos y proyectos cuando en realidad no hay clave.
+    # Una clave de verdad son ~39 caracteres y empieza por AIzaSy.
+    if "..." in clave or "…" in clave or clave.upper().startswith("PEGA"):
+        print(" ✗ Eso es el texto de ejemplo, no una clave.")
+        print("   Reemplázalo por la clave real de la consola de Google:")
+        print("     sed -i '/^YOUTUBE_API_KEY=/d' secretos.env")
+        print("     echo 'YOUTUBE_API_KEY=<tu clave>' >> secretos.env")
+        return False
+    if len(clave) < 30:
+        print(f" ✗ La clave parece incompleta: {len(clave)} caracteres, y una real tiene ~39.")
+        print("   Vuelve a copiarla entera desde la consola de Google.")
+        return False
+
     try:
         servicio = _servicio_youtube()
         resp = servicio.videos().list(part="snippet", chart="mostPopular",

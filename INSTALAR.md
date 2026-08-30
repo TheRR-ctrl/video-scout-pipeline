@@ -93,8 +93,15 @@ elegir canales de YouTube o apagar esa fuente, copia
 3. Pégala en el teléfono y compruébala:
 
 ```bash
-echo 'YOUTUBE_API_KEY=AIza...' >> secretos.env
+echo 'YOUTUBE_API_KEY=<pega aquí tu clave>' >> secretos.env
 python youtube_scout.py --probar-clave
+```
+
+La clave real empieza con `AIzaSy` y tiene unos 39 caracteres. Si te
+equivocaste y guardaste otra cosa, borra la línea y vuelve a ponerla:
+
+```bash
+sed -i '/^YOUTUBE_API_KEY=/d' secretos.env
 ```
 
 `--probar-clave` hace una sola llamada y distingue los tres fallos que desde
