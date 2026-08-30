@@ -93,15 +93,19 @@ elegir canales de YouTube o apagar esa fuente, copia
 3. Pégala en el teléfono y compruébala:
 
 ```bash
-echo 'YOUTUBE_API_KEY=<pega aquí tu clave>' >> secretos.env
-python youtube_scout.py --probar-clave
+python youtube_scout.py --guardar-clave AIzaSy...
 ```
 
-La clave real empieza con `AIzaSy` y tiene unos 39 caracteres. Si te
-equivocaste y guardaste otra cosa, borra la línea y vuelve a ponerla:
+Eso la escribe en `secretos.env` y la prueba de una vez. Si ya había una
+guardada, la reemplaza (no deja duplicados), así que sirve también para
+corregir un intento fallido. Sin comillas: el teclado de Android las
+convierte en comillas tipográficas al pegar y rompen el comando.
+
+La clave real empieza con `AIzaSy` y tiene unos 39 caracteres. Para
+comprobar una que ya esté guardada:
 
 ```bash
-sed -i '/^YOUTUBE_API_KEY=/d' secretos.env
+python youtube_scout.py --probar-clave
 ```
 
 `--probar-clave` hace una sola llamada y distingue los tres fallos que desde

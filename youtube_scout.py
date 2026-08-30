@@ -380,7 +380,7 @@ def probar_clave():
     """
     if not hay_api_key():
         print(" ✗ No hay YOUTUBE_API_KEY.")
-        print("   Ponla con:  echo 'YOUTUBE_API_KEY=AIza...' >> secretos.env")
+        print("   Ponla con:  python youtube_scout.py --guardar-clave AIzaSy...")
         print("   Se saca en: consola de Google Cloud → APIs y servicios →")
         print("   Credenciales → Crear credenciales → Clave de API.")
         print("   (Ojo: client_secret.json NO sirve para esto; ese es para subir.)")
@@ -395,13 +395,13 @@ def probar_clave():
     # Una clave de verdad son ~39 caracteres y empieza por AIzaSy.
     if "..." in clave or "…" in clave or clave.upper().startswith("PEGA"):
         print(" ✗ Eso es el texto de ejemplo, no una clave.")
-        print("   Reemplázalo por la clave real de la consola de Google:")
-        print("     sed -i '/^YOUTUBE_API_KEY=/d' secretos.env")
-        print("     echo 'YOUTUBE_API_KEY=<tu clave>' >> secretos.env")
+        print("   Guarda la real (sin comillas) con:")
+        print("     python youtube_scout.py --guardar-clave AIzaSy...")
         return False
     if len(clave) < 30:
         print(f" ✗ La clave parece incompleta: {len(clave)} caracteres, y una real tiene ~39.")
-        print("   Vuelve a copiarla entera desde la consola de Google.")
+        print("   Cópiala entera y guárdala con:")
+        print("     python youtube_scout.py --guardar-clave AIzaSy...")
         return False
 
     try:
@@ -626,7 +626,18 @@ def main(argv=None):
                     help="Escanear solo este canal (se puede repetir). Ignora la lista de config.")
     ap.add_argument("--probar-clave", action="store_true",
                     help="Comprueba que YOUTUBE_API_KEY sirve, sin escanear nada.")
+    ap.add_argument("--guardar-clave", metavar="AIzaSy...",
+                    help="Guarda la clave en secretos.env (reemplaza la anterior) y la prueba.")
     args = ap.parse_args(argv or [])
+
+    if args.guardar_clave:
+        try:
+            ruta = secretos.guardar("YOUTUBE_API_KEY", args.guardar_clave)
+        except ValueError as exc:
+            print(f" ✗ {exc}")
+            return 1
+        print(f" Guardada en {ruta}")
+        return 0 if probar_clave() else 1
 
     if args.probar_clave:
         return 0 if probar_clave() else 1

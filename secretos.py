@@ -61,6 +61,43 @@ def cargar(ruta=RUTA_SECRETOS):
     return cargadas
 
 
+def guardar(clave, valor, ruta=RUTA_SECRETOS):
+    """Escribe o reemplaza una clave en secretos.env, sin duplicar líneas.
+
+    Existe porque la alternativa desde el teléfono era encadenar sed y echo con
+    comillas, y el teclado de Android convierte las comillas rectas en
+    tipográficas al pegar: el sed falla, el echo no, y uno acaba con la clave
+    vieja intacta y un mensaje de error que no dice eso.
+    """
+    valor = (valor or "").strip().strip('"').strip("'")
+    if not valor:
+        raise ValueError("El valor está vacío.")
+
+    lineas = []
+    if os.path.exists(ruta):
+        with open(ruta, "r", encoding="utf-8") as f:
+            lineas = f.read().splitlines()
+
+    # Se quitan TODAS las apariciones previas: si quedaran dos, cargar() usaría
+    # la primera y el usuario estaría editando la que no manda.
+    lineas = [ln for ln in lineas
+              if ln.strip().partition("=")[0].strip() != clave]
+    lineas.append(f"{clave}={valor}")
+
+    tmp = ruta + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write("\n".join(lineas).strip() + "\n")
+    os.replace(tmp, ruta)
+    try:
+        os.chmod(ruta, 0o600)  # el archivo guarda credenciales
+    except OSError:
+        pass
+
+    os.environ[clave] = valor
+    _DESDE_ARCHIVO.add(clave)
+    return ruta
+
+
 def estado():
     """(clave, valor_presente, de_dónde) para cada clave conocida."""
     out = []
