@@ -248,6 +248,29 @@ def _buscar(servicio, cfg, **extra):
     return [it["id"]["videoId"] for it in resp.get("items", []) if it.get("id", {}).get("videoId")]
 
 
+def _motivo_error_api(exc):
+    """Traduce un error de la API a un motivo accionable, o None si no lo es.
+
+    Los errores de credencial vienen envueltos en un HttpError larguísimo, y
+    todas las llamadas fallan igual: sin esto, la salida son cinco muros de
+    texto idénticos y el diagnóstico acaba culpando a los canales.
+    """
+    texto = str(exc)
+    if "API key not valid" in texto or "API_KEY_INVALID" in texto or "keyInvalid" in texto:
+        return ("clave_invalida",
+                "La YOUTUBE_API_KEY guardada no es válida.")
+    if "SERVICE_DISABLED" in texto or "has not been used in project" in texto:
+        return ("api_apagada",
+                "La YouTube Data API v3 no está habilitada en el proyecto de esa clave.")
+    if "quotaExceeded" in texto or "quota" in texto.lower():
+        return ("sin_cuota",
+                "Se agotó la cuota diaria de la API. Se renueva a medianoche (hora del Pacífico).")
+    if "accessNotConfigured" in texto or "forbidden" in texto.lower():
+        return ("clave_restringida",
+                "La clave tiene restricciones que bloquean esta llamada.")
+    return None
+
+
 def videos_por_api(cfg, contar):
     """Videos más vistos de cada canal y de cada búsqueda, vía YouTube Data API.
 
@@ -265,6 +288,13 @@ def videos_por_api(cfg, contar):
             encontrados = _buscar(servicio, cfg, channelId=channel_id,
                                   maxResults=cfg["youtube_max_videos_por_canal"] * 3)
         except Exception as exc:
+            motivo = _motivo_error_api(exc)
+            if motivo:
+                # No tiene sentido repetir la misma llamada rota una vez por
+                # canal y otra por búsqueda: todas van a fallar igual.
+                contar["api_error"] = motivo
+                logger.error(motivo[1])
+                return []
             logger.warning(f"No se pudo buscar en {referencia}: {exc}")
             contar["canales_fallidos"] += 1
             continue
@@ -279,6 +309,11 @@ def videos_por_api(cfg, contar):
             encontrados = _buscar(servicio, cfg, q=consulta,
                                   maxResults=cfg.get("youtube_max_por_busqueda", 10))
         except Exception as exc:
+            motivo = _motivo_error_api(exc)
+            if motivo:
+                contar["api_error"] = motivo
+                logger.error(motivo[1])
+                return []
             logger.warning(f"Falló la búsqueda «{consulta}»: {exc}")
             continue
         contar["busquedas_ok"] = contar.get("busquedas_ok", 0) + 1
@@ -576,7 +611,31 @@ def explicar(cfg, contar, pendientes_antes, agregados, total_cola):
     print(f" Cola ahora           : {total_cola}")
     print("")
 
-    if contar.get('bloqueado', 0) and contar.get('bloqueado', 0) >= max(1, contar.get('nuevos', 0)):
+    api_error = contar.get("api_error")
+    if api_error:
+        codigo, mensaje = api_error
+        # Va PRIMERO: con la clave rota no se llegó a mirar ningún canal, así
+        # que hablar de @handles aquí manda a arreglar lo que no está roto.
+        print(f" ⛔ {mensaje}")
+        print("    No es problema de los canales ni de la configuración: ninguna")
+        print("    búsqueda llegó a hacerse.")
+        print("")
+        if codigo == "clave_invalida":
+            print("    Guarda la clave REAL de la consola de Google (empieza por AIzaSy y")
+            print("    tiene ~39 caracteres). Pega la tuya, no este texto:")
+            print("      python youtube_scout.py --guardar-clave TU_CLAVE_AQUI")
+        elif codigo == "api_apagada":
+            print("    Habilítala, o comprueba que la clave sea del mismo proyecto:")
+            print("      https://console.cloud.google.com/apis/library/youtube.googleapis.com")
+        elif codigo == "sin_cuota":
+            print("    Espera al reinicio de cuota, o baja \"youtube_max_por_busqueda\"")
+            print("    y el número de búsquedas en config_trends.json.")
+        elif codigo == "clave_restringida":
+            print("    En la consola, deja la clave con restricción de aplicación")
+            print("    \"Ninguno\" y restringida solo a la YouTube Data API v3.")
+        print("")
+        print("    Compruébala sin escanear con:  python youtube_scout.py --probar-clave")
+    elif contar.get('bloqueado', 0) and contar.get('bloqueado', 0) >= max(1, contar.get('nuevos', 0)):
         print(" ⛔ YouTube bloqueó las peticiones de subtítulos desde esta conexión.")
         print("    No es culpa de los canales ni de la configuración. Suele pasar con")
         print("    VPN, con datos compartidos, o si se corrió muchas veces seguidas.")
