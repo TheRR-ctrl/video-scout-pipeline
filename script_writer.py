@@ -9,8 +9,10 @@ Requiere: pip install -U google-genai
 Credenciales: variable de entorno GEMINI_API_KEY (gratis en https://aistudio.google.com/apikey).
 """
 import os
+import sys
 import json
 import logging
+import argparse
 
 import secretos  # carga secretos.env si las claves no están en el entorno
 import narrador  # comprobar que el género declarado casa con el texto escrito
@@ -18,7 +20,6 @@ import cola      # cola de candidatos e historial compartidos con trend_scout.py
 
 from google import genai
 from google.genai import types as genai_types
-from google.genai import errors as genai_errors
 
 CARPETA_ESTADO = cola.CARPETA_ESTADO
 RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
@@ -149,6 +150,54 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("script_writer")
 
 
+def motivo_error_gemini(exc):
+    """Motivo accionable si el fallo es de credencial o cuota, o None.
+
+    Un fallo así no es culpa del candidato: es de la configuración, y afecta
+    por igual a todos. Distinguirlo importa porque decide si la historia
+    vuelve a la cola intacta o se le apunta un intento fallido.
+    """
+    texto = str(exc)
+    if "API_KEY_INVALID" in texto or "API key not valid" in texto:
+        return ("clave_invalida", "La GEMINI_API_KEY no es válida.")
+    if "PERMISSION_DENIED" in texto or "SERVICE_DISABLED" in texto:
+        return ("sin_permiso", "La clave de Gemini no tiene permiso para este modelo.")
+    if "RESOURCE_EXHAUSTED" in texto or "429" in texto or "quota" in texto.lower():
+        return ("sin_cuota", "Se agotó la cuota de Gemini por ahora.")
+    if "UNAUTHENTICATED" in texto:
+        return ("sin_credencial", "Gemini no recibió ninguna credencial.")
+    return None
+
+
+def probar_clave():
+    """Comprueba GEMINI_API_KEY con una llamada mínima."""
+    clave = (os.environ.get("GEMINI_API_KEY") or "").strip()
+    if not clave:
+        print(" ✗ No hay GEMINI_API_KEY en el entorno ni en secretos.env.")
+        print("   Sácala gratis en https://aistudio.google.com/apikey y guárdala:")
+        print("     python script_writer.py --guardar-clave TU_CLAVE_AQUI")
+        return False
+    print(f" Clave encontrada: {clave[:8]}…{clave[-4:]} ({len(clave)} caracteres)")
+    if "..." in clave or "…" in clave or len(clave) < 30:
+        print(" ✗ Eso no parece una clave real (una tiene ~39 caracteres).")
+        print("     python script_writer.py --guardar-clave TU_CLAVE_AQUI")
+        return False
+    try:
+        genai.Client().models.generate_content(model=MODEL, contents="Responde solo: ok")
+    except Exception as exc:
+        motivo = motivo_error_gemini(exc)
+        print(" ✗ La clave no funcionó.")
+        if motivo:
+            print(f"   Motivo: {motivo[1]}")
+            if motivo[0] == "clave_invalida":
+                print("   Saca una nueva en https://aistudio.google.com/apikey y guárdala con")
+                print("   --guardar-clave. Ojo: la de Gemini y la de YouTube son distintas.")
+        print(f"   Detalle: {str(exc)[:300]}")
+        return False
+    print(" ✓ La clave de Gemini funciona.")
+    return True
+
+
 def reescribir_historia(client, candidato):
     if candidato.get("fuente") == "youtube":
         # El material vino de lo que alguien contó hablando en un video ajeno,
@@ -259,7 +308,28 @@ def construir_bloque_guion(historia, candidato):
     )
 
 
-def main():
+def main(argv=None):
+    # argv explícito: pipeline.py llama a main() sin argumentos, y si argparse
+    # cayera a sys.argv se comería los flags del pipeline.
+    ap = argparse.ArgumentParser(description="Convierte la cola de candidatos en guiones.")
+    ap.add_argument("--probar-clave", action="store_true",
+                    help="Comprueba que GEMINI_API_KEY sirve, sin escribir nada.")
+    ap.add_argument("--guardar-clave", metavar="CLAVE",
+                    help="Guarda GEMINI_API_KEY en secretos.env (reemplaza la anterior) y la prueba.")
+    args = ap.parse_args(argv or [])
+
+    if args.guardar_clave:
+        try:
+            ruta = secretos.guardar("GEMINI_API_KEY", args.guardar_clave)
+        except ValueError as exc:
+            print(f" ✗ {exc}")
+            return 1
+        print(f" Guardada en {ruta}")
+        return 0 if probar_clave() else 1
+
+    if args.probar_clave:
+        return 0 if probar_clave() else 1
+
     candidatos = cola.cargar_pendientes()
 
     if not candidatos:
@@ -274,6 +344,7 @@ def main():
     usados = []      # ids que sí se convirtieron en guion
     descartados = [] # ids que fallaron demasiadas veces
     quedan = []      # candidatos que vuelven a la cola para el próximo intento
+    error_global = None  # fallo de configuración que corta la corrida entera
 
     for i, candidato in enumerate(candidatos, 1):
         logger.info(f"[{i}/{len(candidatos)}] {candidato['titulo_original'][:60]}...")
@@ -304,16 +375,32 @@ def main():
                     bloques.append(construir_bloque_guion(historia, parte))
                     escritas += 1
                 except Exception as exc:
+                    # Un fallo de credencial o cuota no es de esta anécdota y
+                    # va a repetirse en todas: sube al manejador de afuera, que
+                    # corta la corrida y deja la cola intacta. Tragárselo aquí
+                    # convertía el problema en "ninguna parte se pudo
+                    # reescribir" y le apuntaba un intento al candidato.
+                    if motivo_error_gemini(exc):
+                        raise
                     logger.warning(f"  Fallo en {parte['id']}: {exc}")
 
             if escritas:
                 usados.append(candidato["id"])
                 continue
             raise RuntimeError("ninguna parte se pudo reescribir")
-        except genai_errors.APIError as exc:
-            logger.warning(f"Fallo de API en candidato {candidato['id']}: {exc}")
         except Exception as exc:
-            logger.warning(f"Fallo inesperado en candidato {candidato['id']}: {exc}")
+            motivo = motivo_error_gemini(exc)
+            if motivo:
+                # Clave mala o cuota agotada: el problema es la configuración,
+                # no esta historia. Se corta aquí, y los candidatos que faltan
+                # (este incluido) vuelven a la cola SIN sumar intento: si no,
+                # tres corridas con la clave rota bastarían para descartar la
+                # cola entera y marcarla como ya usada.
+                error_global = motivo
+                quedan.append(candidato)
+                quedan.extend(candidatos[i:])
+                break
+            logger.warning(f"Fallo en candidato {candidato['id']}: {exc}")
 
         # Un fallo NO quema la historia: vuelve a la cola. Solo se descarta
         # después de varios intentos, para que un texto que Gemini siempre
@@ -334,11 +421,25 @@ def main():
     if descartados:
         cola.marcar_vistos(descartados)
 
+    if error_global:
+        codigo, mensaje = error_global
+        logger.error(mensaje)
+        print("")
+        print(f" ⛔ {mensaje}")
+        print(f"    Los {len(quedan)} candidato(s) siguen en la cola, intactos.")
+        print("")
+        if codigo == "sin_cuota":
+            print("    Espera a que se renueve la cuota y vuelve a correrlo.")
+        else:
+            print("    Saca una clave en https://aistudio.google.com/apikey y guárdala:")
+            print("      python script_writer.py --guardar-clave TU_CLAVE_AQUI")
+            print("    (La clave de Gemini y la de YouTube son distintas.)")
+        print("")
+        print("    Compruébala con:  python script_writer.py --probar-clave")
+
     if not bloques:
-        logger.error(
-            "Ninguna historia se pudo reescribir con éxito. Revisa que GEMINI_API_KEY "
-            "esté puesta en secretos.env y que no se haya agotado la cuota diaria."
-        )
+        if not error_global:
+            logger.error("Ninguna historia se pudo reescribir con éxito.")
         return
 
     contenido_previo = ""
@@ -365,4 +466,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main(sys.argv[1:]) or 0)
