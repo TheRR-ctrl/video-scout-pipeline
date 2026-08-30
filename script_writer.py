@@ -160,13 +160,60 @@ def motivo_error_gemini(exc):
     texto = str(exc)
     if "API_KEY_INVALID" in texto or "API key not valid" in texto:
         return ("clave_invalida", "La GEMINI_API_KEY no es válida.")
-    if "PERMISSION_DENIED" in texto or "SERVICE_DISABLED" in texto:
-        return ("sin_permiso", "La clave de Gemini no tiene permiso para este modelo.")
+    if "SERVICE_DISABLED" in texto:
+        return ("api_apagada",
+                "La API de Gemini no está habilitada en el proyecto de esa clave.")
+    if ("API_KEY_HTTP_REFERRER_BLOCKED" in texto
+            or "API_KEY_ANDROID_APP_BLOCKED" in texto
+            or "API_KEY_IOS_APP_BLOCKED" in texto
+            or "API_KEY_IP_ADDRESS_BLOCKED" in texto):
+        return ("clave_restringida",
+                "La clave tiene restricción de aplicación (web/Android/IP) y Termux "
+                "no la cumple.")
+    if "PERMISSION_DENIED" in texto or "are blocked" in texto:
+        # No es el modelo: es la clave. Este 403 sale cuando la clave está
+        # restringida a otras APIs — el caso típico es haber pegado la clave
+        # de YouTube, que también empieza por AIzaSy y solo tiene permiso
+        # para YouTube Data API.
+        return ("clave_sin_gemini",
+                "Esa clave existe, pero no tiene permiso para la API de Gemini "
+                "(generativelanguage). Suele ser la clave de YouTube, o una de "
+                "Cloud restringida a otras APIs.")
     if "RESOURCE_EXHAUSTED" in texto or "429" in texto or "quota" in texto.lower():
         return ("sin_cuota", "Se agotó la cuota de Gemini por ahora.")
     if "UNAUTHENTICATED" in texto:
         return ("sin_credencial", "Gemini no recibió ninguna credencial.")
     return None
+
+
+# Qué hacer con cada motivo. Sin esto el diagnóstico nombra el problema pero
+# deja al usuario buscando en qué pantalla de Google se arregla.
+ARREGLOS = {
+    "clave_invalida": (
+        "Saca una nueva en https://aistudio.google.com/apikey y guárdala con",
+        "--guardar-clave. Ojo: la de Gemini y la de YouTube son distintas.",
+    ),
+    "clave_sin_gemini": (
+        "Lo más rápido: saca una clave de Gemini en",
+        "https://aistudio.google.com/apikey — esa nace sin restricciones.",
+        "Si prefieres seguir con la de Google Cloud, en Credenciales → esa clave",
+        "→ 'Restricciones de API' añade 'Generative Language API', y habilítala",
+        "en https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com",
+    ),
+    "api_apagada": (
+        "Habilítala en",
+        "https://console.cloud.google.com/apis/library/generativelanguage.googleapis.com",
+        "y asegúrate de que sea el mismo proyecto donde creaste la clave.",
+    ),
+    "clave_restringida": (
+        "En Credenciales → esa clave → 'Restricciones de aplicación', ponla en",
+        "'Ninguna', o usa una clave de https://aistudio.google.com/apikey.",
+    ),
+    "sin_cuota": (
+        "Espera a que se renueve la cuota (el plan gratis se reinicia a diario)",
+        "o usa una clave de un proyecto con facturación.",
+    ),
+}
 
 
 def probar_clave():
@@ -178,6 +225,15 @@ def probar_clave():
         print("     python script_writer.py --guardar-clave TU_CLAVE_AQUI")
         return False
     print(f" Clave encontrada: {clave[:8]}…{clave[-4:]} ({len(clave)} caracteres)")
+    if clave == (os.environ.get("YOUTUBE_API_KEY") or "").strip():
+        # Las dos empiezan por AIzaSy y se parecen a simple vista, asi que
+        # pegar la de YouTube aqui es el error mas facil de cometer. Se dice
+        # antes de llamar, porque la respuesta de Google a ese caso es un 403
+        # generico que no menciona a YouTube por ningun lado.
+        print(" ✗ Es la misma clave que YOUTUBE_API_KEY, y esa no sirve para Gemini.")
+        print("   Son credenciales distintas: la de Gemini se saca en")
+        print("   https://aistudio.google.com/apikey")
+        return False
     if "..." in clave or "…" in clave or len(clave) < 30:
         print(" ✗ Eso no parece una clave real (una tiene ~39 caracteres).")
         print("     python script_writer.py --guardar-clave TU_CLAVE_AQUI")
@@ -194,9 +250,8 @@ def probar_clave():
         print(" ✗ La clave no funcionó.")
         if motivo:
             print(f"   Motivo: {motivo[1]}")
-            if motivo[0] == "clave_invalida":
-                print("   Saca una nueva en https://aistudio.google.com/apikey y guárdala con")
-                print("   --guardar-clave. Ojo: la de Gemini y la de YouTube son distintas.")
+            for linea in ARREGLOS.get(motivo[0], ()):
+                print(f"   {linea}")
         print(f"   Detalle: {str(exc)[:300]}")
         return False
     print(" ✓ La clave de Gemini funciona.")
@@ -433,12 +488,11 @@ def main(argv=None):
         print(f" ⛔ {mensaje}")
         print(f"    Los {len(quedan)} candidato(s) siguen en la cola, intactos.")
         print("")
-        if codigo == "sin_cuota":
-            print("    Espera a que se renueve la cuota y vuelve a correrlo.")
-        else:
-            print("    Saca una clave en https://aistudio.google.com/apikey y guárdala:")
-            print("      python script_writer.py --guardar-clave TU_CLAVE_AQUI")
-            print("    (La clave de Gemini y la de YouTube son distintas.)")
+        for linea in ARREGLOS.get(codigo, (
+            "Saca una clave en https://aistudio.google.com/apikey y guárdala con",
+            "python script_writer.py --guardar-clave TU_CLAVE_AQUI",
+        )):
+            print(f"    {linea}")
         print("")
         print("    Compruébala con:  python script_writer.py --probar-clave")
 
