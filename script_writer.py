@@ -183,7 +183,12 @@ def probar_clave():
         print("     python script_writer.py --guardar-clave TU_CLAVE_AQUI")
         return False
     try:
-        genai.Client().models.generate_content(model=MODEL, contents="Responde solo: ok")
+        # El cliente va a una variable a proposito: si se deja como temporal
+        # (genai.Client().models...), se queda sin referencias en cuanto se lee
+        # .models, el recolector lo cierra, y la llamada muere con "client has
+        # been closed" en vez de decir si la clave sirve.
+        client = genai.Client()
+        client.models.generate_content(model=MODEL, contents="Responde solo: ok")
     except Exception as exc:
         motivo = motivo_error_gemini(exc)
         print(" ✗ La clave no funcionó.")
