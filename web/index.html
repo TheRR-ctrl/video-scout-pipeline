@@ -788,6 +788,7 @@ function pintaCola(){
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar historias</button>
         <button class="btn" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+        <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
       </div>`;
     return;
   }
@@ -825,6 +826,7 @@ function pintaCola(){
         <code class="equiv" id="equiv"></code>
         <div style="display:flex;gap:7px">
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar más</button>
+          <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn go" id="b-render">▶ Renderizar</button>
         </div>
       </div>

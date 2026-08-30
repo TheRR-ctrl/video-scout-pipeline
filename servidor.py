@@ -504,6 +504,9 @@ ACCIONES = {
     "musica":     ("Actualizando música", [sys.executable, "actualizar_musica.py"]),
     "fondos":     ("Enlazando material", [sys.executable, "vincular_fondos.py"]),
     "buscar":     ("Buscando historias", [sys.executable, "trend_scout.py"]),
+    # Explica un escaneo que no trajo nada: cuántos posts se leyeron y por qué
+    # se descartó cada uno (ya usados, sin texto, muy cortos/largos).
+    "diagnostico_busqueda": ("Revisando la búsqueda", [sys.executable, "trend_scout.py", "--diagnostico"]),
     "guiones":    ("Escribiendo guiones", [sys.executable, "script_writer.py"]),
     "publicar":   ("Publicando en YouTube", [sys.executable, "publisher.py"]),
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),

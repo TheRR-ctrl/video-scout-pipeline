@@ -14,13 +14,14 @@ import logging
 
 import secretos  # carga secretos.env si las claves no están en el entorno
 import narrador  # comprobar que el género declarado casa con el texto escrito
+import cola      # cola de candidatos e historial compartidos con trend_scout.py
 
 from google import genai
 from google.genai import types as genai_types
 from google.genai import errors as genai_errors
 
-CARPETA_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline_state")
-RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
+CARPETA_ESTADO = cola.CARPETA_ESTADO
+RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
 RUTA_GUION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guion.txt")
 
 MODEL = "gemini-3.6-flash"
@@ -160,32 +161,57 @@ def construir_bloque_guion(historia, candidato):
 
 
 def main():
-    if not os.path.exists(RUTA_CANDIDATOS):
-        logger.error(f"No se encontró {RUTA_CANDIDATOS}. Corre trend_scout.py primero.")
-        return
-
-    with open(RUTA_CANDIDATOS, "r", encoding="utf-8") as f:
-        candidatos = json.load(f)
+    candidatos = cola.cargar_pendientes()
 
     if not candidatos:
-        logger.info("No hay candidatos nuevos que procesar.")
+        logger.info(
+            "No hay candidatos en la cola. Corre  python trend_scout.py  para buscar "
+            "historias nuevas (o  python trend_scout.py --diagnostico  si no encuentra nada)."
+        )
         return
 
     client = genai.Client()
     bloques = []
+    usados = []      # ids que sí se convirtieron en guion
+    descartados = [] # ids que fallaron demasiadas veces
+    quedan = []      # candidatos que vuelven a la cola para el próximo intento
 
     for i, candidato in enumerate(candidatos, 1):
         logger.info(f"[{i}/{len(candidatos)}] Reescribiendo: {candidato['titulo_original'][:60]}...")
         try:
             historia = reescribir_historia(client, candidato)
             bloques.append(construir_bloque_guion(historia, candidato))
+            usados.append(candidato["id"])
+            continue
         except genai_errors.APIError as exc:
             logger.warning(f"Fallo de API en candidato {candidato['id']}: {exc}")
         except Exception as exc:
             logger.warning(f"Fallo inesperado en candidato {candidato['id']}: {exc}")
 
+        # Un fallo NO quema la historia: vuelve a la cola. Solo se descarta
+        # después de varios intentos, para que un texto que Gemini siempre
+        # rechaza no bloquee la cola para siempre.
+        candidato["intentos"] = int(candidato.get("intentos", 0)) + 1
+        if candidato["intentos"] >= cola.MAX_INTENTOS:
+            logger.warning(
+                f"Candidato {candidato['id']} descartado tras {candidato['intentos']} intentos."
+            )
+            descartados.append(candidato["id"])
+        else:
+            quedan.append(candidato)
+
+    # La cola se actualiza siempre, aunque no haya salido ningún bloque: si
+    # no, los contadores de intentos se perderían y los mismos candidatos
+    # rotos se reintentarían eternamente.
+    cola.guardar_pendientes(quedan)
+    if descartados:
+        cola.marcar_vistos(descartados)
+
     if not bloques:
-        logger.error("Ninguna historia se pudo reescribir con éxito.")
+        logger.error(
+            "Ninguna historia se pudo reescribir con éxito. Revisa que GEMINI_API_KEY "
+            "esté puesta en secretos.env y que no se haya agotado la cuota diaria."
+        )
         return
 
     contenido_previo = ""
@@ -201,7 +227,14 @@ def main():
     with open(RUTA_GUION, "w", encoding="utf-8") as f:
         f.write(nuevo_contenido)
 
+    # Solo AHORA, con el guion ya escrito en disco, esos posts pasan a ser
+    # "vistos". Marcarlos antes (que era lo que hacía trend_scout al escanear)
+    # los quemaba aunque la reescritura fallara.
+    cola.marcar_vistos(usados)
+
     logger.info(f"{len(bloques)} historia(s) agregada(s) a {RUTA_GUION}")
+    if quedan:
+        logger.info(f"{len(quedan)} candidato(s) quedaron en la cola para el próximo intento.")
 
 
 if __name__ == "__main__":

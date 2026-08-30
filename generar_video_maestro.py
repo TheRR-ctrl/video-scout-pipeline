@@ -191,6 +191,14 @@ CONFIG_DEFAULT = {
     # a 0.20 ya empieza a tapar consonantes en el altavoz de un teléfono.
     "volumen_musica": 0.04,
     "volumen_locucion": 0.5,
+    # Reparto del material de fondo por duración del video. Los archivos de
+    # gameplay muy pesados (decenas de GB) se reservan para los videos largos:
+    # cortar 40 segundos de un archivo de 24 GB obliga a ffmpeg a recorrer un
+    # índice enorme por cada corte, y un short se pasa más tiempo buscando el
+    # punto de corte que renderizando. Para los videos por debajo del umbral se
+    # usan solo los fondos ligeros — uno o varios, los que haya.
+    "umbral_video_largo_seg": 240.0,
+    "fondo_max_gb_video_corto": 5.0,
     # Segundos que el efecto se adelanta respecto al final de la tarjeta.
     # Con 0 arranca justo cuando empieza a hablar y compite con la primera
     # palabra; adelantarlo un poco hace que su golpe caiga en la transición
@@ -510,6 +518,13 @@ def medir_duracion_media(ruta_archivo):
     except Exception:
         return 0.0
 
+def _peso_archivo(ruta):
+    try:
+        return os.path.getsize(ruta)
+    except OSError:
+        return 0
+
+
 def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_index=1):
     exts = ('.webm', '.mp4', '.mkv', '.mov')
     prefijo = "fondo_vertical" if es_short else "fondo_horizontal"
@@ -528,6 +543,25 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
         or [c for c in cands if 'fondo' in c]
         or cands
     )
+    # Los videos cortos no tocan el material pesado: ver arriba
+    # ("umbral_video_largo_seg" / "fondo_max_gb_video_corto"). Si el filtro
+    # dejara la lista vacía se cae al archivo más ligero que haya, porque
+    # quedarse sin fondo aborta el render entero.
+    umbral_largo = float(CONFIG.get("umbral_video_largo_seg", 240.0) or 240.0)
+    max_bytes_corto = float(CONFIG.get("fondo_max_gb_video_corto", 5.0) or 5.0) * (1024 ** 3)
+    if duracion_requerida_sec < umbral_largo and len(vids_base) > 1:
+        ligeros = [c for c in vids_base if _peso_archivo(c) <= max_bytes_corto]
+        if ligeros and len(ligeros) < len(vids_base):
+            pesados = [c for c in vids_base if c not in ligeros]
+            print(f" ├─ 🪶 Video corto ({duracion_requerida_sec:.0f}s): "
+                  f"{len(ligeros)} fondo(s) ligero(s); se omite(n) {', '.join(pesados)}")
+            vids_base = ligeros
+        elif not ligeros:
+            # Todos pesan de más: al menos usar el más chico, no uno al azar.
+            vids_base = [min(vids_base, key=_peso_archivo)]
+            print(f" ├─ ⚠️  Ningún fondo baja de {max_bytes_corto/(1024**3):.1f} GB; "
+                  f"se usa el más ligero ({vids_base[0]}).")
+
     # --fondo limita el material a un archivo concreto. Sirve para rehacer un
     # video con otro gameplay cuando hay varios; sin él se usan todos, que es
     # lo que da variedad. Si el filtro no deja nada se ignora, porque quedarse

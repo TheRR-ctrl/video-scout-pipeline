@@ -35,16 +35,19 @@ import html
 import json
 import time
 import logging
+import argparse
 from xml.etree import ElementTree as ET
+
+import cola  # cola de candidatos e historial compartidos con script_writer.py
 
 try:
     import requests
 except ImportError:
     requests = None
 
-CARPETA_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline_state")
-RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
-RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "historial_vistos.json")
+CARPETA_ESTADO = cola.CARPETA_ESTADO
+RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
+RUTA_HISTORIAL = cola.RUTA_HISTORIAL
 RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_trends.json")
 
 RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estricto que el JSON con el rate limit
@@ -100,17 +103,8 @@ def cargar_config():
     return cfg
 
 
-def cargar_historial():
-    if os.path.exists(RUTA_HISTORIAL):
-        with open(RUTA_HISTORIAL, "r", encoding="utf-8") as f:
-            return set(json.load(f))
-    return set()
-
-
-def guardar_historial(vistos):
-    os.makedirs(CARPETA_ESTADO, exist_ok=True)
-    with open(RUTA_HISTORIAL, "w", encoding="utf-8") as f:
-        json.dump(sorted(vistos), f, ensure_ascii=False, indent=2)
+cargar_historial = cola.cargar_historial
+guardar_historial = cola.guardar_historial
 
 
 def _limpiar_contenido_html(contenido_crudo):
@@ -159,11 +153,27 @@ def obtener_posts_publicos(subreddit, cfg):
     return posts
 
 
-def escanear(cfg):
+def escanear(cfg, contar=None):
+    """Devuelve los candidatos NUEVOS de esta pasada.
+
+    No toca el historial: un post se marca como visto cuando script_writer.py
+    consigue convertirlo en guion, no cuando el scout lo ve. Así, si Gemini
+    falla, la historia sigue en la cola para el siguiente intento en vez de
+    quemarse.
+
+    `contar` es un dict opcional donde se acumula por qué se descartó cada
+    post; lo usa --diagnostico para explicar un escaneo que salió vacío.
+    """
     if requests is None:
         raise RuntimeError("Falta el paquete 'requests'. Instálalo con: pip install requests")
 
+    if contar is None:
+        contar = {}
+    for k in ("leidos", "ya_vistos", "ya_en_cola", "sin_texto", "muy_corto", "muy_largo", "nuevos", "subs_ok", "subs_fallidos"):
+        contar.setdefault(k, 0)
+
     vistos = cargar_historial()
+    en_cola = cola.ids_en_cola()
     candidatos = []
 
     for i, nombre_sub in enumerate(cfg["subreddits"]):
@@ -175,18 +185,32 @@ def escanear(cfg):
             posts = obtener_posts_publicos(nombre_sub, cfg)
         except Exception as exc:
             logger.warning(f"No se pudo leer r/{nombre_sub}: {exc}")
+            contar["subs_fallidos"] += 1
             continue
+        contar["subs_ok"] += 1
 
         for rank, post in enumerate(posts):
+            contar["leidos"] += 1
             post_id = post["id"]
-            if not post_id or post_id in vistos:
+            if not post_id:
+                continue
+            if post_id in vistos:
+                contar["ya_vistos"] += 1
+                continue
+            if post_id in en_cola:
+                contar["ya_en_cola"] += 1
                 continue
             texto = post["texto"]
             if not texto:
+                contar["sin_texto"] += 1
                 continue
 
             num_palabras = len(texto.split())
-            if not (cfg["min_palabras_texto"] <= num_palabras <= cfg["max_palabras_texto"]):
+            if num_palabras < cfg["min_palabras_texto"]:
+                contar["muy_corto"] += 1
+                continue
+            if num_palabras > cfg["max_palabras_texto"]:
+                contar["muy_largo"] += 1
                 continue
 
             autor = post["autor"]
@@ -202,8 +226,11 @@ def escanear(cfg):
                 # Se conserva para dar atribución en la descripción del video
                 # (evita presentar la historia como propia).
                 "autor": f"u/{autor}" if autor and autor != "[deleted]" else "[autor eliminado]",
+                # Cuántas veces script_writer intentó reescribirlo y falló.
+                "intentos": 0,
             })
-            vistos.add(post_id)
+            en_cola.add(post_id)
+            contar["nuevos"] += 1
 
     candidatos.sort(key=lambda c: c["rank_en_subreddit"])
 
@@ -223,22 +250,90 @@ def escanear(cfg):
             ids_ya_elegidos.add(c["id"])
 
     seleccionados.sort(key=lambda c: c["rank_en_subreddit"])
-
-    guardar_historial(vistos)
     return seleccionados
 
 
+def explicar(cfg, contar, pendientes_antes, agregados, total_cola):
+    """Informe legible de por qué salieron (o no salieron) historias nuevas."""
+    vistos = cargar_historial()
+    print("")
+    print("─── Diagnóstico del escaneo ───")
+    print(f" Subreddits leídos ok : {contar['subs_ok']} de {len(cfg['subreddits'])}"
+          + (f"  ({contar['subs_fallidos']} fallaron)" if contar["subs_fallidos"] else ""))
+    print(f" Posts leídos         : {contar['leidos']}")
+    print(f"   • ya usados antes  : {contar['ya_vistos']}")
+    print(f"   • ya en la cola    : {contar['ya_en_cola']}")
+    print(f"   • sin texto (link) : {contar['sin_texto']}")
+    print(f"   • muy cortos (<{cfg['min_palabras_texto']} palabras) : {contar['muy_corto']}")
+    print(f"   • muy largos (>{cfg['max_palabras_texto']} palabras) : {contar['muy_largo']}")
+    print(f"   • NUEVOS           : {contar['nuevos']}")
+    print("")
+    print(f" Cola antes           : {pendientes_antes} candidato(s) sin usar")
+    print(f" Agregados ahora      : {agregados}")
+    print(f" Cola ahora           : {total_cola}")
+    print(f" Historial            : {len(vistos)} post(s) ya convertidos en guion")
+    print("")
+
+    if contar["subs_ok"] == 0:
+        print(" ⛔ Reddit no respondió en ningún subreddit. Suele ser bloqueo por")
+        print("    rate limit (429/403). Espera un rato y vuelve a correrlo, o sube")
+        print("    RATE_LIMIT_SEG en trend_scout.py.")
+    elif contar["nuevos"] == 0 and contar["ya_vistos"] >= max(1, contar["leidos"] // 2):
+        print(" ℹ️  Casi todo el /top/ del día ya se usó. Opciones:")
+        print("    • cambiar \"time_filter\" a \"week\" o \"month\" en config_trends.json")
+        print("    • agregar más subreddits")
+        print("    • olvidar el historial viejo:  python trend_scout.py --olvidar-historial 30")
+    elif contar["nuevos"] == 0 and total_cola > 0:
+        print(" ℹ️  No hay posts nuevos, pero la cola NO está vacía: corre")
+        print("    python script_writer.py  para convertir los que quedan.")
+    elif contar["nuevos"] == 0:
+        print(" ℹ️  No hay nada nuevo que cumpla los filtros de longitud.")
+        print("    Prueba a bajar min_palabras_texto o a subir limite_por_subreddit.")
+
+
 def main():
+    ap = argparse.ArgumentParser(description="Busca historias nuevas en Reddit y las deja en la cola.")
+    ap.add_argument("--diagnostico", action="store_true",
+                    help="Escanea y explica por qué salieron (o no) historias nuevas.")
+    ap.add_argument("--estado", action="store_true",
+                    help="Solo muestra el estado de la cola y del historial, sin escanear.")
+    ap.add_argument("--olvidar-historial", nargs="?", const=0, type=int, metavar="N",
+                    help="Borra el historial de posts vistos (deja los N más recientes; sin N, lo borra entero).")
+    args = ap.parse_args()
+
     cfg = cargar_config()
-    candidatos = escanear(cfg)
 
-    os.makedirs(CARPETA_ESTADO, exist_ok=True)
-    with open(RUTA_CANDIDATOS, "w", encoding="utf-8") as f:
-        json.dump(candidatos, f, ensure_ascii=False, indent=2)
+    if args.olvidar_historial is not None:
+        vistos = sorted(cargar_historial())
+        quedan = set(vistos[-args.olvidar_historial:]) if args.olvidar_historial else set()
+        guardar_historial(quedan)
+        logger.info(f"Historial: {len(vistos)} → {len(quedan)} post(s). "
+                    "Las historias viejas pueden volver a aparecer.")
+        return
 
-    logger.info(f"{len(candidatos)} candidato(s) guardado(s) en {RUTA_CANDIDATOS}")
-    for c in candidatos:
+    if args.estado:
+        pendientes = cola.cargar_pendientes()
+        print(f" Cola      : {len(pendientes)} candidato(s) sin convertir en guion")
+        for c in pendientes[:20]:
+            print(f"   • [{c.get('subreddit','?')}] {c.get('titulo_original','')[:70]}")
+        print(f" Historial : {len(cargar_historial())} post(s) ya usados")
+        return
+
+    pendientes_antes = len(cola.cargar_pendientes())
+    contar = {}
+    nuevos = escanear(cfg, contar)
+
+    # Se AGREGAN a la cola: los pendientes que script_writer aún no consumió
+    # se conservan. (Antes esta línea sobrescribía el archivo entero, así que
+    # un escaneo vacío borraba candidatos que nunca se llegaron a usar.)
+    total_cola, agregados = cola.agregar_candidatos(nuevos)
+
+    logger.info(f"{agregados} candidato(s) nuevo(s); {total_cola} en cola en {RUTA_CANDIDATOS}")
+    for c in nuevos:
         print(f" • [{c['subreddit']}] {c['titulo_original']} (rank={c['rank_en_subreddit']})")
+
+    if args.diagnostico or agregados == 0:
+        explicar(cfg, contar, pendientes_antes, agregados, total_cola)
 
 
 if __name__ == "__main__":
