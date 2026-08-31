@@ -120,7 +120,37 @@ El panel también está como acceso directo en la pantalla de inicio, y como
 `abrir_panel.html` en Descargas: ese HTML arranca el panel aunque lo muevas
 de sitio.
 
-## 5. Actualizar
+## 5. Que corra solo
+
+```bash
+bash instalar_cron.sh
+```
+
+Deja tres tareas: generar una tanda lunes y jueves a las 6:00, publicar un
+video cada día a las 9:00, y refrescar la música el día 1 de cada mes.
+Correrlo dos veces no duplica nada, y `bash instalar_cron.sh --quitar` las
+borra.
+
+No lo escribas a mano en el crontab. La ruta del proyecto es larga, y cuando
+se equivoca no avisa: cron lanza la línea a su hora, el `cd` falla, el `&&`
+corta la cadena, y no queda ni log ni error — parece que el cron no se
+dispara cuando en realidad corre a diario y no llega a nada.
+
+Dos cosas de Android que el script no puede arreglar solo, y que son la causa
+habitual de que un cron bien puesto deje de saltar a los pocos días:
+
+- **Termux:Boot** ([F-Droid](https://f-droid.org/packages/com.termux.boot/)),
+  instalado y abierto una vez. Sin él, cron muere en cada reinicio.
+- **Batería sin restricciones** para Termux: Ajustes → Apps → Termux →
+  Batería → Sin restricciones.
+
+Para ver si está corriendo de verdad:
+
+```bash
+tail -f ~/video-scout-pipeline/pipeline.log
+```
+
+## 6. Actualizar
 
 ```bash
 cd ~/video-scout-pipeline
