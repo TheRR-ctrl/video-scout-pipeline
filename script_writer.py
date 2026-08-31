@@ -408,6 +408,26 @@ def construir_bloque_guion(historia, candidato):
     )
 
 
+def escribir_guion(bloques):
+    """Agrega los bloques nuevos al final de guion.txt."""
+    contenido_previo = ""
+    if os.path.exists(RUTA_GUION):
+        with open(RUTA_GUION, "r", encoding="utf-8") as f:
+            contenido_previo = f.read().strip()
+
+    separador = "\n\n===NUEVA_HISTORIA===\n"
+    nuevo_contenido = separador.join(bloques)
+    if contenido_previo:
+        nuevo_contenido = contenido_previo + separador + nuevo_contenido
+
+    # Archivo temporal y os.replace: si el proceso muere a media escritura, el
+    # guion.txt de antes sigue entero en vez de quedar cortado por la mitad.
+    tmp = RUTA_GUION + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(nuevo_contenido)
+    os.replace(tmp, RUTA_GUION)
+
+
 def main(argv=None):
     # argv explícito: pipeline.py llama a main() sin argumentos, y si argparse
     # cayera a sys.argv se comería los flags del pipeline.
@@ -535,12 +555,25 @@ def main(argv=None):
         else:
             quedan.append(candidato)
 
+    # El guion va PRIMERO, antes de tocar la cola. Al revés —que era como
+    # estaba— hay una ventana en la que los candidatos ya salieron de la cola
+    # y su guion todavía no existe en ningún sitio: un Ctrl+C, una batería que
+    # se acaba o que Android mate Termux ahí en medio, y ese trabajo no está ni
+    # hecho ni pendiente. Se pierde y no hay forma de saber cuál era.
+    if bloques:
+        escribir_guion(bloques)
+        logger.info(f"{len(bloques)} historia(s) agregada(s) a {RUTA_GUION}")
+
     # La cola se actualiza siempre, aunque no haya salido ningún bloque: si
     # no, los contadores de intentos se perderían y los mismos candidatos
     # rotos se reintentarían eternamente.
     cola.guardar_pendientes(quedan)
-    if descartados:
-        cola.marcar_vistos(descartados)
+    # Con el guion ya en disco, esos posts pasan a ser "vistos". Marcarlos
+    # antes (que era lo que hacía trend_scout al escanear) los quemaba aunque
+    # la reescritura fallara.
+    cola.marcar_vistos(usados + descartados)
+    if quedan:
+        logger.info(f"{len(quedan)} candidato(s) quedaron en la cola para el próximo intento.")
 
     if error_global:
         codigo, mensaje = error_global
@@ -557,32 +590,8 @@ def main(argv=None):
         print("")
         print("    Compruébala con:  python script_writer.py --probar-clave")
 
-    if not bloques:
-        if not error_global:
-            logger.error("Ninguna historia se pudo reescribir con éxito.")
-        return
-
-    contenido_previo = ""
-    if os.path.exists(RUTA_GUION):
-        with open(RUTA_GUION, "r", encoding="utf-8") as f:
-            contenido_previo = f.read().strip()
-
-    separador = "\n\n===NUEVA_HISTORIA===\n"
-    nuevo_contenido = separador.join(bloques)
-    if contenido_previo:
-        nuevo_contenido = contenido_previo + separador + nuevo_contenido
-
-    with open(RUTA_GUION, "w", encoding="utf-8") as f:
-        f.write(nuevo_contenido)
-
-    # Solo AHORA, con el guion ya escrito en disco, esos posts pasan a ser
-    # "vistos". Marcarlos antes (que era lo que hacía trend_scout al escanear)
-    # los quemaba aunque la reescritura fallara.
-    cola.marcar_vistos(usados)
-
-    logger.info(f"{len(bloques)} historia(s) agregada(s) a {RUTA_GUION}")
-    if quedan:
-        logger.info(f"{len(quedan)} candidato(s) quedaron en la cola para el próximo intento.")
+    if not bloques and not error_global:
+        logger.error("Ninguna historia se pudo reescribir con éxito.")
 
 
 if __name__ == "__main__":
