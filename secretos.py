@@ -113,5 +113,41 @@ def estado():
     return out
 
 
+# Las cuatro credenciales de Google que aparecen en este proyecto se parecen
+# lo bastante como para confundirlas, y solo una sirve como clave de API.
+# Guardar la equivocada no falla al escribir: falla mucho despues, con un
+# error de la API que no menciona en ningun momento que el problema es que
+# ahi hay pegada otra cosa.
+_OTRAS_CREDENCIALES = (
+    ("AQ.", "Eso es un código de autorización de OAuth (de un solo uso, y "
+            "caduca en minutos), no una clave de API."),
+    ("GOCSPX-", "Eso es un client secret de OAuth: va dentro de "
+                "client_secret.json, no aquí."),
+    ("ya29.", "Eso es un token de acceso de OAuth, no una clave de API."),
+    ("{", "Eso es el contenido de un JSON. Si es el de OAuth, guárdalo como "
+          "client_secret.json en la carpeta del proyecto."),
+)
+
+
+def revisar_clave_api(valor):
+    """Devuelve por qué `valor` no es una clave de API de Google, o None."""
+    valor = (valor or "").strip().strip('"').strip("'")
+    if not valor:
+        return "El valor está vacío."
+    for prefijo, motivo in _OTRAS_CREDENCIALES:
+        if valor.startswith(prefijo):
+            return motivo
+    if valor.endswith(".apps.googleusercontent.com"):
+        return ("Eso es un Client ID de OAuth: va dentro de client_secret.json, "
+                "no aquí.")
+    if not valor.startswith("AIza"):
+        # i mayuscula, no L: en la mayoria de fuentes de movil se ven igual.
+        return ("Una clave de API de Google empieza por 'AIza' (con i mayúscula) "
+                "y tiene 39 caracteres.")
+    if len(valor) < 35 or len(valor) > 45:
+        return f"Eso tiene {len(valor)} caracteres; una clave tiene 39."
+    return None
+
+
 # Se carga al importar: así basta con `import secretos` en cada script.
 cargar()

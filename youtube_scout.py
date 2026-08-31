@@ -690,6 +690,15 @@ def main(argv=None):
     args = ap.parse_args(argv or [])
 
     if args.guardar_clave:
+        problema = secretos.revisar_clave_api(args.guardar_clave)
+        if problema:
+            # Se rechaza antes de escribir: guardarla dejaria el archivo con
+            # una credencial que no es, y el fallo aparecería mucho más tarde
+            # como un error de la API que no dice nada de esto.
+            print(f" ✗ {problema}")
+            print("   La clave sale de APIs y servicios → Credenciales →")
+            print("   + Crear credenciales → Clave de API.")
+            return 1
         try:
             ruta = secretos.guardar("YOUTUBE_API_KEY", args.guardar_clave)
         except ValueError as exc:
