@@ -12,6 +12,7 @@ import os
 import sys
 import json
 import logging
+import time
 import argparse
 
 import secretos  # carga secretos.env si las claves no están en el entorno
@@ -26,6 +27,10 @@ RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
 RUTA_GUION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guion.txt")
 
 MODEL = "gemini-3.6-flash"
+
+# Esperas entre reintentos cuando Gemini contesta 503. Cortas: el pico de
+# demanda suele durar segundos, y la corrida entera espera aquí.
+ESPERAS_SOBRECARGA_S = (5, 15, 40)
 EMOCIONES_VALIDAS = ["venganza", "suspenso", "drama", "comedia"]
 
 # A propósito no hay objetivo de longitud, ni mínimo ni máximo: forzar el
@@ -219,6 +224,33 @@ ARREGLOS = {
         "o usa una clave de un proyecto con facturación.",
     ),
 }
+
+
+def es_sobrecarga(exc):
+    """True si Gemini rechazó la llamada por estar saturado, no por el texto."""
+    texto = str(exc)
+    return ("503" in texto or "UNAVAILABLE" in texto
+            or "overloaded" in texto.lower() or "high demand" in texto.lower())
+
+
+def con_reintentos(fn, *args):
+    """Llama a fn reintentando mientras Gemini conteste que está saturado.
+
+    El 503 es del momento, no del texto: la misma historia suele pasar unos
+    segundos después. Sin esto, un pico de demanda de Google le apuntaba un
+    intento fallido a la historia, y tres picos la descartaban para siempre.
+    """
+    for espera in ESPERAS_SOBRECARGA_S:
+        try:
+            return fn(*args)
+        except Exception as exc:
+            if not es_sobrecarga(exc):
+                raise
+            logger.info(f"  Gemini saturado; reintento en {espera}s.")
+            time.sleep(espera)
+    # Último intento: si vuelve a fallar, el error sube tal cual y lo decide
+    # quien llama.
+    return fn(*args)
 
 
 def probar_clave():
@@ -431,7 +463,7 @@ def main(argv=None):
             # Un video de YouTube no es una historia: es un episodio con varias
             # dentro. Primero se separan, y cada una se reescribe aparte.
             if candidato.get("tipo") == "transcripcion":
-                partes = segmentar_transcripcion(client, candidato)
+                partes = con_reintentos(segmentar_transcripcion, client, candidato)
                 if not partes:
                     logger.warning(
                         f"  Sin anécdotas completas en {candidato['id']}; se descarta el video."
@@ -450,7 +482,7 @@ def main(argv=None):
                 if len(partes) > 1:
                     logger.info(f"  → Reescribiendo: {parte['titulo_original'][:60]}...")
                 try:
-                    historia = reescribir_historia(client, parte)
+                    historia = con_reintentos(reescribir_historia, client, parte)
                     bloques.append(construir_bloque_guion(historia, parte))
                     escritas += 1
                 except Exception as exc:
@@ -459,7 +491,7 @@ def main(argv=None):
                     # corta la corrida y deja la cola intacta. Tragárselo aquí
                     # convertía el problema en "ninguna parte se pudo
                     # reescribir" y le apuntaba un intento al candidato.
-                    if motivo_error_gemini(exc):
+                    if motivo_error_gemini(exc) or es_sobrecarga(exc):
                         raise
                     logger.warning(f"  Fallo en {parte['id']}: {exc}")
 
@@ -479,6 +511,16 @@ def main(argv=None):
                 quedan.append(candidato)
                 quedan.extend(candidatos[i:])
                 break
+            if es_sobrecarga(exc):
+                # Aguantó todos los reintentos saturado. No es culpa de esta
+                # historia, así que vuelve a la cola como estaba; los demás
+                # candidatos sí se intentan, porque el pico puede pasar dentro
+                # de la misma corrida.
+                logger.warning(
+                    f"Gemini sigue saturado; {candidato['id']} vuelve a la cola sin gastar intento."
+                )
+                quedan.append(candidato)
+                continue
             logger.warning(f"Fallo en candidato {candidato['id']}: {exc}")
 
         # Un fallo NO quema la historia: vuelve a la cola. Solo se descarta
