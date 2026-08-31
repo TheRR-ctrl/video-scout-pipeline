@@ -113,39 +113,53 @@ def estado():
     return out
 
 
-# Las cuatro credenciales de Google que aparecen en este proyecto se parecen
-# lo bastante como para confundirlas, y solo una sirve como clave de API.
-# Guardar la equivocada no falla al escribir: falla mucho despues, con un
-# error de la API que no menciona en ningun momento que el problema es que
-# ahi hay pegada otra cosa.
+# Las credenciales de Google que aparecen en este proyecto se parecen entre si
+# lo justo para pegarlas en el sitio equivocado, y guardar la equivocada no
+# falla al escribir: falla mucho despues, con un error de la API que no
+# menciona en ningun momento que ahi hay pegada otra cosa.
+#
+# Solo se rechaza lo que es reconociblemente OTRA credencial. Las claves en si
+# no tienen un unico formato: las de siempre son "AIza" + 35 caracteres, y las
+# nuevas de AI Studio, las que la consola muestra con "Bound account", empiezan
+# por "AQ." y son mas largas. Cualquier forma que no se reconozca pasa con un
+# aviso, no con un bloqueo: Google ya cambio el formato una vez y este archivo
+# no puede ser lo que impida usar el siguiente.
 _OTRAS_CREDENCIALES = (
-    ("AQ.", "Eso es un código de autorización de OAuth (de un solo uso, y "
-            "caduca en minutos), no una clave de API."),
     ("GOCSPX-", "Eso es un client secret de OAuth: va dentro de "
                 "client_secret.json, no aquí."),
     ("ya29.", "Eso es un token de acceso de OAuth, no una clave de API."),
+    ("4/0A", "Eso es un código de autorización de OAuth (de un solo uso, y "
+             "caduca en minutos), no una clave de API."),
     ("{", "Eso es el contenido de un JSON. Si es el de OAuth, guárdalo como "
           "client_secret.json en la carpeta del proyecto."),
 )
 
+# Prefijos de clave que Google usa hoy. Estar aqui solo evita el aviso.
+_PREFIJOS_CLAVE = ("AIza", "AQ.")
+
 
 def revisar_clave_api(valor):
-    """Devuelve por qué `valor` no es una clave de API de Google, o None."""
+    """(severidad, mensaje) si `valor` no se ve como una clave, o None.
+
+    severidad "error" = es otra credencial, no se guarda.
+    severidad "aviso" = no la reconozco, pero se guarda igual y ya lo dirá
+    la llamada de prueba.
+    """
     valor = (valor or "").strip().strip('"').strip("'")
     if not valor:
-        return "El valor está vacío."
+        return ("error", "El valor está vacío.")
     for prefijo, motivo in _OTRAS_CREDENCIALES:
         if valor.startswith(prefijo):
-            return motivo
+            return ("error", motivo)
     if valor.endswith(".apps.googleusercontent.com"):
-        return ("Eso es un Client ID de OAuth: va dentro de client_secret.json, "
-                "no aquí.")
-    if not valor.startswith("AIza"):
-        # i mayuscula, no L: en la mayoria de fuentes de movil se ven igual.
-        return ("Una clave de API de Google empieza por 'AIza' (con i mayúscula) "
-                "y tiene 39 caracteres.")
-    if len(valor) < 35 or len(valor) > 45:
-        return f"Eso tiene {len(valor)} caracteres; una clave tiene 39."
+        return ("error", "Eso es un Client ID de OAuth: va dentro de "
+                         "client_secret.json, no aquí.")
+    if valor.startswith("AIza") and len(valor) != 39:
+        return ("aviso", f"Una clave que empieza por 'AIza' tiene 39 caracteres "
+                         f"y esta tiene {len(valor)}.")
+    if not valor.startswith(_PREFIJOS_CLAVE):
+        return ("aviso", "No reconozco esa forma de clave; la guardo igual y la "
+                         "pruebo a ver.")
     return None
 
 

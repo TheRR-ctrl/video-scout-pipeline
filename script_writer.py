@@ -240,7 +240,10 @@ def probar_clave():
         print("   https://aistudio.google.com/apikey")
         return False
     if "..." in clave or "…" in clave or len(clave) < 30:
-        print(" ✗ Eso no parece una clave real (una tiene ~39 caracteres).")
+        # El caso tipico es haber guardado el texto de ejemplo con los puntos
+        # suspensivos incluidos, copiado de estas mismas instrucciones.
+        print(" ✗ Eso no parece una clave real (las de 'AIza' tienen 39"
+              " caracteres, y las de 'AQ.' son más largas).")
         print("     python script_writer.py --guardar-clave TU_CLAVE_AQUI")
         return False
     try:
@@ -384,15 +387,17 @@ def main(argv=None):
     args = ap.parse_args(argv or [])
 
     if args.guardar_clave:
-        problema = secretos.revisar_clave_api(args.guardar_clave)
-        if problema:
-            # Se rechaza antes de escribir: guardarla dejaria el archivo con
-            # una credencial que no es, y el fallo aparecería mucho más tarde
-            # como un error de la API que no dice nada de esto.
-            print(f" ✗ {problema}")
-            print("   La clave sale de APIs y servicios → Credenciales →")
-            print("   + Crear credenciales → Clave de API.")
-            return 1
+        revision = secretos.revisar_clave_api(args.guardar_clave)
+        if revision:
+            severidad, problema = revision
+            if severidad == "error":
+                # Otra credencial: se rechaza antes de escribir, para no dejar
+                # el archivo peor de como estaba.
+                print(f" ✗ {problema}")
+                print("   La clave sale de APIs y servicios → Credenciales →")
+                print("   + Crear credenciales → Clave de API.")
+                return 1
+            print(f" ⚠️ {problema}")
         try:
             ruta = secretos.guardar("GEMINI_API_KEY", args.guardar_clave)
         except ValueError as exc:
