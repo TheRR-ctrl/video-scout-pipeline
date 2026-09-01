@@ -87,11 +87,12 @@ EOF
 chmod +x "$ARRANQUE"
 echo "  ✓ Arranque tras reiniciar: $ARRANQUE"
 
-if [ ! -d "/data/data/com.termux.boot" ] && ! pm list packages 2>/dev/null | grep -q com.termux.boot; then
-  echo "  ⚠️ El script está puesto, pero falta la app Termux:Boot que lo ejecuta."
-  echo "     Instálala desde F-Droid y ábrela una vez:"
-  echo "     https://f-droid.org/packages/com.termux.boot/"
-fi
+# Si la app esta instalada no hay forma fiable de saberlo desde aqui: Termux no
+# puede leer /data/data de otro paquete, y `pm list packages` no siempre esta
+# disponible. Preguntarlo mal daba un "falta Termux:Boot" a quien ya la tenia,
+# asi que se dice como recordatorio y decide quien lo lee.
+echo "     Para que se ejecute hace falta la app Termux:Boot, instalada y"
+echo "     abierta una vez: https://f-droid.org/packages/com.termux.boot/"
 echo "  ⚠️ Quita a Termux la optimización de batería, o Android lo matará"
 echo "     al cabo de unas horas y las tandas no saldrán."
 echo "     Ajustes → Apps → Termux → Batería → Sin restricciones."
