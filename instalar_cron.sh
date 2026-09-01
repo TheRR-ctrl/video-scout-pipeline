@@ -67,9 +67,29 @@ fi
 # Estas dos son de Android, no del proyecto, y son la causa habitual de que
 # un cron bien puesto deje de dispararse a los pocos días.
 echo
-if [ ! -d "$HOME/.termux/boot" ]; then
-  echo "  ⚠️ Falta Termux:Boot. Sin él, cron muere en cada reinicio del teléfono."
-  echo "     Instala la app desde F-Droid y ábrela una vez:"
+
+# Termux:Boot no arranca nada por su cuenta: al encender el telefono ejecuta
+# lo que haya en ~/.termux/boot/ y nada mas. Sin este script, la app esta
+# instalada y el cron sigue sin volver despues de un reinicio.
+ARRANQUE="$HOME/.termux/boot/00-crond"
+mkdir -p "$HOME/.termux/boot"
+cat > "$ARRANQUE" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/sh
+# Lo pone instalar_cron.sh. Se ejecuta al encender el teléfono.
+
+# Sin el wake-lock, Android duerme el proceso y cron se salta las horas.
+termux-wake-lock 2>/dev/null
+
+# El guardia evita dos crond a la vez (uno de termux-services y otro de aquí),
+# que dispararía cada tarea por duplicado.
+pgrep -x crond >/dev/null 2>&1 || crond
+EOF
+chmod +x "$ARRANQUE"
+echo "  ✓ Arranque tras reiniciar: $ARRANQUE"
+
+if [ ! -d "/data/data/com.termux.boot" ] && ! pm list packages 2>/dev/null | grep -q com.termux.boot; then
+  echo "  ⚠️ El script está puesto, pero falta la app Termux:Boot que lo ejecuta."
+  echo "     Instálala desde F-Droid y ábrela una vez:"
   echo "     https://f-droid.org/packages/com.termux.boot/"
 fi
 echo "  ⚠️ Quita a Termux la optimización de batería, o Android lo matará"

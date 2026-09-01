@@ -140,7 +140,9 @@ Dos cosas de Android que el script no puede arreglar solo, y que son la causa
 habitual de que un cron bien puesto deje de saltar a los pocos días:
 
 - **Termux:Boot** ([F-Droid](https://f-droid.org/packages/com.termux.boot/)),
-  instalado y abierto una vez. Sin él, cron muere en cada reinicio.
+  instalado y abierto una vez. Sin él, cron muere en cada reinicio. La app por
+  sí sola no arranca nada: solo ejecuta lo que haya en `~/.termux/boot/`, y el
+  script que hace falta ahí lo deja puesto `instalar_cron.sh`.
 - **Batería sin restricciones** para Termux: Ajustes → Apps → Termux →
   Batería → Sin restricciones.
 
