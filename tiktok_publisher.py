@@ -401,6 +401,48 @@ def marcar_subidos():
     return 0
 
 
+def revisar_subidos():
+    """Vuelve a preguntar a TikTok por el estado de lo ya subido.
+
+    El script no espera indefinidamente a que termine el proceso: cuando se
+    cansa apunta "procesando todavía" y sigue. Si TikTok descartó el video
+    despues de eso (formato, duracion, musica con derechos), el registro se
+    quedo con la version optimista y esta orden lo corrige.
+    """
+    subidos = publisher.cargar_json(RUTA_SUBIDOS, [])
+    consultables = [s for s in subidos if s.get("publish_id")]
+    if not consultables:
+        print(" No hay subidas por API que consultar.")
+        return 0
+
+    access_token, _ = token_valido()
+    cambios = 0
+    for s in consultables:
+        r = requests.post(
+            URL_ESTADO,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json; charset=UTF-8",
+            },
+            json={"publish_id": s["publish_id"]},
+            timeout=30,
+        )
+        datos = r.json().get("data", {})
+        estado = datos.get("status") or r.json().get("error", {}).get("message", "sin respuesta")
+        if estado == "FAILED":
+            estado = f"FAILED: {datos.get('fail_reason', 'sin motivo')}"
+        nombre = os.path.basename(s["ruta"])[:50]
+        print(f"  {estado:32} {nombre}")
+        if estado != s.get("estado"):
+            s["estado"] = estado
+            cambios += 1
+
+    if cambios:
+        publisher.guardar_json(RUTA_SUBIDOS, subidos)
+        print(f"\n {cambios} estado(s) actualizado(s) en el registro.")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Sube a TikTok los videos ya aprobados.")
     ap.add_argument("--directo", action="store_true",
@@ -409,6 +451,8 @@ def main(argv=None):
                     help="Enseña qué subiría, sin llamar a TikTok.")
     ap.add_argument("--con-datos", action="store_true",
                     help="Sube aunque no haya WiFi (ojo: los videos pesan cientos de MB).")
+    ap.add_argument("--revisar", action="store_true",
+                    help="Pregunta a TikTok en qué acabó cada video ya subido.")
     ap.add_argument("--marcar-subidos", action="store_true",
                     help="Marca como ya subidos videos que pusiste en TikTok a mano.")
     ap.add_argument("--estado", action="store_true",
@@ -417,6 +461,9 @@ def main(argv=None):
 
     if args.marcar_subidos:
         return marcar_subidos()
+
+    if args.revisar:
+        return revisar_subidos()
 
     cfg = cargar_config()
     modo = "directo" if args.directo or cfg["modo"] == "directo" else "borrador"
