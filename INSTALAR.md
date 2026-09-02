@@ -194,6 +194,14 @@ grandes o pequeños de más:
 28 ya se nota). `preset` más lento = archivo más pequeño a igual calidad, pero
 el teléfono tarda más en renderizar.
 
+Los videos hechos antes de ese cambio siguen pesando lo que pesaban. Para
+arreglarlos sin volver a renderizarlos enteros:
+
+```bash
+python recomprimir.py        # lista los que pesan de más
+python recomprimir.py --si   # los recomprime
+```
+
 ## 6. Que corra solo
 
 ```bash
