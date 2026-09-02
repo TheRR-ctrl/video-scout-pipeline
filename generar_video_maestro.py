@@ -1701,7 +1701,15 @@ def renderizar_una_historia(contenido, num=1):
 
         flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest", "-progress", "pipe:1"]
         flags_gpu = ["-hwaccel", "cuda", "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "19"]
-        flags_cpu = ["-c:v", "libx264", "-preset", "ultrafast"]
+        # "ultrafast" sin -crf comprime fatal: sale un vertical de dos minutos
+        # de 400 MB, que tarda horas en subirse y que la app de TikTok ni
+        # descarga para editarlo. "veryfast" tarda algo mas en el telefono y
+        # deja el archivo varias veces mas pequeño. Se puede volver atras con
+        # {"video": {"preset": "ultrafast"}} en config.json.
+        vid_cfg = CONFIG.get("video") or {}
+        flags_cpu = ["-c:v", "libx264",
+                     "-preset", str(vid_cfg.get("preset", "veryfast")),
+                     "-crf", str(vid_cfg.get("crf", 23))]
 
         txt_ren = " ├─ 🚀 [4/4] Render:"
 

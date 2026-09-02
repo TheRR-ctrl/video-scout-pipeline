@@ -181,6 +181,19 @@ cientos de MB. Para saltarse la protección una vez, `--con-datos`.
 A partir de ahí, `python pipeline.py` incluye la etapa `tiktok` al final. Si
 está apagada, la etapa termina sola sin hacer nada.
 
+### Tamaño de los videos
+
+Se renderizan con `libx264 -preset veryfast -crf 23`. Si los archivos te salen
+grandes o pequeños de más:
+
+```json
+"video": { "preset": "veryfast", "crf": 23 }
+```
+
+`crf` más bajo = más calidad y más peso (18 es casi indistinguible del original,
+28 ya se nota). `preset` más lento = archivo más pequeño a igual calidad, pero
+el teléfono tarda más en renderizar.
+
 ## 6. Que corra solo
 
 ```bash
