@@ -120,7 +120,55 @@ El panel también está como acceso directo en la pantalla de inicio, y como
 `abrir_panel.html` en Descargas: ese HTML arranca el panel aunque lo muevas
 de sitio.
 
-## 5. Que corra solo
+## 5. TikTok (opcional)
+
+El pipeline puede dejar cada video también en TikTok. Va detrás de YouTube y
+reutiliza el título y los hashtags que ya se aprobaron ahí, así que no repite
+chequeos ni gasta cuota de Gemini otra vez.
+
+Hay dos modos y conviene entender la diferencia antes de empezar:
+
+| | Qué hace | Qué pide TikTok |
+|---|---|---|
+| **borrador** (por defecto) | Deja el video en tus subidos; publicas con un toque desde la app | Permiso `video.upload`, sin trámite |
+| **directo** | Publica solo | Permiso `video.publish` **y** que TikTok audite tu app |
+
+Sin auditoría, TikTok fuerza a privado todo lo que se publique por API, así que
+el modo directo sin auditar no publica: sube en privado. Empieza por borrador.
+
+Lo que tienes que hacer tú, una vez:
+
+1. Crea una app en <https://developers.tiktok.com/>, añádele el producto
+   **Content Posting API** y pide el permiso `video.upload`.
+2. Registra una URL de redirección. Tiene que empezar por `https` y no llevar
+   parámetros; no hace falta que sea una web tuya de verdad, porque el código
+   llega en la barra de direcciones y lo copias de ahí. `https://example.com/callback`
+   sirve.
+3. Guarda las credenciales:
+
+```bash
+python -c "import secretos; secretos.guardar('TIKTOK_CLIENT_KEY', 'aw...')"
+python -c "import secretos; secretos.guardar('TIKTOK_CLIENT_SECRET', '...')"
+python generar_tiktok_token.py --redirect https://example.com/callback
+```
+
+4. Enciéndelo en `config.json`:
+
+```json
+"tiktok": { "activo": true, "modo": "borrador", "max_por_corrida": 5 }
+```
+
+Para ver qué subiría sin subir nada, y qué lleva subido:
+
+```bash
+python tiktok_publisher.py --simular
+python tiktok_publisher.py --estado
+```
+
+A partir de ahí, `python pipeline.py` incluye la etapa `tiktok` al final. Si
+está apagada, la etapa termina sola sin hacer nada.
+
+## 6. Que corra solo
 
 ```bash
 bash instalar_cron.sh
@@ -152,7 +200,7 @@ Para ver si está corriendo de verdad:
 tail -f ~/video-scout-pipeline/pipeline.log
 ```
 
-## 6. Actualizar
+## 7. Actualizar
 
 ```bash
 cd ~/video-scout-pipeline

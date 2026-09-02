@@ -38,7 +38,7 @@ import traceback
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pipeline")
 
-ETAPAS = ["candidatos", "guion", "video", "publicar"]
+ETAPAS = ["candidatos", "guion", "video", "publicar", "tiktok"]
 UMBRAL_BACKLOG_VIDEOS = 10
 
 
@@ -129,6 +129,14 @@ def main():
     if i_desde <= ETAPAS.index("publicar") <= i_hasta:
         import publisher
         resultados["publicar"] = correr_etapa("publicar (publisher)", publisher.main)
+
+    # TikTok va detrás de YouTube a propósito: reutiliza el veredicto de
+    # calidad que dejó el publisher en metadata.json en vez de volver a
+    # juzgar el mismo video. Si está apagado en config.json, la etapa
+    # termina sola sin hacer nada, así que no estorba a quien no la use.
+    if i_desde <= ETAPAS.index("tiktok") <= i_hasta:
+        import tiktok_publisher
+        resultados["tiktok"] = correr_etapa("tiktok (tiktok_publisher)", tiktok_publisher.main)
 
     logger.info("===== Resumen =====")
     for nombre, ok in resultados.items():
