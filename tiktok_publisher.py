@@ -54,6 +54,22 @@ URL_DIRECTO_INIT = f"{API}/post/publish/video/init/"
 URL_ESTADO = f"{API}/post/publish/status/fetch/"
 URL_TOKEN = f"{API}/oauth/token/"
 
+# TikTok corta por su cuenta cuando se sube demasiado seguido. Da igual el
+# codigo HTTP: lo que identifica el caso es el motivo que viene en el cuerpo.
+MOTIVOS_TOPE = (
+    "spam_risk_too_many_posts",
+    "spam_risk_user_banned_from_posting",
+    "rate_limit_exceeded",
+    "reached_active_user_cap",
+    "daily_post_cap",
+)
+
+
+def es_tope_alcanzado(exc):
+    texto = str(exc).lower()
+    return any(m in texto for m in MOTIVOS_TOPE) or "too many" in texto
+
+
 # Reglas de troceo de TikTok: cada trozo entre 5 MB y 64 MB, salvo el último,
 # que puede pasarse para arrastrar los bytes sobrantes. Un video de menos de
 # 5 MB va entero, en un solo trozo.
@@ -345,6 +361,34 @@ def _numeros(entrada, tope):
     return sorted(elegidos)
 
 
+def marcar_rutas(pares):
+    """Apunta (ruta, titulo) como ya subidos. La usan la consola y el panel.
+
+    Van con publish_id vacio y modo "manual" a proposito: si algun dia hay que
+    revisar el registro, conviene poder distinguir lo que paso por la API de
+    lo que alguien dio por bueno.
+    """
+    subidos = publisher.cargar_json(RUTA_SUBIDOS, [])
+    ya = {s["ruta"] for s in subidos}
+    nuevos = 0
+    for ruta, titulo in pares:
+        if ruta in ya:
+            continue
+        subidos.append({
+            "ruta": ruta,
+            "publish_id": "",
+            "modo": "manual",
+            "pie": titulo,
+            "estado": "marcado a mano (ya estaba en TikTok)",
+            "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
+        ya.add(ruta)
+        nuevos += 1
+    if nuevos:
+        publisher.guardar_json(RUTA_SUBIDOS, subidos)
+    return nuevos
+
+
 def marcar_subidos():
     """Apunta como ya subidos videos que están en TikTok pero no en el registro.
 
@@ -383,20 +427,8 @@ def marcar_subidos():
         print(" Cancelado, no he tocado nada.")
         return 0
 
-    subidos = publisher.cargar_json(RUTA_SUBIDOS, [])
-    for n in elegidos:
-        v, m = pendientes[n - 1]
-        subidos.append({
-            "ruta": v["ruta"],
-            "publish_id": "",
-            "modo": "manual",
-            "pie": m.get("titulo_youtube", ""),
-            # Se distingue de una subida real: si algún día hay que revisar
-            # esto, conviene saber cuáles pasaron por la API y cuáles no.
-            "estado": "marcado a mano (ya estaba en TikTok)",
-            "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
-        })
-    publisher.guardar_json(RUTA_SUBIDOS, subidos)
+    marcar_rutas([(pendientes[n - 1][0]["ruta"],
+                   pendientes[n - 1][1].get("titulo_youtube", "")) for n in elegidos])
     print(f"\n ✓ {len(elegidos)} marcado(s). Quedan {len(pendientes) - len(elegidos)} pendientes.")
     return 0
 
@@ -520,7 +552,7 @@ def main(argv=None):
 
     access_token, _ = token_valido()
 
-    for v, m in tanda:
+    for indice, (v, m) in enumerate(tanda):
         ruta = v["ruta"]
         pie = construir_pie(m)
         logger.info(f"Subiendo: {os.path.basename(ruta)}")
@@ -548,8 +580,17 @@ def main(argv=None):
             destino = "publicado" if modo == "directo" else "en tus borradores de TikTok"
             logger.info(f"  ✅ {destino} ({detalle})")
         except Exception as exc:
-            # Un fallo no tumba la tanda: el resto puede subir bien, y este
-            # video vuelve a intentarse en la próxima corrida.
+            if es_tope_alcanzado(exc):
+                # Seguir con el resto solo acumularia fallos y le daria a
+                # TikTok mas motivos para mirar la cuenta con lupa. Lo que
+                # queda se sube en la proxima corrida.
+                logger.warning(
+                    f"  ⏸ TikTok no acepta más subidas por ahora ({exc}).\n"
+                    f"     Paro aquí; quedan {len(tanda) - indice - 1} de esta tanda."
+                )
+                break
+            # Un fallo suelto no tumba la tanda: el resto puede subir bien, y
+            # este video vuelve a intentarse en la próxima corrida.
             logger.error(f"  ❌ {exc}")
 
     return 0

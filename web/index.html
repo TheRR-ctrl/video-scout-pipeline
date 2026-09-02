@@ -232,6 +232,7 @@
     <button data-v="cola">Cola <span class="c" id="c-col">0</span></button>
     <button data-v="estilo">Estilo</button>
     <button data-v="publicados">Publicados <span class="c" id="c-pub">0</span></button>
+    <button data-v="tiktok">TikTok <span class="c" id="c-tk">0</span></button>
     <button data-v="ajustes">Ajustes</button>
   </div>
   <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
@@ -245,6 +246,7 @@
   <section class="view" id="v-cola"></section>
   <section class="view" id="v-estilo"></section>
   <section class="view" id="v-publicados"></section>
+  <section class="view" id="v-tiktok"></section>
   <section class="view" id="v-ajustes"></section>
 </div>
 
@@ -998,6 +1000,90 @@ function pintaPublicados(){
     </div>`;
 }
 
+
+/* =========================================================
+   TIKTOK
+   ========================================================= */
+function firmaTiktok(){ return JSON.stringify(E.tiktok); }
+
+async function marcarEnTiktok(ruta, titulo){
+  if(!confirm('¿Dar por subido «'+titulo.slice(0,60)+'»?\n\nNo se subirá nunca.')) return;
+  const r = await fetch('/api/tiktok/marcar', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({rutas:[ruta]})
+  });
+  const d = await r.json();
+  if(!d.ok){ alert('No se pudo marcar: '+(d.error||'')); return; }
+  refrescar();
+}
+
+async function tiktokActivo(on){
+  await fetch('/api/tiktok/activo', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({activo:on})
+  });
+  refrescar();
+}
+
+function pintaTiktok(){
+  const t = E.tiktok || {activo:false, token:false, subidos:[], pendientes:[]};
+  const pend = t.pendientes || [], sub = t.subidos || [];
+  // Los que se borrarian del telefono antes de que la tanda diaria les llegue.
+  const alcance = Math.max(1, t.max_por_corrida || 1);
+  const perdidos = pend.filter((p,i)=> p.dias !== null && p.dias !== undefined
+                                       && Math.floor(i / alcance) > p.dias).length;
+
+  $('#v-tiktok').innerHTML = `
+    <h2>TikTok</h2>
+    <p class="sub">Los videos llegan a tus <b>notificaciones</b> de TikTok, no a la carpeta de borradores. Desde ahí los abres y publicas.</p>
+
+    ${!t.token ? `<div class="aviso crit"><span>⛔</span><div>
+      <b>Falta autorizar la cuenta.</b> No hay <code>tiktok_token.json</code>.
+      Se genera una vez desde Termux con <code>generar_tiktok_token.py</code>.
+    </div></div>` : ''}
+
+    ${perdidos ? `<div class="aviso crit"><span>⏳</span><div>
+      <b>${perdidos} video(s) se borrarán del teléfono antes de que les toque.</b>
+      El archivo local dura 7 días tras subirse a YouTube, y a ${alcance} por
+      corrida no da tiempo. Sube más de golpe o márcalos si no los quieres.
+    </div></div>` : ''}
+
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div style="flex-grow:1">
+        <b>${t.activo ? 'Encendido' : 'Apagado'}</b>
+        <span class="m"> · modo ${esc(t.modo||'borrador')} · ${alcance} por corrida</span>
+      </div>
+      <button class="btn sm" onclick="tiktokActivo(${t.activo ? 'false':'true'})">
+        ${t.activo ? 'Apagar' : 'Encender'}</button>
+    </div>
+
+    <h3 class="sec">Pendientes <span class="m">(${pend.length})</span></h3>
+    ${!pend.length ? `<div class="aviso"><span>·</span><div>No queda nada por subir.</div></div>` : `
+    <div class="list">${pend.map(p=>`
+      <div class="row" style="grid-template-columns:1fr 90px auto">
+        <div class="t">${esc(p.titulo)}</div>
+        <span class="m">${p.dias===null||p.dias===undefined ? '' : p.dias+'d en disco'}</span>
+        <button class="btn sm" onclick="marcarEnTiktok('${esc(p.ruta)}', '${esc(p.titulo).replace(/'/g,"\\'")}')"
+          title="Ya lo subiste a mano: no volver a subirlo">Ya está</button>
+      </div>`).join('')}</div>`}
+
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
+      <div class="muted" style="flex-grow:1">Sube la siguiente tanda ahora mismo.</div>
+      <button class="btn go" onclick="ejecutar('tiktok')">⬆ Subir</button>
+      <button class="btn" onclick="if(confirm('¿Subir usando datos móviles? Los videos pesan cientos de MB.')) ejecutar('tiktok_datos')">Con datos móviles</button>
+      <button class="btn" onclick="ejecutar('tiktok_revisar')" title="Preguntar a TikTok en qué acabó cada subida">↻ Revisar estados</button>
+    </div>
+
+    <h3 class="sec">Subidos <span class="m">(${sub.length})</span></h3>
+    ${!sub.length ? `<div class="aviso"><span>·</span><div>Todavía no hay nada subido.</div></div>` : `
+    <div class="list">${sub.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div class="t">${esc(s.titulo || s.nombre)}</div>
+          <div class="m">${esc(s.fecha.replace('T',' '))} · ${esc(s.estado)}</div></div>
+        <span class="m">${s.manual ? 'a mano' : 'API'}</span>
+      </div>`).join('')}</div>`}`;
+}
+
 /* =========================================================
    AJUSTES
    ========================================================= */
@@ -1201,6 +1287,7 @@ const VISTAS = {
   cola:       [firmaCola,       pintaCola],
   estilo:     [firmaEstilo,     pintaEstilo],
   publicados: [firmaPublicados, pintaPublicados],
+  tiktok:     [firmaTiktok,     pintaTiktok],
   ajustes:    [firmaAjustes,    pintaAjustes],
 };
 let firmas = {};
@@ -1212,6 +1299,7 @@ function pintar(){
   $('#c-rev').textContent = E.videos.length;
   $('#c-col').textContent = E.historias.length;
   $('#c-pub').textContent = E.publicados.length;
+  $('#c-tk').textContent = (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0;
   pintaJob();
 
   const v = vistaActual();

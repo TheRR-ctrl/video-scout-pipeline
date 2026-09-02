@@ -443,12 +443,64 @@ def credenciales():
     for archivo in ("client_secret.json", "youtube_token.json"):
         out.append({"nombre": archivo, "ok": os.path.exists(os.path.join(BASE_DIR, archivo)),
                     "origen": "", "opcional": False})
+    # Opcional: sin él el pipeline entero sigue funcionando, solo que sin TikTok.
+    out.append({"nombre": "tiktok_token.json",
+                "ok": os.path.exists(os.path.join(BASE_DIR, "tiktok_token.json")),
+                "origen": "", "opcional": True})
     return out
 
 
 # =========================================================
 # API
 # =========================================================
+def tiktok_resumen():
+    """Lo que el panel enseña de TikTok: registro, pendientes y días de disco.
+
+    Los días importan mas de lo que parece: publisher.py borra el .mp4 a los 7
+    días de subirlo a YouTube, y tiktok_publisher se salta lo que ya no está en
+    disco. Con una tanda pequeña, la mitad de la lista puede evaporarse antes
+    de que le toque el turno, y eso hay que verlo.
+    """
+    import tiktok_publisher as tk
+
+    cfg = tk.cargar_config()
+    subidos = leer_json(tk.RUTA_SUBIDOS, [])
+    try:
+        pendientes, _ = tk.videos_pendientes()
+    except Exception:
+        pendientes = []
+
+    ahora = datetime.now(timezone.utc)
+    dias_por_ruta = {}
+    for p in leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), []):
+        if not p.get("subido_en") or p.get("_borrado_local"):
+            continue
+        try:
+            s = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        dias_por_ruta[p["ruta"]] = max(0, 7 - (ahora - s).days)
+
+    return {
+        "activo": cfg["activo"],
+        "modo": cfg["modo"],
+        "max_por_corrida": cfg["max_por_corrida"],
+        "token": os.path.exists(tk.RUTA_TOKEN),
+        "subidos": [{
+            "nombre": os.path.basename(s["ruta"]),
+            "titulo": s.get("pie", ""),
+            "estado": s.get("estado", ""),
+            "fecha": s.get("fecha", ""),
+            "manual": not s.get("publish_id"),
+        } for s in reversed(subidos)],
+        "pendientes": [{
+            "ruta": v["ruta"],
+            "titulo": m.get("titulo_youtube") or os.path.basename(v["ruta"]),
+            "dias": dias_por_ruta.get(v["ruta"]),
+        } for v, m in pendientes],
+    }
+
+
 @app.get("/api/estado")
 def api_estado():
     import generar_video_maestro as gvm
@@ -493,6 +545,7 @@ def api_estado():
             if f.lower().endswith((".mp4", ".webm", ".mkv", ".mov"))
         ),
         "ajustes": {k: cfg.get(k) for k in AJUSTES_NUMERICOS},
+        "tiktok": tiktok_resumen(),
         "trabajo": TRABAJO["actual"].como_dict() if TRABAJO["actual"] else None,
     })
 
@@ -515,6 +568,9 @@ ACCIONES = {
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),
     "previsualizar": ("Generando comparación de estilos", [sys.executable, "previsualizar_estilos.py"]),
     "metadata":   ("Preparando títulos y hashtags", [sys.executable, "preparar_metadata.py"]),
+    "tiktok":     ("Subiendo a TikTok", [sys.executable, "tiktok_publisher.py"]),
+    "tiktok_datos": ("Subiendo a TikTok (datos móviles)", [sys.executable, "tiktok_publisher.py", "--con-datos"]),
+    "tiktok_revisar": ("Consultando estados en TikTok", [sys.executable, "tiktok_publisher.py", "--revisar"]),
 }
 
 
@@ -606,6 +662,40 @@ def api_wifi():
     with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
         json.dump(cfg, f, ensure_ascii=False, indent=2)
     return jsonify({"ok": True, "solo_wifi": cfg["solo_wifi"]})
+
+
+@app.post("/api/tiktok/marcar")
+def api_tiktok_marcar():
+    """Da por subidos los videos que el usuario ya publicó a mano en TikTok."""
+    import tiktok_publisher as tk
+
+    rutas = (request.json or {}).get("rutas") or []
+    if not isinstance(rutas, list):
+        return jsonify({"ok": False, "error": "rutas debe ser una lista"}), 400
+
+    # El navegador manda rutas; solo se aceptan las que ahora mismo estan
+    # pendientes. Asi una peticion inventada no puede escribir nada raro en el
+    # registro.
+    pendientes, _ = tk.videos_pendientes()
+    validas = {v["ruta"]: (m.get("titulo_youtube") or "") for v, m in pendientes}
+    pares = [(r, validas[r]) for r in rutas if r in validas]
+    if not pares:
+        return jsonify({"ok": False, "error": "ninguna de esas rutas está pendiente"}), 400
+
+    return jsonify({"ok": True, "marcados": tk.marcar_rutas(pares)})
+
+
+@app.post("/api/tiktok/activo")
+def api_tiktok_activo():
+    cfg = leer_json(RUTA_CONFIG, {})
+    seccion = dict(cfg.get("tiktok") or {})
+    seccion["activo"] = bool((request.json or {}).get("activo"))
+    seccion.setdefault("modo", "borrador")
+    seccion.setdefault("max_por_corrida", 1)
+    cfg["tiktok"] = seccion
+    with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    return jsonify({"ok": True, "activo": seccion["activo"]})
 
 
 # Lo que se puede copiar para pegarlo en los Secrets de GitHub Actions.
