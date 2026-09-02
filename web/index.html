@@ -1004,6 +1004,96 @@ function pintaPublicados(){
 /* =========================================================
    TIKTOK
    ========================================================= */
+
+/* Pantalla de publicación de TikTok. La pide su guía de revisión: tiene que
+   verse a qué cuenta va, la privacidad hay que elegirla a mano (sin valor por
+   defecto), los permisos respetan lo que la cuenta admite, y la declaración de
+   contenido comercial enseña el aviso legal que toque. */
+let creadorTk = null;
+
+async function abrirTiktok(nombre, titulo){
+  const caja = $('#tk-form-'+CSS.escape(nombre));
+  if(!caja) return;
+  if(caja.innerHTML){ caja.innerHTML=''; return; }
+  caja.innerHTML = '<div class="muted">Preguntando a TikTok…</div>';
+
+  if(!creadorTk){
+    const r = await fetch('/api/tiktok/creador');
+    const d = await r.json();
+    if(!d.ok){ caja.innerHTML = '<div class="aviso crit"><span>⛔</span><div>'+esc(d.error||'')+'</div></div>'; return; }
+    creadorTk = d.creador;
+  }
+  const c = creadorTk;
+  const previo = (E.tiktok.pendientes.find(p=>p.nombre===nombre)||{}).opciones || null;
+  const etiqueta = {PUBLIC_TO_EVERYONE:'Público', MUTUAL_FOLLOW_FRIENDS:'Amigos',
+                    FOLLOWER_OF_CREATOR:'Seguidores', SELF_ONLY:'Solo yo (privado)'};
+
+  caja.innerHTML = `
+    <div class="card" style="margin-top:8px">
+      <div class="m">Se publicará en la cuenta <b>@${esc(c.creator_username||'')}</b>
+        ${c.creator_nickname?'· '+esc(c.creator_nickname):''}</div>
+
+      <div style="margin-top:10px"><b>¿Quién puede verlo?</b>
+        <select id="tk-priv-${esc(nombre)}" style="width:100%;margin-top:4px">
+          <option value="">— elige una opción —</option>
+          ${(c.privacy_level_options||[]).map(o=>`<option value="${esc(o)}"
+            ${previo && previo.privacidad===o?'selected':''}>${esc(etiqueta[o]||o)}</option>`).join('')}
+        </select></div>
+
+      <div style="margin-top:10px"><b>Permitir</b><div class="m">
+        ${[['comentarios','Comentarios',c.comment_disabled],
+           ['dueto','Dúo',c.duet_disabled],
+           ['stitch','Stitch',c.stitch_disabled]].map(([k,txt,off])=>`
+          <label style="display:block;margin-top:3px">
+            <input type="checkbox" id="tk-${k}-${esc(nombre)}" ${off?'disabled':''}
+              ${previo && previo[k] && !off ? 'checked':''}> ${txt}
+            ${off?'<span class="m">(desactivado en tu cuenta)</span>':''}</label>`).join('')}
+      </div></div>
+
+      <div style="margin-top:10px">
+        <label><input type="checkbox" id="tk-com-${esc(nombre)}"
+          ${previo && previo.comercial && previo.comercial.activo?'checked':''}
+          onchange="document.getElementById('tk-com-caja-${esc(nombre)}').hidden=!this.checked">
+          <b>Este vídeo promociona algo</b></label>
+        <div id="tk-com-caja-${esc(nombre)}" ${previo && previo.comercial && previo.comercial.activo?'':'hidden'}
+             style="margin-left:18px">
+          <label style="display:block"><input type="checkbox" id="tk-marca-${esc(nombre)}"
+            ${previo && previo.comercial && previo.comercial.marca_propia?'checked':''}> Mi propia marca</label>
+          <label style="display:block"><input type="checkbox" id="tk-patro-${esc(nombre)}"
+            ${previo && previo.comercial && previo.comercial.patrocinado?'checked':''}> Contenido patrocinado</label>
+          <div class="m" style="margin-top:4px">Se etiquetará como «Contenido promocional» o «Colaboración pagada».
+            <a href="https://www.tiktok.com/legal/page/global/bc-policy/es" target="_blank" rel="noopener">Política de contenido de marca ↗</a>
+            · <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/es" target="_blank" rel="noopener">Uso de música ↗</a></div>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <button class="btn go" onclick="guardarTiktok('${esc(nombre)}')">Guardar</button>
+        <span class="m" id="tk-msg-${esc(nombre)}"></span>
+      </div>
+    </div>`;
+}
+
+async function guardarTiktok(nombre){
+  const v = id => document.getElementById(id+'-'+nombre);
+  const msg = v('tk-msg');
+  const comercial = v('tk-com').checked;
+  const cuerpo = {
+    privacidad: v('tk-priv').value,
+    comentarios: v('tk-comentarios').checked,
+    dueto: v('tk-dueto').checked,
+    stitch: v('tk-stitch').checked,
+    comercial: {activo: comercial,
+                marca_propia: comercial && v('tk-marca').checked,
+                patrocinado: comercial && v('tk-patro').checked},
+  };
+  const r = await fetch('/api/tiktok/opciones/'+encodeURIComponent(nombre), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cuerpo)});
+  const d = await r.json();
+  msg.textContent = d.ok ? 'Guardado.' : (d.error||'No se pudo guardar');
+  if(d.ok){ firmas.tiktok = null; refrescar(); }
+}
+
 function firmaTiktok(){ return JSON.stringify(E.tiktok); }
 
 async function marcarEnTiktok(ruta, titulo){
@@ -1030,6 +1120,7 @@ function pintaTiktok(){
   const pend = t.pendientes || [], sub = t.subidos || [];
   // Los que se borrarian del telefono antes de que la tanda diaria les llegue.
   const alcance = Math.max(1, t.max_por_corrida || 1);
+  const directo = t.modo === 'directo';
   const perdidos = pend.filter((p,i)=> p.dias !== null && p.dias !== undefined
                                        && Math.floor(i / alcance) > p.dias).length;
 
@@ -1060,12 +1151,16 @@ function pintaTiktok(){
     <h3 class="sec">Pendientes <span class="m">(${pend.length})</span></h3>
     ${!pend.length ? `<div class="aviso"><span>·</span><div>No queda nada por subir.</div></div>` : `
     <div class="list">${pend.map(p=>`
-      <div class="row" style="grid-template-columns:1fr 90px auto">
-        <div class="t">${esc(p.titulo)}</div>
+      <div class="row" style="grid-template-columns:1fr 90px auto auto">
+        <div><div class="t">${esc(p.titulo)}</div>
+          ${directo ? `<div class="m">${p.opciones
+            ? '✓ listo para publicar' : '· falta elegir la privacidad'}</div>` : ''}</div>
         <span class="m">${p.dias===null||p.dias===undefined ? '' : p.dias+'d en disco'}</span>
+        ${directo ? `<button class="btn sm" onclick="abrirTiktok('${esc(p.nombre)}')">Preparar</button>` : '<span></span>'}
         <button class="btn sm" onclick="marcarEnTiktok('${esc(p.ruta)}', '${esc(p.titulo).replace(/'/g,"\\'")}')"
           title="Ya lo subiste a mano: no volver a subirlo">Ya está</button>
-      </div>`).join('')}</div>`}
+      </div>
+      <div id="tk-form-${esc(p.nombre)}"></div>`).join('')}</div>`}
 
     <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:10px">
       <div class="muted" style="flex-grow:1">Sube la siguiente tanda ahora mismo.</div>

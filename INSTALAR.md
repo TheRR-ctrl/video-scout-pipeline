@@ -135,7 +135,8 @@ Hay dos modos y conviene entender la diferencia antes de empezar:
 
 Sin auditoría, TikTok fuerza a privado todo lo que se publique por API, así que
 el modo directo sin auditar solo funciona si tu cuenta de TikTok entera es
-privada; con una cuenta pública lo rechaza. Empieza por borrador.
+privada; con una cuenta pública lo rechaza. Empieza por borrador. Para levantar
+esa restricción, ver `AUDITORIA_TIKTOK.md`.
 
 Lo que tienes que hacer tú, una vez:
 

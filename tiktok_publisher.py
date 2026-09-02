@@ -47,11 +47,16 @@ logger = logging.getLogger("tiktok")
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_TOKEN = os.path.join(BASE_DIR, "tiktok_token.json")
 RUTA_SUBIDOS = os.path.join(publisher.CARPETA_ESTADO, "tiktok_subidos.json")
+# Lo que la persona eligio para cada video en el panel. Archivo aparte y no
+# dentro de metadata.json porque a esa la reescriben entera preparar_metadata
+# y el panel, y estas decisiones se perderian sin que nadie se enterase.
+RUTA_OPCIONES = os.path.join(publisher.CARPETA_ESTADO, "tiktok_opciones.json")
 
 API = "https://open.tiktokapis.com/v2"
 URL_INBOX_INIT = f"{API}/post/publish/inbox/video/init/"
 URL_DIRECTO_INIT = f"{API}/post/publish/video/init/"
 URL_ESTADO = f"{API}/post/publish/status/fetch/"
+URL_CREADOR = f"{API}/post/publish/creator_info/query/"
 URL_TOKEN = f"{API}/oauth/token/"
 
 # TikTok corta por su cuenta cuando se sube demasiado seguido. Da igual el
@@ -89,12 +94,6 @@ def cargar_config():
         "activo": False,       # apagado hasta que haya credenciales
         "modo": "borrador",    # "borrador" o "directo"
         "max_por_corrida": 5,  # subir de golpe 40 videos es pedir un bloqueo
-        # Solo se usa en modo directo. Por defecto privado, igual que en
-        # YouTube: da una ventana para mirar el video antes de que lo vea
-        # nadie. Ojo, esto es la privacidad del VIDEO, y no salva el modo
-        # directo de una app sin auditar: ahi TikTok exige que sea privada la
-        # CUENTA entera, y con una cuenta publica rechaza la publicacion.
-        "privacidad": "SELF_ONLY",
     }
     tiktok.update(cfg.get("tiktok", {}))
     return tiktok
@@ -215,7 +214,54 @@ def plan_de_troceo(tamano):
     return chunk, int(total)
 
 
-def iniciar_subida(access_token, ruta, modo, pie, privacidad="SELF_ONLY"):
+def consultar_creador(access_token):
+    """Lo que TikTok deja hacer a esta cuenta ahora mismo.
+
+    Es obligatorio preguntarlo antes de publicar en directo: la pantalla tiene
+    que enseñar a quien va el video y ofrecer solo las privacidades que esa
+    cuenta admite, que cambian segun su configuracion (una cuenta privada, por
+    ejemplo, no puede publicar en publico).
+    """
+    r = requests.post(
+        URL_CREADOR,
+        headers={
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json; charset=UTF-8",
+        },
+        timeout=30,
+    )
+    cuerpo = r.json()
+    datos = cuerpo.get("data") or {}
+    if r.status_code != 200 or not datos.get("creator_username"):
+        raise RuntimeError(f"TikTok no dio la info del creador: {cuerpo.get('error') or cuerpo}")
+    return datos
+
+
+def opciones_de(nombre):
+    """Las elecciones guardadas para un video, o None si nadie ha elegido."""
+    return publisher.cargar_json(RUTA_OPCIONES, {}).get(nombre)
+
+
+def post_info_de(opciones, pie):
+    """Traduce lo elegido en el panel al cuerpo que espera la API."""
+    info = {
+        "title": pie,
+        "privacy_level": opciones["privacidad"],
+        # Las tres van invertidas: el panel pregunta si se permite, la API
+        # pregunta si se prohibe.
+        "disable_comment": not opciones.get("comentarios", True),
+        "disable_duet": not opciones.get("dueto", True),
+        "disable_stitch": not opciones.get("stitch", True),
+    }
+    comercial = opciones.get("comercial") or {}
+    if comercial.get("activo"):
+        # TikTok exige al menos una de las dos cuando se declara promocional.
+        info["brand_organic_toggle"] = bool(comercial.get("marca_propia"))
+        info["brand_content_toggle"] = bool(comercial.get("patrocinado"))
+    return info
+
+
+def iniciar_subida(access_token, ruta, modo, pie, post_info=None):
     tamano = os.path.getsize(ruta)
     chunk, total = plan_de_troceo(tamano)
 
@@ -228,13 +274,7 @@ def iniciar_subida(access_token, ruta, modo, pie, privacidad="SELF_ONLY"):
         }
     }
     if modo == "directo":
-        cuerpo["post_info"] = {
-            "title": pie,
-            "privacy_level": privacidad,
-            "disable_comment": False,
-            "disable_duet": False,
-            "disable_stitch": False,
-        }
+        cuerpo["post_info"] = post_info
 
     url = URL_DIRECTO_INIT if modo == "directo" else URL_INBOX_INIT
     r = requests.post(
@@ -554,11 +594,23 @@ def main(argv=None):
 
     for indice, (v, m) in enumerate(tanda):
         ruta = v["ruta"]
+        nombre = os.path.basename(ruta)
         pie = construir_pie(m)
-        logger.info(f"Subiendo: {os.path.basename(ruta)}")
+
+        post_info = None
+        if modo == "directo":
+            opciones = opciones_de(nombre)
+            if not opciones:
+                # TikTok prohibe elegir la privacidad por el usuario: tiene que
+                # marcarla una persona. Sin eso, este video no se publica.
+                logger.info(f"  Sin decidir en el panel, lo dejo: {nombre}")
+                continue
+            post_info = post_info_de(opciones, pie)
+
+        logger.info(f"Subiendo: {nombre}")
         try:
             publish_id, upload_url, chunk, total, tamano = iniciar_subida(
-                access_token, ruta, modo, pie, cfg["privacidad"]
+                access_token, ruta, modo, pie, post_info
             )
             subir_bytes(upload_url, ruta, chunk, total, tamano)
             ok, detalle = esperar_proceso(access_token, publish_id)

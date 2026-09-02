@@ -465,6 +465,7 @@ def tiktok_resumen():
 
     cfg = tk.cargar_config()
     subidos = leer_json(tk.RUTA_SUBIDOS, [])
+    opciones = leer_json(tk.RUTA_OPCIONES, {})
     try:
         pendientes, _ = tk.videos_pendientes()
     except Exception:
@@ -495,8 +496,10 @@ def tiktok_resumen():
         } for s in reversed(subidos)],
         "pendientes": [{
             "ruta": v["ruta"],
+            "nombre": os.path.basename(v["ruta"]),
             "titulo": m.get("titulo_youtube") or os.path.basename(v["ruta"]),
             "dias": dias_por_ruta.get(v["ruta"]),
+            "opciones": opciones.get(os.path.basename(v["ruta"])),
         } for v, m in pendientes],
     }
 
@@ -683,6 +686,62 @@ def api_tiktok_marcar():
         return jsonify({"ok": False, "error": "ninguna de esas rutas está pendiente"}), 400
 
     return jsonify({"ok": True, "marcados": tk.marcar_rutas(pares)})
+
+
+@app.get("/api/tiktok/creador")
+def api_tiktok_creador():
+    """Lo que TikTok permite hoy a esta cuenta, para pintar la pantalla.
+
+    No va dentro de /api/estado a proposito: eso se pide cada pocos segundos y
+    esto es una llamada a la API de TikTok. Se pide al abrir el formulario.
+    """
+    import tiktok_publisher as tk
+    try:
+        token, _ = tk.token_valido()
+        return jsonify({"ok": True, "creador": tk.consultar_creador(token)})
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 502
+
+
+@app.post("/api/tiktok/opciones/<path:archivo>")
+def api_tiktok_opciones(archivo):
+    """Guarda lo que la persona eligió para un video: privacidad y permisos."""
+    import tiktok_publisher as tk
+
+    nombre = os.path.basename(archivo)
+    d = request.json or {}
+    privacidad = d.get("privacidad")
+    # Sin privacidad no hay publicacion: TikTok exige que la marque una
+    # persona y prohibe que la app ponga una por defecto.
+    if privacidad not in ("PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS",
+                          "FOLLOWER_OF_CREATOR", "SELF_ONLY"):
+        return jsonify({"ok": False, "error": "Falta elegir la privacidad"}), 400
+
+    comercial = d.get("comercial") or {}
+    activo = bool(comercial.get("activo"))
+    marca = bool(comercial.get("marca_propia"))
+    patro = bool(comercial.get("patrocinado"))
+    if activo and not (marca or patro):
+        return jsonify({"ok": False,
+                        "error": "Si declaras contenido comercial, marca al menos una casilla"}), 400
+    # Regla de TikTok: el contenido de marca no puede quedar en privado.
+    if activo and patro and privacidad == "SELF_ONLY":
+        return jsonify({"ok": False,
+                        "error": "El contenido patrocinado no puede ser privado"}), 400
+
+    todas = leer_json(tk.RUTA_OPCIONES, {})
+    todas[nombre] = {
+        "privacidad": privacidad,
+        "comentarios": bool(d.get("comentarios", True)),
+        "dueto": bool(d.get("dueto", True)),
+        "stitch": bool(d.get("stitch", True)),
+        "comercial": {"activo": activo, "marca_propia": marca, "patrocinado": patro},
+        "elegido_en": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    os.makedirs(CARPETA_ESTADO, exist_ok=True)
+    with open(tk.RUTA_OPCIONES, "w", encoding="utf-8") as f:
+        json.dump(todas, f, ensure_ascii=False, indent=2)
+    return jsonify({"ok": True, "opciones": todas[nombre]})
 
 
 @app.post("/api/tiktok/activo")
