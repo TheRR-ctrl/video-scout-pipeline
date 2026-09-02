@@ -1094,7 +1094,10 @@ async function guardarTiktok(nombre){
   if(d.ok){ firmas.tiktok = null; refrescar(); }
 }
 
-function firmaTiktok(){ return JSON.stringify(E.tiktok); }
+/* El || null no sobra: si falta el dato, JSON.stringify devuelve undefined, que
+   es justo lo que vale la firma guardada la primera vez. Se comparaban iguales
+   y la vista no llegaba a pintarse nunca — salia en blanco. */
+function firmaTiktok(){ return JSON.stringify(E.tiktok || null); }
 
 async function marcarEnTiktok(ruta, titulo){
   if(!confirm('¿Dar por subido «'+titulo.slice(0,60)+'»?\n\nNo se subirá nunca.')) return;
