@@ -3,11 +3,14 @@ Genera tiktok_token.json con el flujo OAuth de TikTok. Una sola vez.
 
 Antes de correrlo hace falta una app en https://developers.tiktok.com/:
 
-  1. Crea la app y añádele el producto "Content Posting API".
-  2. Pide el permiso (scope) video.upload. Ese es el de dejar el video en tus
-     borradores y basta para el modo normal de tiktok_publisher.py.
-     video.publish (publicar solo, sin tocar nada) además necesita que TikTok
-     audite la app; mientras no lo haga, todo lo publicado queda en privado.
+  1. Crea la app y añádele los productos "Login Kit" y "Content Posting API".
+  2. Pide los permisos (scopes) user.info.basic y video.publish. El primero es
+     el que deja al panel enseñar a qué cuenta va el video; el segundo es el de
+     publicar. video.publish necesita que TikTok audite la app: ver
+     AUDITORIA_TIKTOK.md. Sin auditar solo funciona con la cuenta en privado.
+     El modo borrador, que usa video.upload en vez de video.publish, no hace
+     falta pedirlo: deja el video en el buzon de notificaciones para que lo
+     publiques a mano, que es justo el trabajo que esto viene a quitar.
   3. Registra una URL de redirección. TikTok exige que empiece por https y que
      no lleve parámetros. No hace falta que sea una web tuya de verdad: solo
      tiene que coincidir con la que pongas aquí, porque el código de
@@ -63,8 +66,9 @@ def main(argv):
     ap = argparse.ArgumentParser(description="Autoriza la app de TikTok y guarda el token.")
     ap.add_argument("--redirect", required=True,
                     help="La URL de redirección registrada en developers.tiktok.com.")
-    ap.add_argument("--scope", default="video.upload",
-                    help="video.upload (borradores) o video.publish (publicar; requiere auditoría).")
+    ap.add_argument("--scope", default="user.info.basic,video.publish",
+                    help="Separados por comas. Por defecto los del modo directo; "
+                         "añade video.upload solo si vas a usar el modo borrador.")
     args = ap.parse_args(argv)
 
     clave = os.environ.get("TIKTOK_CLIENT_KEY", "").strip()

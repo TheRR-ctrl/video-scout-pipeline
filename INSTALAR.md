@@ -130,18 +130,24 @@ Hay dos modos y conviene entender la diferencia antes de empezar:
 
 | | Qué hace | Qué pide TikTok |
 |---|---|---|
-| **borrador** (por defecto) | Deja el video en tus subidos; publicas con un toque desde la app | Permiso `video.upload`, sin trámite |
-| **directo** | Publica solo | Permiso `video.publish` **y** que TikTok audite tu app |
+| **borrador** | Deja el video en el buzón de notificaciones de la app; lo publicas a mano | Permiso `video.upload`, sin trámite |
+| **directo** | Publica solo, en el perfil | Permiso `video.publish` **y** que TikTok audite tu app |
 
-Sin auditoría, TikTok fuerza a privado todo lo que se publique por API, así que
-el modo directo sin auditar solo funciona si tu cuenta de TikTok entera es
-privada; con una cuenta pública lo rechaza. Empieza por borrador. Para levantar
-esa restricción, ver `AUDITORIA_TIKTOK.md`.
+Conviene saber esto antes de montarlo: **borrador ahorra menos de lo que
+parece**. Sube el video a TikTok para que luego lo bajes desde la app y lo
+publiques a mano, sobre un archivo que ya está en tu teléfono. El que de verdad
+automatiza es directo.
+
+Y directo sin auditar no vale con una cuenta pública: TikTok lo rechaza con
+`unaudited_client_can_only_post_to_private_accounts`, porque exige que la cuenta
+entera sea privada. O sea que el camino real es pasar la auditoría, y eso está
+explicado paso a paso en `AUDITORIA_TIKTOK.md`.
 
 Lo que tienes que hacer tú, una vez:
 
-1. Crea una app en <https://developers.tiktok.com/>, añádele el producto
-   **Content Posting API** y pide el permiso `video.upload`.
+1. Crea una app en <https://developers.tiktok.com/>, añádele los productos
+   **Login Kit** y **Content Posting API**, y pide los permisos
+   `user.info.basic` y `video.publish`.
 2. Registra una URL de redirección. Tiene que empezar por `https` y no llevar
    parámetros; no hace falta que sea una web tuya de verdad, porque el código
    llega en la barra de direcciones y lo copias de ahí. `https://example.com/callback`
@@ -157,7 +163,7 @@ python generar_tiktok_token.py --redirect https://example.com/callback
 4. Enciéndelo en `config.json`:
 
 ```json
-"tiktok": { "activo": true, "modo": "borrador", "max_por_corrida": 5 }
+"tiktok": { "activo": true, "modo": "directo", "max_por_corrida": 5 }
 ```
 
 Para ver qué subiría sin subir nada, y qué lleva subido:
