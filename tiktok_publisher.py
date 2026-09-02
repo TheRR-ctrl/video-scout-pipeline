@@ -89,11 +89,11 @@ def cargar_config():
         "activo": False,       # apagado hasta que haya credenciales
         "modo": "borrador",    # "borrador" o "directo"
         "max_por_corrida": 5,  # subir de golpe 40 videos es pedir un bloqueo
-        # Solo se usa en modo directo. Por defecto se sube en privado, igual
-        # que en YouTube: da una ventana para mirar el video en la app antes
-        # de que lo vea nadie. Con la app auditada puede ponerse
-        # PUBLIC_TO_EVERYONE; sin auditar, TikTok lo fuerza a privado de todas
-        # formas y ponerlo aquí solo haría que la llamada fallara.
+        # Solo se usa en modo directo. Por defecto privado, igual que en
+        # YouTube: da una ventana para mirar el video antes de que lo vea
+        # nadie. Ojo, esto es la privacidad del VIDEO, y no salva el modo
+        # directo de una app sin auditar: ahi TikTok exige que sea privada la
+        # CUENTA entera, y con una cuenta publica rechaza la publicacion.
         "privacidad": "SELF_ONLY",
     }
     tiktok.update(cfg.get("tiktok", {}))
@@ -580,6 +580,13 @@ def main(argv=None):
             destino = "publicado" if modo == "directo" else "en tus borradores de TikTok"
             logger.info(f"  ✅ {destino} ({detalle})")
         except Exception as exc:
+            if "unaudited_client_can_only_post_to_private_accounts" in str(exc):
+                logger.error(
+                    "  ❌ El modo directo no funciona con una cuenta pública "
+                    "mientras la app no pase la auditoría de TikTok.\n"
+                    '     Vuelve al modo borrador: "modo": "borrador" en config.json.'
+                )
+                break
             if es_tope_alcanzado(exc):
                 # Seguir con el resto solo acumularia fallos y le daria a
                 # TikTok mas motivos para mirar la cuenta con lupa. Lo que

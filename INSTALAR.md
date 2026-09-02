@@ -134,7 +134,8 @@ Hay dos modos y conviene entender la diferencia antes de empezar:
 | **directo** | Publica solo | Permiso `video.publish` **y** que TikTok audite tu app |
 
 Sin auditoría, TikTok fuerza a privado todo lo que se publique por API, así que
-el modo directo sin auditar no publica: sube en privado. Empieza por borrador.
+el modo directo sin auditar solo funciona si tu cuenta de TikTok entera es
+privada; con una cuenta pública lo rechaza. Empieza por borrador.
 
 Lo que tienes que hacer tú, una vez:
 
