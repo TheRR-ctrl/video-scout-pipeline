@@ -324,15 +324,97 @@ def videos_pendientes():
     return pendientes, metadata
 
 
+def _numeros(entrada, tope):
+    """Convierte "1 3 5-8" en [1, 3, 5, 6, 7, 8], sin repetidos ni fuera de rango."""
+    elegidos = set()
+    for pieza in entrada.replace(",", " ").split():
+        if "-" in pieza[1:]:
+            desde, _, hasta = pieza.partition("-")
+        else:
+            desde = hasta = pieza
+        try:
+            a, b = int(desde), int(hasta)
+        except ValueError:
+            raise ValueError(f"No entiendo '{pieza}'.")
+        if a > b:
+            a, b = b, a
+        for n in range(a, b + 1):
+            if not 1 <= n <= tope:
+                raise ValueError(f"El {n} no está en la lista (hay {tope}).")
+            elegidos.add(n)
+    return sorted(elegidos)
+
+
+def marcar_subidos():
+    """Apunta como ya subidos videos que están en TikTok pero no en el registro.
+
+    Hace falta porque el registro solo conoce lo que subió este script: los
+    videos que uno publicó a mano antes de montar esto siguen contando como
+    pendientes, y se subirían por segunda vez.
+    """
+    pendientes, _ = videos_pendientes()
+    if not pendientes:
+        print(" No hay pendientes que marcar.")
+        return 0
+
+    print(f"\n {len(pendientes)} video(s) pendiente(s):\n")
+    for i, (v, m) in enumerate(pendientes, 1):
+        titulo = m.get("titulo_youtube") or os.path.basename(v["ruta"])
+        print(f"  {i:3}. {titulo[:70]}")
+
+    print("\n Escribe los números de los que YA están en TikTok.")
+    print(" Vale '1 4 7', o un rango '1-5', o las dos cosas. Enter para salir.")
+    entrada = input(" > ").strip()
+    if not entrada:
+        print(" No he tocado nada.")
+        return 0
+
+    try:
+        elegidos = _numeros(entrada, len(pendientes))
+    except ValueError as exc:
+        print(f" ✗ {exc} No he tocado nada.")
+        return 1
+
+    print("\n Voy a marcar como ya subidos:")
+    for n in elegidos:
+        v, m = pendientes[n - 1]
+        print(f"   • {(m.get('titulo_youtube') or os.path.basename(v['ruta']))[:60]}")
+    if input("\n ¿Correcto? [s/N] ").strip().lower() not in ("s", "si", "sí"):
+        print(" Cancelado, no he tocado nada.")
+        return 0
+
+    subidos = publisher.cargar_json(RUTA_SUBIDOS, [])
+    for n in elegidos:
+        v, m = pendientes[n - 1]
+        subidos.append({
+            "ruta": v["ruta"],
+            "publish_id": "",
+            "modo": "manual",
+            "pie": m.get("titulo_youtube", ""),
+            # Se distingue de una subida real: si algún día hay que revisar
+            # esto, conviene saber cuáles pasaron por la API y cuáles no.
+            "estado": "marcado a mano (ya estaba en TikTok)",
+            "fecha": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        })
+    publisher.guardar_json(RUTA_SUBIDOS, subidos)
+    print(f"\n ✓ {len(elegidos)} marcado(s). Quedan {len(pendientes) - len(elegidos)} pendientes.")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Sube a TikTok los videos ya aprobados.")
     ap.add_argument("--directo", action="store_true",
                     help="Publica en vez de dejar en borradores (requiere auditoría de TikTok).")
     ap.add_argument("--simular", action="store_true",
                     help="Enseña qué subiría, sin llamar a TikTok.")
+    ap.add_argument("--marcar-subidos", action="store_true",
+                    help="Marca como ya subidos videos que pusiste en TikTok a mano.")
     ap.add_argument("--estado", action="store_true",
                     help="Cuántos videos hay subidos y cuántos pendientes.")
     args = ap.parse_args(argv if argv is not None else [])
+
+    if args.marcar_subidos:
+        return marcar_subidos()
 
     cfg = cargar_config()
     modo = "directo" if args.directo or cfg["modo"] == "directo" else "borrador"

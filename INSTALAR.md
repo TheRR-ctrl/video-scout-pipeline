@@ -165,6 +165,14 @@ python tiktok_publisher.py --simular
 python tiktok_publisher.py --estado
 ```
 
+Si ya habías subido videos a TikTok a mano, el registro no lo sabe y los daría
+por pendientes: los subiría por segunda vez. Márcalos antes de la primera
+corrida, que te los lista numerados y solo tienes que decir cuáles:
+
+```bash
+python tiktok_publisher.py --marcar-subidos
+```
+
 A partir de ahí, `python pipeline.py` incluye la etapa `tiktok` al final. Si
 está apagada, la etapa termina sola sin hacer nada.
 
