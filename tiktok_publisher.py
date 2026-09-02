@@ -407,6 +407,8 @@ def main(argv=None):
                     help="Publica en vez de dejar en borradores (requiere auditoría de TikTok).")
     ap.add_argument("--simular", action="store_true",
                     help="Enseña qué subiría, sin llamar a TikTok.")
+    ap.add_argument("--con-datos", action="store_true",
+                    help="Sube aunque no haya WiFi (ojo: los videos pesan cientos de MB).")
     ap.add_argument("--marcar-subidos", action="store_true",
                     help="Marca como ya subidos videos que pusiste en TikTok a mano.")
     ap.add_argument("--estado", action="store_true",
@@ -451,6 +453,23 @@ def main(argv=None):
             print(f"    {tamano / MB:.1f} MB en {total} trozo(s) de {chunk / MB:.1f} MB")
             print(f"    pie: {construir_pie(m)[:120]}")
         return 0
+
+    # Mismas tres puertas que en publisher.py, y a proposito: un video de aqui
+    # pesa lo mismo que el que va a YouTube, y el cron corre a diario sin que
+    # nadie mire si el telefono esta en wifi o en la calle.
+    permitir_datos = (
+        args.con_datos
+        or os.environ.get("SUBIR_CON_DATOS") == "1"
+        or not publisher.cargar_config().get("solo_wifi", True)
+    )
+    if not permitir_datos and not publisher.conectado_a_wifi():
+        logger.info(
+            "Sin WiFi activo — aplazo la subida a TikTok para no gastar datos.\n"
+            "   Para subir ahora de todas formas: python tiktok_publisher.py --con-datos"
+        )
+        return 0
+    if permitir_datos and not publisher.conectado_a_wifi():
+        logger.warning("Sin WiFi, pero se pidió subir con datos móviles. Ojo con tu plan.")
 
     access_token, _ = token_valido()
 

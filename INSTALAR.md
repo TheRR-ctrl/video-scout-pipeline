@@ -173,6 +173,9 @@ corrida, que te los lista numerados y solo tienes que decir cuáles:
 python tiktok_publisher.py --marcar-subidos
 ```
 
+Igual que la subida a YouTube, esta etapa no sube sin WiFi: los videos pesan
+cientos de MB. Para saltarse la protección una vez, `--con-datos`.
+
 A partir de ahí, `python pipeline.py` incluye la etapa `tiktok` al final. Si
 está apagada, la etapa termina sola sin hacer nada.
 
