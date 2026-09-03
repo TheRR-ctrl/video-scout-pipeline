@@ -208,6 +208,25 @@ python recomprimir.py        # lista los que pesan de más
 python recomprimir.py --si   # los recomprime
 ```
 
+### Mover la carpeta de videos
+
+No basta con moverla desde el gestor de archivos. El pipeline guarda **rutas
+absolutas** en `resultado_lote.json`, `publicados.json`, `rechazados.json` y
+`tiktok_subidos.json`. Si apuntan a donde ya no hay nada, los pendientes
+desaparecen del panel y, peor, lo que ya estaba en TikTok deja de reconocerse
+y se vuelve a subir.
+
+Mueve la carpeta y luego repara el estado:
+
+```bash
+python mover_salida.py "/storage/emulated/0/Download/Reddicuentos/Videos creados"
+python mover_salida.py "/storage/emulated/0/Download/Reddicuentos/Videos creados" --si
+```
+
+Sin `--si` solo enseña el recuento. Deja una copia `.bak` de cada fichero que
+toca, actualiza `carpeta_salida` en `config.json`, y se puede correr dos veces
+sin estropear nada. Después, reinicia el panel.
+
 ## 6. Que corra solo
 
 ```bash
