@@ -13,6 +13,7 @@ hora que costaría rehacerlo entero.
   python recomprimir.py              # dice qué haría, sin tocar nada
   python recomprimir.py --si         # lo hace
   python recomprimir.py --umbral 150 # solo los de más de 150 MB
+  python recomprimir.py --limpiar    # borra restos de una tanda cortada
 
 No lo pases dos veces sobre los mismos archivos: recomprimir algo ya
 comprimido apenas quita peso y sí quita calidad. El umbral por defecto de
@@ -30,12 +31,19 @@ import publisher
 
 MB = 1024 * 1024
 
+# El temporal acaba en .mp4, asi que cae dentro del glob que busca candidatos:
+# sin filtrarlo, un resto de una tanda interrumpida se recomprimiria como si
+# fuera un video de verdad, y ademas seguiria ocupando sitio en silencio.
+SUFIJO_TMP = ".recomprimiendo.mp4"
+
 
 def candidatos(umbral_mb):
     cfg = publisher.cargar_config()
     patron = os.path.join(cfg["carpeta_salida"], "*.mp4")
     fuera = []
     for ruta in sorted(glob.glob(patron)):
+        if ruta.endswith(SUFIJO_TMP):
+            continue
         tam = os.path.getsize(ruta)
         if tam >= umbral_mb * MB:
             fuera.append((ruta, tam))
@@ -45,7 +53,7 @@ def candidatos(umbral_mb):
 def recomprimir(ruta, preset, crf):
     """Devuelve (tamaño antes, tamaño después). Deja el original si algo falla."""
     antes = os.path.getsize(ruta)
-    tmp = ruta + ".recomprimiendo.mp4"
+    tmp = ruta + SUFIJO_TMP
     cmd = [
         "ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
         "-i", ruta,
@@ -76,6 +84,13 @@ def recomprimir(ruta, preset, crf):
     return antes, despues
 
 
+def restos():
+    """Temporales de tandas que se cortaron a medias. No valen nada."""
+    cfg = publisher.cargar_config()
+    patron = os.path.join(cfg["carpeta_salida"], "*" + SUFIJO_TMP)
+    return [(r, os.path.getsize(r)) for r in sorted(glob.glob(patron))]
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Recomprime videos que pesan de más.")
     ap.add_argument("--si", action="store_true", help="Hacerlo de verdad.")
@@ -83,10 +98,27 @@ def main(argv=None):
                     help="Solo los de más de estos MB (por defecto 100).")
     ap.add_argument("--preset", default="veryfast")
     ap.add_argument("--crf", type=int, default=23)
+    ap.add_argument("--limpiar", action="store_true",
+                    help="Borrar los temporales de tandas interrumpidas. "
+                         "No lo uses con una recompresión en marcha.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
 
     if not shutil.which("ffmpeg"):
         raise SystemExit("No encuentro ffmpeg.")
+
+    sobras = restos()
+    if sobras:
+        peso = sum(t for _, t in sobras) / MB
+        print(f"\n  {len(sobras)} temporal(es) de una tanda interrumpida, {peso:.0f} MB:")
+        for r, t in sobras:
+            print(f"   {t / MB:7.1f} MB  {os.path.basename(r)[:60]}")
+        if args.limpiar:
+            for r, _ in sobras:
+                os.remove(r)
+            print(f"  ✓ Borrados, {peso:.0f} MB libres.\n")
+        else:
+            print("  No sirven para nada. Para borrarlos:  python recomprimir.py --limpiar")
+            print("  (pero no mientras haya una recompresión corriendo).\n")
 
     lista = candidatos(args.umbral)
     if not lista:

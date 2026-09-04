@@ -208,6 +208,10 @@ python recomprimir.py        # lista los que pesan de más
 python recomprimir.py --si   # los recomprime
 ```
 
+Si una tanda se corta a medias deja temporales `…recomprimiendo.mp4`, que
+ocupan sitio y no sirven para nada. El script los detecta solo y los borra
+con `python recomprimir.py --limpiar` (nunca con otra recompresión en marcha).
+
 ### Mover la carpeta de videos
 
 No basta con moverla desde el gestor de archivos. El pipeline guarda **rutas
