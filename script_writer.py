@@ -434,12 +434,28 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Convierte la cola de candidatos en guiones.")
     ap.add_argument("--probar-clave", action="store_true",
                     help="Comprueba que GEMINI_API_KEY sirve, sin escribir nada.")
-    ap.add_argument("--guardar-clave", metavar="CLAVE",
-                    help="Guarda GEMINI_API_KEY en secretos.env (reemplaza la anterior) y la prueba.")
+    # nargs="?" para poder usarlo sin valor: pasar la clave en la linea de
+    # comandos la deja escrita en el historial de la shell, y desde el movil
+    # encima obliga a pegarla entre comillas, que el teclado de Android
+    # convierte en tipograficas. Sin valor, se pide por teclado y no queda
+    # rastro. El const="" distingue "flag sin valor" de "flag ausente" (None).
+    ap.add_argument("--guardar-clave", metavar="CLAVE", nargs="?", const="",
+                    help="Guarda GEMINI_API_KEY en secretos.env (reemplaza la anterior) "
+                         "y la prueba. Sin valor, la pide por teclado.")
     args = ap.parse_args(argv or [])
 
-    if args.guardar_clave:
-        revision = secretos.revisar_clave_api(args.guardar_clave)
+    if args.guardar_clave is not None:
+        clave = args.guardar_clave.strip()
+        if not clave:
+            try:
+                clave = input(" Pega la clave de Gemini y pulsa enter: ").strip()
+            except (EOFError, KeyboardInterrupt):
+                print("\n Cancelado, no se ha tocado nada.")
+                return 1
+            if not clave:
+                print(" ✗ No pegaste nada. No se ha tocado nada.")
+                return 1
+        revision = secretos.revisar_clave_api(clave)
         if revision:
             severidad, problema = revision
             if severidad == "error":
@@ -451,7 +467,7 @@ def main(argv=None):
                 return 1
             print(f" ⚠️ {problema}")
         try:
-            ruta = secretos.guardar("GEMINI_API_KEY", args.guardar_clave)
+            ruta = secretos.guardar("GEMINI_API_KEY", clave)
         except ValueError as exc:
             print(f" ✗ {exc}")
             return 1
