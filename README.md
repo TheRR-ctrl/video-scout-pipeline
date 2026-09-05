@@ -66,6 +66,44 @@ built in). Never commit `config_trends.json`, `config.json`,
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
+## Background video (`motor_fondo` in `config.json`)
+
+- `"cortes"` (default) — the original behaviour: random 6-12 s cuts from your
+  own `fondo_vertical*.mp4` / `fondo_horizontal*.mp4` files, concatenated to
+  cover the narration. You supply the source footage.
+- `"hyperframes"` — `hyperframes_broll.py` asks Gemini for an **HTML
+  composition** (HTML + CSS + GSAP) and renders it to MP4 with the
+  [HyperFrames](https://hyperframes.heygen.com) CLI (Apache-2.0, by HeyGen).
+  **No source footage needed at all** — the pipeline runs from an empty
+  folder. Free and local: rendering doesn't use HeyGen credits or need an
+  account.
+
+  HyperFrames doesn't *play* the page, it asks headless Chrome for one frame
+  at a time (`seek(0)`, `seek(1/30)`, …) in deterministic mode and stitches
+  the frames with ffmpeg, so the same HTML always yields the same MP4.
+  Compositions are cached in `pipeline_state/hyperframes_cache/`.
+
+  Rendering runs at roughly 3x real time, so a full 3-minute story would be
+  slow. Instead a composition of `duracion_max_composicion_seg` (default 45 s)
+  is generated and looped to cover the story — the visual profile asks for a
+  cyclic animation whose last frame matches its first, so the loop seam
+  doesn't show.
+
+  Requires **Node.js ≥ 22** on the PATH (the CLI downloads itself via `npx` on
+  first use), `GEMINI_API_KEY`, and outbound internet during the render
+  (the composition loads GSAP from jsDelivr).
+
+If the generated background fails for any reason, the pipeline falls back to
+`"cortes"` and then to a single background file, so switching engines can't
+break a run.
+
+`hyperframes_broll.py` is a drop-in module shared verbatim with the sibling
+repo [`video_generation`](https://github.com/TheRR-ctrl/Video_Generation).
+The only thing that differs between pipelines is the `PerfilVisual` — what is
+being illustrated, what gets overlaid on top, and which parts of the frame
+must stay clear. See `.claude/skills/hyperframes-broll/SKILL.md` for the
+composition contract and how to debug a failed render.
+
 ## Background music (`actualizar_musica.py`)
 
 Background video clips (`fondo_vertical*.mp4` / `fondo_horizontal*.mp4`) are
