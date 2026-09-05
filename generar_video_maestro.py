@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
 
+import hyperframes_broll
+
 # ---------------------------------------------------------
 # CONFIGURACIÓN GLOBAL Y VARIABLES DE ESTADO
 # ---------------------------------------------------------
@@ -26,6 +28,12 @@ CONFIG_DEFAULT = {
     "voz_masculina": "es-MX-JorgeNeural",
     "voz_femenina": "es-MX-DaliaNeural",
     "reintentar_existentes": False,
+    # "cortes"      -> corta al azar tus propios videos de fondo (por defecto)
+    # "hyperframes" -> genera el fondo con IA, sin necesitar videos propios
+    "motor_fondo": "cortes",
+    # Tope de la composición generada. El render va a ~3x tiempo real, así que
+    # para una historia larga se genera un fondo de este largo y se loopea.
+    "duracion_max_composicion_seg": 45.0,
 }
 
 def cargar_config(ruta="config.json"):
@@ -130,6 +138,11 @@ def comprobar_dependencias():
         raise RuntimeError(
             "Faltan dependencias externas: " + ", ".join(faltantes)
         )
+
+    if CONFIG.get("motor_fondo") == "hyperframes":
+        # Necesita además Node/npx; mejor saberlo antes del lote que a mitad
+        # del primer video.
+        hyperframes_broll.comprobar_dependencias()
 
 class GestorTemporales:
     """Directorio temporal aislado por historia; evita colisiones entre procesos."""
@@ -365,6 +378,65 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
     else:
         actualizar_hud([f"{txt_base} [ Fallo] [{'❌'*anch}]"], True)
         return None
+
+def crear_fondo_hyperframes(duracion_requerida_sec, es_short, gestor_temp,
+                            num_index, titulo, emocion):
+    """Fondo generado con IA en vez de cortado de videos propios.
+
+    Devuelve un video de exactamente `duracion_requerida_sec`, o None si el
+    motor no está activo o falló (el llamador cae entonces a los cortes de
+    siempre). A diferencia de `crear_fondo_multi_corte`, no necesita que
+    tengas ningún video de fondo en la carpeta.
+
+    La composición se genera con el largo de la historia hasta el tope de
+    `duracion_max_composicion_seg` y se loopea para cubrir el resto; por eso
+    el perfil visual pide una animación cíclica, para que el corte no se vea."""
+    if CONFIG.get("motor_fondo") != "hyperframes":
+        return None
+
+    aspecto = "9:16" if es_short else "16:9"
+    w_res, h_res = (1080, 1920) if es_short else (1920, 1080)
+    tope = float(CONFIG.get("duracion_max_composicion_seg", 45.0))
+    dur_composicion = min(duracion_requerida_sec, tope)
+
+    idea = (
+        f"Historia personal narrada de tono '{emocion}'. Fondo abstracto que "
+        f"sostenga la atención mientras se escucha: {limpiar_texto_seguro(titulo)[:200]}"
+    )
+
+    anch = max(10, shutil.get_terminal_size((40, 24)).columns - 35)
+    txt_base = " ├─ 🎞️ [2/4] Fondo IA:"
+    actualizar_hud([f"{txt_base} [ generando composición... ]"])
+
+    base = hyperframes_broll.generar_clip_cacheado(
+        idea, aspecto=aspecto, duracion_seg=dur_composicion,
+        perfil=hyperframes_broll.PERFIL_HISTORIA_VERTICAL,
+    )
+    if not base:
+        logger.warning("El fondo con HyperFrames falló; se cae a los cortes de siempre.")
+        actualizar_hud([f"{txt_base} [ Fallo, usando cortes ]"], True)
+        return None
+
+    salida_fondo = gestor_temp.registrar(f"fondo_hyperframes_{num_index}.mp4")
+    filtro = f"scale={w_res}:{h_res}:force_original_aspect_ratio=increase,crop={w_res}:{h_res},fps=30"
+    try:
+        ejecutar_comando(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-stream_loop", "-1", "-i", base, "-t", f"{duracion_requerida_sec:.2f}",
+             "-vf", filtro, "-an", "-c:v", "libx264", "-preset", "ultrafast",
+             salida_fondo],
+            "FFmpeg: ajuste del fondo generado",
+        )
+    except RuntimeError as exc:
+        logger.warning(f"No se pudo ajustar el fondo generado: {exc}")
+        return None
+
+    if not archivo_valido(salida_fondo):
+        return None
+
+    actualizar_hud([f"{txt_base} [100.0%] [{'█'*anch}]"], True)
+    return salida_fondo
+
 
 def detectar_emocion_historia(texto):
     """Detecta emoción explícita y, si no existe, busca palabras clave."""
@@ -655,7 +727,9 @@ def renderizar_una_historia(contenido, num=1):
         print(msg_formato[:term_cols - 1])
         
         # FASE 2: Fondo
-        vid_fondo = crear_fondo_multi_corte(dur_sec, es_short, gestor, num) or seleccionar_fondo_video(es_short)
+        vid_fondo = (crear_fondo_hyperframes(dur_sec, es_short, gestor, num, tit, emocion)
+                     or crear_fondo_multi_corte(dur_sec, es_short, gestor, num)
+                     or seleccionar_fondo_video(es_short))
         if not vid_fondo:
             raise RuntimeError("Sin fondo válido para este video.")
 

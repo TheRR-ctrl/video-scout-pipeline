@@ -1,0 +1,10 @@
+{
+  "carpeta_salida": "Videos Creados",
+  "duracion_max_short_sec": 180.0,
+  "voz_masculina": "es-MX-JorgeNeural",
+  "voz_femenina": "es-MX-DaliaNeural",
+  "_motor_fondo_opciones": "cortes (corta tus propios videos de fondo) | hyperframes (genera el fondo con IA, sin videos propios)",
+  "motor_fondo": "cortes",
+  "duracion_max_composicion_seg": 45.0,
+  "reintentar_existentes": false
+}
