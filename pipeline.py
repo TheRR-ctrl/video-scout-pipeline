@@ -38,7 +38,7 @@ import traceback
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pipeline")
 
-ETAPAS = ["candidatos", "guion", "video", "publicar"]
+ETAPAS = ["candidatos", "guion", "video", "publicar", "tiktok"]
 UMBRAL_BACKLOG_VIDEOS = 10
 
 
@@ -107,6 +107,17 @@ def main():
         import trend_scout
         resultados["candidatos"] = correr_etapa("candidatos (trend_scout)", trend_scout.main)
 
+        # YouTube es una segunda fuente para la MISMA cola, no una etapa
+        # aparte: si Reddit está bloqueado o ya se agotó el /top/ del día, de
+        # aquí siguen saliendo historias. Va después a propósito, para que un
+        # fallo suyo (falta youtube-transcript-api, canal caído) no impida que
+        # los candidatos de Reddit lleguen al escritor de guiones.
+        import youtube_scout
+        if youtube_scout.cargar_config().get("youtube_activo", True):
+            resultados["candidatos_youtube"] = correr_etapa(
+                "candidatos (youtube_scout)", youtube_scout.main
+            )
+
     if not frena_generacion and i_desde <= ETAPAS.index("guion") <= i_hasta:
         import script_writer
         resultados["guion"] = correr_etapa("guion (script_writer)", script_writer.main)
@@ -118,6 +129,14 @@ def main():
     if i_desde <= ETAPAS.index("publicar") <= i_hasta:
         import publisher
         resultados["publicar"] = correr_etapa("publicar (publisher)", publisher.main)
+
+    # TikTok va detrás de YouTube a propósito: reutiliza el veredicto de
+    # calidad que dejó el publisher en metadata.json en vez de volver a
+    # juzgar el mismo video. Si está apagado en config.json, la etapa
+    # termina sola sin hacer nada, así que no estorba a quien no la use.
+    if i_desde <= ETAPAS.index("tiktok") <= i_hasta:
+        import tiktok_publisher
+        resultados["tiktok"] = correr_etapa("tiktok (tiktok_publisher)", tiktok_publisher.main)
 
     logger.info("===== Resumen =====")
     for nombre, ok in resultados.items():

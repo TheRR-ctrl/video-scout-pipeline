@@ -1,0 +1,192 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Abrir el panel</title>
+<!--
+  Puerta de entrada al panel, en un archivo suelto.
+
+  Funciona desde donde lo dejes (Descargas, la SD, un marcador, la pantalla
+  de inicio) porque no depende de nada del repo: es un solo archivo sin
+  imágenes ni scripts externos.
+
+  Lo que NO puede hacer, y conviene saberlo: un HTML abierto en el navegador
+  no puede arrancar un proceso. Ningún navegador deja que una página lance
+  Python — si pudiera, cualquier web podría ejecutar cosas en tu teléfono.
+  Así que esta página detecta el panel y entra sola cuando está vivo, y
+  cuando no, te deja el comando a un toque de distancia.
+
+  Para no tener que escribir nada nunca:
+      bash instalar_panel.sh --autoarranque
+  Con eso el panel arranca al abrir Termux, y esta página ya lo encuentra.
+-->
+<style>
+  :root{
+    --ground:#12151a; --surface:#1b2027; --surface-2:#232932; --line:#2e3540;
+    --ink:#eceef1; --ink-dim:#98a2ae; --ink-faint:#626c79;
+    --accent:#4db4a8; --accent-ink:#06211e; --accent-soft:#16332f;
+    --warn:#d9944a; --warn-soft:#33240f;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){
+    :root{ --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8; --line:#d9dde2;
+      --ink:#191d23; --ink-dim:#5b6572; --ink-faint:#939ba6;
+      --accent:#1d7d72; --accent-ink:#fff; --accent-soft:#dcefec;
+      --warn:#9a6416; --warn-soft:#f7ead6; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font:15px/1.55 var(--body);-webkit-font-smoothing:antialiased;
+    min-height:100dvh;display:flex;align-items:center;justify-content:center;
+    padding:24px 18px calc(24px + env(safe-area-inset-bottom))}
+  .caja{width:100%;max-width:420px}
+  .marca{font:500 13px var(--mono);color:var(--ink-faint);margin-bottom:22px}
+  .marca b{color:var(--accent);font-weight:500}
+
+  .luz{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+  .punto{width:11px;height:11px;border-radius:50%;background:var(--ink-faint);flex-shrink:0}
+  .punto.busca{background:var(--warn);animation:late 1.1s ease-in-out infinite}
+  .punto.vivo{background:var(--accent)}
+  @keyframes late{0%,100%{opacity:1}50%{opacity:.25}}
+  h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+  p{color:var(--ink-dim);font-size:13.5px;margin:8px 0 0}
+
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+    font:500 14px var(--body);padding:13px 16px;border-radius:9px;cursor:pointer;
+    border:1px solid var(--line);color:var(--ink);background:var(--surface);
+    text-decoration:none;margin-top:10px}
+  .btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+
+  .cmd{display:flex;align-items:center;gap:9px;margin-top:14px;
+    background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:11px 12px}
+  .cmd code{flex-grow:1;font:12.5px var(--mono);color:var(--ink);
+    overflow-x:auto;white-space:nowrap}
+  .cmd button{flex-shrink:0;font:500 12px var(--body);padding:7px 11px;border-radius:7px;
+    border:1px solid var(--line);background:var(--surface);color:var(--ink-dim);cursor:pointer}
+
+  .nota{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12.5px;color:var(--ink-dim)}
+  .nota b{color:var(--ink);font-weight:600}
+  .nota code{font:11.5px var(--mono);color:var(--accent)}
+  .puerto{margin-top:14px;display:flex;align-items:center;gap:9px;font-size:12.5px;color:var(--ink-faint)}
+  .puerto input{width:74px;background:var(--surface-2);border:1px solid var(--line);
+    border-radius:6px;color:var(--ink);font:12px var(--mono);padding:6px 8px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="caja">
+  <div class="marca">mesa de <b>revisión</b></div>
+
+  <div class="luz"><span class="punto busca" id="punto"></span>
+    <h1 id="titulo">Buscando el panel…</h1></div>
+  <p id="detalle">Comprobando si el servidor está corriendo en este teléfono.</p>
+
+  <a class="btn go" id="entrar" style="display:none">Entrar al panel →</a>
+
+  <div id="apagado" style="display:none">
+    <div class="cmd">
+      <code id="orden">panel</code>
+      <button id="copiar">Copiar</button>
+    </div>
+    <p style="margin-top:12px">Pega eso en Termux y vuelve aquí: esta página entra sola
+      en cuanto el panel responda.</p>
+    <button class="btn" id="reintentar">Comprobar de nuevo</button>
+  </div>
+
+  <div class="puerto">
+    <span>Puerto</span><input type="number" id="puerto" value="8770" min="1" max="65535">
+    <span id="estado-puerto"></span>
+  </div>
+
+  <div class="nota">
+    <b>Para no escribir nunca el comando:</b> corre una sola vez
+    <code>bash instalar_panel.sh --autoarranque</code>. A partir de ahí el panel
+    arranca solo al abrir Termux y esta página lo encuentra al momento.
+    <p style="margin-top:9px">Una página web no puede arrancar el servidor por su cuenta
+    — ningún navegador se lo permite, y es lo que impide que cualquier web ejecute
+    cosas en tu teléfono. Esta te lleva dentro; arrancarlo lo hace Termux.</p>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let puerto = 8770, buscando = false;
+
+try{ const g = localStorage.getItem('puerto_panel'); if(g) puerto = +g; }catch(e){}
+$('#puerto').value = puerto;
+
+const url = () => 'http://127.0.0.1:' + puerto + '/';
+
+/* Se sondea con una imagen y no con fetch a propósito: abierta como archivo
+   (file://) la página no tiene origen, y un fetch a 127.0.0.1 lo bloquea la
+   política de origen cruzado aunque el servidor esté perfectamente vivo. Una
+   <img> no pasa por esa política, así que onload/onerror sí distinguen de
+   verdad entre "está corriendo" y "no está". */
+function sondear(){
+  return new Promise(listo => {
+    const img = new Image();
+    const corta = setTimeout(() => { img.src = ''; listo(false); }, 2500);
+    img.onload  = () => { clearTimeout(corta); listo(true); };
+    img.onerror = () => { clearTimeout(corta); listo(false); };
+    img.src = url() + 'icono-192.png?t=' + Date.now();
+  });
+}
+
+function pintar(vivo){
+  $('#punto').className = 'punto ' + (vivo ? 'vivo' : 'busca');
+  $('#titulo').textContent = vivo ? 'Panel encontrado' : 'El panel no está corriendo';
+  $('#detalle').textContent = vivo
+    ? 'Entrando…'
+    : 'No responde nada en el puerto ' + puerto + '. Hay que arrancarlo desde Termux.';
+  $('#entrar').style.display = vivo ? 'flex' : 'none';
+  $('#entrar').href = url();
+  $('#apagado').style.display = vivo ? 'none' : 'block';
+}
+
+async function intentar(){
+  if(buscando) return;
+  buscando = true;
+  $('#punto').className = 'punto busca';
+  $('#titulo').textContent = 'Buscando el panel…';
+  const vivo = await sondear();
+  buscando = false;
+  pintar(vivo);
+  if(vivo){
+    try{ localStorage.setItem('puerto_panel', puerto); }catch(e){}
+    // Un respiro para que se vea que lo encontró, en vez de un salto seco.
+    setTimeout(() => location.href = url(), 450);
+  }
+}
+
+$('#reintentar').onclick = intentar;
+$('#puerto').onchange = () => {
+  puerto = Math.max(1, Math.min(65535, +$('#puerto').value || 8770));
+  $('#puerto').value = puerto;
+  $('#orden').textContent = puerto === 8770 ? 'panel' : 'panel --puerto ' + puerto;
+  intentar();
+};
+$('#copiar').onclick = async () => {
+  const texto = $('#orden').textContent;
+  try{
+    await navigator.clipboard.writeText(texto);
+    $('#copiar').textContent = '✓ Copiado';
+  }catch(e){
+    // Sin portapapeles (habitual en file://) se selecciona para copiar a mano.
+    const r = document.createRange(); r.selectNode($('#orden'));
+    getSelection().removeAllRanges(); getSelection().addRange(r);
+    $('#copiar').textContent = 'Selecciona y copia';
+  }
+  setTimeout(() => $('#copiar').textContent = 'Copiar', 2200);
+};
+
+intentar();
+// Mientras la página siga abierta, se reintenta sola: puedes pasarte a
+// Termux, arrancarlo, y al volver ya te ha metido dentro.
+setInterval(() => { if(!buscando && $('#apagado').style.display !== 'none') intentar(); }, 4000);
+</script>
+</body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autorizacion recibida</title>
+<link rel="stylesheet" href="estilo.css">
+
+<h1>Autorizacion recibida</h1>
+<p class="fecha">
+  Esta pagina no envia nada a ningun sitio. Solo muestra la direccion a la que
+  TikTok acaba de redirigirte, para poder copiarla sin pelearse con la barra del
+  navegador.
+</p>
+
+<p><button id="copiar">Copiar la direccion</button> <span id="aviso"></span></p>
+
+<p><code id="url"></code></p>
+
+<p>Pegala en Termux, donde el script la esta pidiendo.</p>
+
+<script>
+  // La URL entera es lo que el script necesita: lleva el ?code= y el ?state=.
+  // Se muestra tal cual y no se manda a ninguna parte; no hay servidor detras.
+  var url = window.location.href;
+  document.getElementById("url").textContent = url;
+
+  document.getElementById("copiar").addEventListener("click", function () {
+    var aviso = document.getElementById("aviso");
+    // navigator.clipboard no existe en contextos sin https ni en navegadores
+    // viejos; si falla, el texto sigue a la vista para copiarlo a mano.
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(url).then(
+        function () { aviso.textContent = "Copiada."; },
+        function () { aviso.textContent = "No pude copiarla; hazlo a mano."; }
+      );
+    } else {
+      aviso.textContent = "Copiala a mano del recuadro de abajo.";
+    }
+  });
+</script>

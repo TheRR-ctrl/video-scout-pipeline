@@ -1,0 +1,1601 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mesa de Revisión</title>
+<link rel="manifest" href="/manifest.webmanifest">
+<meta name="theme-color" content="#12151a">
+<link rel="icon" href="/icono-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<style>
+  :root {
+    --ground:#12151a; --surface:#1b2027; --surface-2:#232932;
+    --line:#2e3540; --line-soft:#252b34;
+    --ink:#eceef1; --ink-dim:#98a2ae; --ink-faint:#626c79;
+    --accent:#4db4a8; --accent-ink:#06211e; --accent-soft:#16332f;
+    --warn:#d9944a; --warn-soft:#33240f;
+    --crit:#d96a5a; --crit-soft:#331b18;
+    --ok:#6aab7a; --ok-soft:#172a1c;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){
+    :root{ --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8;
+      --line:#d9dde2; --line-soft:#e6e9ed; --ink:#191d23; --ink-dim:#5b6572;
+      --ink-faint:#939ba6; --accent:#1d7d72; --accent-ink:#fff; --accent-soft:#dcefec;
+      --warn:#9a6416; --warn-soft:#f7ead6; --crit:#b4402f; --crit-soft:#f8dfda;
+      --ok:#35754a; --ok-soft:#dff0e3; }
+  }
+  *{box-sizing:border-box}
+  /* Sin esto, un .sangria (display:flex) marcado con hidden se sigue viendo:
+     la regla del navegador para [hidden] la pisa cualquier display del autor. */
+  [hidden]{display:none!important}
+  body{margin:0;background:var(--ground);color:var(--ink);font:15px/1.5 var(--body);
+       -webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom)}
+  .wrap{max-width:1000px;margin:0 auto;padding:0 14px 70px}
+
+  .nav{position:sticky;top:0;z-index:30;background:var(--ground);border-bottom:1px solid var(--line);margin-bottom:20px}
+  .nav-in{max-width:1000px;margin:0 auto;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .logo{font:500 13px var(--mono);margin-right:auto}
+  .logo .b{color:var(--accent)}
+  .tabs{display:flex;gap:2px;flex-wrap:wrap}
+  .tabs button{font:500 13px var(--body);color:var(--ink-dim);background:none;border:0;
+    padding:7px 11px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px}
+  .tabs button.on{color:var(--accent);background:var(--accent-soft)}
+  .tabs .c{font:11px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:4px}
+  .tabs button.on .c{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+
+  .view{display:none} .view.on{display:block}
+  h2{font-size:16px;font-weight:600;margin:0 0 3px;letter-spacing:-.01em}
+  p.sub{font-size:13px;color:var(--ink-dim);margin:0 0 16px;max-width:64ch}
+  h3.sec{font:500 11px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+    color:var(--ink-faint);margin:24px 0 10px}
+
+  .btn{font:500 13px var(--body);padding:8px 13px;border-radius:7px;cursor:pointer;
+    border:1px solid var(--line);color:var(--ink-dim);background:var(--surface);
+    display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+  .btn:hover{color:var(--ink);border-color:var(--ink-faint)}
+  .btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.sm{font-size:12px;padding:6px 10px}
+  .btn.danger{color:var(--crit)}
+  .btn:disabled{opacity:.45;cursor:not-allowed}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  select.btn{color:var(--ink)}
+
+  .pill{font:10.5px var(--mono);text-transform:uppercase;letter-spacing:.04em;
+    padding:3px 7px;border-radius:4px;white-space:nowrap}
+  .pill.ok{color:var(--ok);background:var(--ok-soft)}
+  .pill.warn{color:var(--warn);background:var(--warn-soft)}
+  .pill.crit{color:var(--crit);background:var(--crit-soft)}
+  .pill.idle{color:var(--ink-faint);background:var(--surface-2)}
+  .pill.acc{color:var(--accent);background:var(--accent-soft)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
+  .muted{font-size:12.5px;color:var(--ink-dim);line-height:1.45}
+  code.cmd{display:block;font:11.5px var(--mono);background:var(--surface-2);
+    border:1px solid var(--line-soft);border-radius:6px;padding:7px 9px;color:var(--ink);
+    overflow-x:auto;white-space:pre}
+
+  /* trabajo en curso — deliberadamente quieto: una línea de paso actual que
+     se reemplaza en su sitio, no un registro que va cayendo. */
+  .job{background:var(--accent-soft);border:1px solid var(--accent);border-radius:9px;
+    padding:12px 14px;margin-bottom:16px}
+  .job.err{background:var(--crit-soft);border-color:var(--crit)}
+  .job.fin{background:var(--ok-soft);border-color:var(--ok)}
+  .job-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  .job-top b{flex-grow:1}
+  .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
+    min-height:2.9em;display:flex;align-items:center;
+    overflow:hidden;text-overflow:ellipsis}
+  .barra{height:4px;border-radius:3px;background:var(--surface-2);overflow:hidden;margin-top:8px}
+  .barra i{display:block;height:100%;background:var(--accent);width:0;
+    transition:width .4s linear}
+  .log{margin-top:9px;background:#0c0f13;border-radius:7px;padding:9px 10px;
+    font:11.5px/1.5 var(--mono);color:#c8d2dc;height:170px;overflow:auto;white-space:pre-wrap}
+  @media (prefers-color-scheme:light){ .log{background:#171b20} }
+  .tbtn{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer}
+
+  /* revisar */
+  .review{display:grid;grid-template-columns:300px 1fr;gap:20px}
+  video{width:100%;border-radius:9px;background:#000;display:block;aspect-ratio:9/16;object-fit:contain}
+  video.wide{aspect-ratio:16/9}
+  .facts{display:flex;flex-wrap:wrap;gap:5px 13px;font:11.5px var(--mono);color:var(--ink-dim)}
+  .facts b{color:var(--ink);font-weight:500}
+  .script{background:var(--surface-2);border:1px solid var(--line-soft);border-radius:8px;
+    padding:11px 13px;font-size:13.5px;color:var(--ink-dim);line-height:1.55;max-height:150px;overflow:auto}
+  .thumbs{display:flex;gap:8px;overflow-x:auto;padding:2px 0 8px}
+  .th{position:relative;flex-shrink:0;width:64px;border:1px solid var(--line);
+    border-radius:7px;overflow:hidden;cursor:pointer;background:var(--surface)}
+  /* El elegido lleva anillo, no solo borde de color: el verde de "subido" y
+     el turquesa del acento se parecen demasiado en pantalla pequeña. */
+  .th.on{border-color:var(--accent);box-shadow:0 0 0 2px var(--accent-soft)}
+  .th .im{position:relative;aspect-ratio:9/16;
+    /* El degradado se queda debajo: si ffmpeg no pudo sacar el fotograma,
+       el recuadro sigue teniendo fondo en vez de quedarse transparente. */
+    background:linear-gradient(170deg,#2b3340,#171c23) center/cover no-repeat;
+    display:flex;align-items:flex-end;justify-content:center;padding-bottom:4px;
+    font:9px var(--mono);color:#fff}
+  .th .im img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  /* La duración va sobre la imagen, con un velo detrás: encima de un
+     fotograma claro el texto blanco solo se perdía. */
+  .th .im span{position:relative;z-index:1;padding:1px 4px;border-radius:4px;
+    background:rgba(0,0,0,.55)}
+  .th .cp{font-size:9.5px;color:var(--ink-faint);padding:4px 3px;text-align:center;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .th.on .cp{color:var(--accent)}
+
+  /* Ya subido: el color solo no basta —hay quien no lo distingue y el sol del
+     móvil se come los matices—, así que va con marca ✓ y con la miniatura
+     apagada. Lo que queda vivo es lo que aún te toca mirar. */
+  .th.sub{border-color:var(--ok)}
+  /* Con fotograma dentro, el fondo verde no se vería. Lo subido se marca
+     apagando la imagen —queda claro que ya está hecho— más el ✓ y el borde. */
+  .th.sub .im img{opacity:.32}
+  .th.sub.on .im img{opacity:.6}
+  .th.sub .cp{color:var(--ok)}
+  /* La marca va colgada de .th, no de la miniatura: si colgara de dentro se
+     apagaría con ella y en tema claro el ✓ quedaba casi invisible. Como chip
+     sólido se lee igual sobre cualquier fondo y en cualquier tema. */
+  .th .ck{position:absolute;top:4px;right:4px;display:none;width:15px;height:15px;
+    border-radius:50%;background:var(--ok);color:var(--ground);
+    align-items:center;justify-content:center;font-size:9.5px;font-weight:700;
+    line-height:1;box-shadow:0 1px 3px rgba(0,0,0,.35)}
+  .th.sub .ck{display:flex}
+  /* El elegido gana al estado: si lo estás mirando, tiene que verse cuál es. */
+  .th.sub.on{border-color:var(--accent)}
+
+  .leyenda{display:flex;gap:13px;align-items:center;flex-wrap:wrap;
+    margin:-2px 0 8px;font-size:11.5px;color:var(--ink-faint)}
+  .leyenda b{color:var(--ink-dim);font-weight:600}
+  .leyenda .pt{display:inline-flex;align-items:center;gap:5px}
+  .leyenda .mu{width:13px;height:13px;border-radius:50%;border:1px solid var(--line);
+    background:var(--surface-2)}
+  .leyenda .mu.sub{border-color:var(--ok);background:var(--ok);color:var(--ground);
+    display:inline-flex;align-items:center;justify-content:center;
+    font-size:8.5px;font-weight:700;line-height:1}
+
+  /* listas */
+  .list{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+  .row{display:grid;gap:10px;align-items:center;padding:10px 13px;
+    border-bottom:1px solid var(--line-soft);background:var(--surface);font-size:13px}
+  .row:last-child{border-bottom:0}
+  .row.sel{grid-template-columns:20px 26px 1fr 56px 14px 46px;cursor:pointer}
+  .row.sel.on{background:var(--accent-soft)}
+  .row.sel input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+  .row .n,.row .m{font:11.5px var(--mono);color:var(--ink-faint)}
+  .row .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    flex-wrap:wrap;padding:11px 13px;background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
+  .list-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;
+    flex-wrap:wrap;padding:11px 13px;background:var(--surface-2);border-top:1px solid var(--line-soft)}
+  .equiv{font:11.5px var(--mono);color:var(--ink-dim);background:var(--ground);
+    border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+
+  /* ajuste fino: las casillas de "al rehacer, cambiar…" */
+  .finos{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+  .fino{display:flex;align-items:center;gap:8px;font-size:12.5px;padding:9px 11px;
+    border:1px solid var(--line);border-radius:8px;background:var(--surface);cursor:pointer}
+  .fino.on{border-color:var(--accent);background:var(--accent-soft)}
+  .fino input{accent-color:var(--accent);width:15px;height:15px;margin:0;flex-shrink:0}
+  .fino.no{opacity:.45;cursor:not-allowed}
+  .sangria{margin:8px 0 4px 24px;display:flex;flex-direction:column;gap:7px}
+
+  /* presets */
+  .presets{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+  .preset{border:1px solid var(--line);border-radius:9px;background:var(--surface);
+    padding:13px;cursor:pointer;display:flex;flex-direction:column;gap:6px}
+  .preset.on{border-color:var(--accent)}
+  .preset h4{margin:0;font:500 13.5px var(--mono)}
+  .sw{width:14px;height:14px;border-radius:4px;border:1px solid var(--line);display:inline-block}
+
+  .slider{display:flex;align-items:center;gap:11px}
+  .slider input[type=range]{flex-grow:1;accent-color:var(--accent);min-width:90px}
+  .slider .v{font:11.5px var(--mono);color:var(--ink);width:42px;text-align:right}
+
+  .aviso{display:flex;gap:10px;align-items:flex-start;background:var(--surface);
+    border:1px solid var(--line);border-left:3px solid var(--accent);
+    border-radius:0 9px 9px 0;padding:12px 14px;margin-bottom:16px;font-size:13.5px}
+  .aviso.warn{border-left-color:var(--warn)}
+  .aviso.crit{border-left-color:var(--crit)}
+
+  /* Pestaña de TikTok: la tira de pasos. Es lo primero que se ve, y es tambien
+     lo que ve el revisor de TikTok en el video de la auditoria, asi que el
+     orden de la operacion tiene que leerse sin que nadie lo explique. */
+  .pasos{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+  .paso-t{flex:1 1 155px;background:var(--surface);border:1px solid var(--line);
+    border-radius:9px;padding:10px 12px;display:flex;gap:9px;align-items:flex-start}
+  .paso-t .n{flex-shrink:0;width:19px;height:19px;border-radius:50%;
+    background:var(--accent-soft);color:var(--accent);font:600 11px var(--mono);
+    display:flex;align-items:center;justify-content:center;margin-top:1px}
+  .paso-t .d{font-size:12.5px;line-height:1.4;min-width:0}
+  .paso-t .d b{display:block;font-weight:600}
+  .paso-t .d span{color:var(--ink-dim)}
+  /* En un movil caben dos por fila y la tercera queda suelta a lo ancho, que se
+     lee como si fuera otra cosa. O las tres en fila, o una debajo de otra. */
+  @media (max-width:560px){ .paso-t{flex-basis:100%} }
+  /* En TikTok el titulo es lo unico que distingue una fila de otra: cortarlo a
+     mitad de palabra deja dos historias distintas con el mismo aspecto. */
+  .row.tk .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden}
+
+  .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:20px;z-index:60;
+    background:var(--surface);border:1px solid var(--accent);color:var(--ink);
+    padding:10px 16px;border-radius:9px;font-size:13.5px;box-shadow:0 8px 26px rgba(0,0,0,.35);
+    opacity:0;pointer-events:none;transition:opacity .18s}
+  .toast.on{opacity:1}
+
+  .modal{position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.6);
+    display:flex;align-items:center;justify-content:center;padding:20px}
+  .modal .caja{background:var(--surface);border:1px solid var(--line);border-radius:12px;
+    padding:18px;max-width:460px;width:100%}
+  .modal textarea{width:100%;height:120px;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:10px;
+    font:11.5px/1.5 var(--mono);resize:vertical}
+  .modal input[type=text]{width:100%;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:8px;padding:10px;font:12px var(--mono)}
+
+  @media (max-width:780px){
+    .review{grid-template-columns:1fr}
+    video{max-width:330px;margin:0 auto}
+    .grid2,.presets,.finos{grid-template-columns:1fr}
+    .logo{width:100%;margin-bottom:2px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="nav"><div class="nav-in">
+  <div class="logo">mesa de <span class="b">revisión</span></div>
+  <div class="tabs">
+    <button data-v="revisar" class="on">Revisar <span class="c" id="c-rev">0</span></button>
+    <button data-v="cola">Cola <span class="c" id="c-col">0</span></button>
+    <button data-v="estilo">Estilo</button>
+    <button data-v="publicados">Publicados <span class="c" id="c-pub">0</span></button>
+    <button data-v="tiktok">TikTok <span class="c" id="c-tk">0</span></button>
+    <button data-v="ajustes">Ajustes</button>
+  </div>
+  <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
+  <button class="btn sm" id="b-apagar" title="Apagar el panel y liberar el wake lock">⏻</button>
+</div></div>
+
+<div class="wrap">
+  <div id="job-slot"></div>
+
+  <section class="view on" id="v-revisar"></section>
+  <section class="view" id="v-cola"></section>
+  <section class="view" id="v-estilo"></section>
+  <section class="view" id="v-publicados"></section>
+  <section class="view" id="v-tiktok"></section>
+  <section class="view" id="v-ajustes"></section>
+</div>
+
+<div class="toast" id="toast"></div>
+<audio id="oido" style="display:none"></audio>
+
+<script>
+const $ = s => document.querySelector(s);
+let E = null;            // último estado del servidor
+let elegido = 0;         // índice del video en revisión
+let seleccion = new Set();
+let tocado = false;      // ¿el usuario ya eligió historias a mano?
+let abiertoRehacer = false;
+let finos = {};          // qué casillas de "al rehacer, cambiar…" están marcadas
+let musicaElegida = {};  // nº de historia -> archivo de música fijado a mano
+
+function esc(s){ return String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
+  clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('on'),2600); }
+
+async function api(url, opts){
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(()=>({}));
+  if(!r.ok) throw new Error(j.error || ('HTTP '+r.status));
+  return j;
+}
+const post = (url, cuerpo) => api(url, {method:'POST',
+  headers:{'Content-Type':'application/json'}, body: JSON.stringify(cuerpo||{})});
+
+async function ejecutar(accion, cuerpo){
+  try{ await post('/api/ejecutar/'+accion, cuerpo); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+async function trabajo(que){
+  try{ await api('/api/trabajo/'+que, {method:'POST'}); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+
+/* ---------- previsualizar música ---------- */
+let sonando = null;
+function oir(archivo, boton){
+  const a = $('#oido');
+  if(sonando === archivo){ a.pause(); sonando = null; pintaBotonesOir(); return; }
+  a.src = '/audio/' + encodeURIComponent(archivo);
+  a.play().catch(e => toast('No se pudo reproducir: ' + e.message));
+  sonando = archivo; pintaBotonesOir();
+}
+function pintaBotonesOir(){
+  document.querySelectorAll('[data-oir]').forEach(b=>{
+    b.textContent = b.dataset.oir === sonando ? '⏸' : '▶';
+  });
+}
+$('#oido').onended = ()=>{ sonando = null; pintaBotonesOir(); };
+
+/* =========================================================
+   TRABAJO EN CURSO
+
+   Se construye una vez y después solo se reemplaza el texto de los nodos.
+   Repintar el bloque entero en cada refresco es lo que hacía que el registro
+   pareciera una cascada: el navegador redibujaba las 120 líneas cada 1.5 s.
+   ========================================================= */
+let jobMontado = null;   // nombre+arranque del trabajo ya dibujado
+
+function pintaJob(){
+  const j = E && E.trabajo, slot = $('#job-slot');
+  if(!j){ slot.innerHTML=''; jobMontado=null; return; }
+
+  const id = j.nombre;
+  if(jobMontado !== id){
+    jobMontado = id;
+    slot.innerHTML = `
+      <div class="job" id="job-caja">
+        <div class="job-top">
+          <b id="job-nom"></b>
+          <span class="pill acc" id="job-estado"></span>
+          <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+          <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
+          <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>
+        </div>
+        <div class="paso" id="job-paso"></div>
+        <div class="barra"><i id="job-barra"></i></div>
+        <button class="btn sm" id="b-detalle" style="margin-top:9px">Ver detalle</button>
+        <div class="log" id="log" style="display:none"></div>
+      </div>`;
+    $('#b-pausa').onclick = ()=>trabajo(E.trabajo.estado==='pausado'?'reanudar':'pausar');
+    $('#b-abort').onclick = ()=>{ if(confirm('¿Abortar lo que está corriendo?')) trabajo('abortar'); };
+    $('#b-detalle').onclick = ()=>{
+      const l = $('#log'), abierto = l.style.display !== 'none';
+      l.style.display = abierto ? 'none' : 'block';
+      $('#b-detalle').textContent = abierto ? 'Ver detalle' : 'Ocultar detalle';
+      if(!abierto) l.scrollTop = l.scrollHeight;
+    };
+  }
+
+  const corriendo = j.estado==='corriendo' || j.estado==='pausado';
+  const mins = Math.floor(j.segundos/60), segs = j.segundos%60;
+  $('#job-caja').className = 'job' + (j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : ''));
+  $('#job-nom').textContent = j.nombre;
+  $('#job-estado').textContent = j.estado;
+  $('#job-estado').className = 'pill ' + (j.estado==='ok'?'ok':j.estado==='error'?'crit':'acc');
+  $('#job-t').textContent = `${mins}:${String(segs).padStart(2,'0')}`;
+  $('#b-pausa').style.display = corriendo ? '' : 'none';
+  $('#b-abort').style.display = corriendo ? '' : 'none';
+  $('#b-pausa').textContent = j.estado==='pausado' ? '▶' : '⏸';
+
+  // El paso actual es la última línea con contenido. El HUD del render ya
+  // trae el porcentaje entre corchetes: se saca de ahí para la barra en vez
+  // de inventar un avance que no se puede saber.
+  const ultima = j.lineas.length ? j.lineas[j.lineas.length-1] : '(arrancando…)';
+  $('#job-paso').textContent = ultima;
+  const m = ultima.match(/(\d{1,3}(?:\.\d)?)\s*%/);
+  $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
+
+  const log = $('#log');
+  if(log.style.display !== 'none'){
+    // Solo sigue el final si ya estabas al final: si subiste a leer algo,
+    // que no te lo arrastre hacia abajo en el siguiente refresco.
+    const alFinal = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+    const texto = j.lineas.join('\n');
+    if(log.textContent !== texto){
+      log.textContent = texto;
+      if(alFinal) log.scrollTop = log.scrollHeight;
+    }
+  }
+}
+
+/* =========================================================
+   REVISAR
+   ========================================================= */
+function firmaRevisar(){
+  const v = E.videos;
+  // La metadata entra en la firma para que al terminar de generarla se vea
+  // sola. Pero mientras estés escribiendo en sus campos, el repintado se
+  // congela: te borraría lo que llevas escrito a media frase.
+  //
+  // Solo cuenta el foco en un campo de texto. Incluir los botones dejaba el
+  // bloque congelado justo después de pulsar "Guardar" —el foco se queda en
+  // el botón— y el resultado del guardado no llegaba a verse.
+  const foco = document.activeElement;
+  if(foco && foco.matches && foco.matches('#caja-meta input, #caja-meta textarea'))
+    return firmas.revisar;
+  if(!v.length) return 'vacio';
+  // Solo entra el video que estás mirando, NO la lista entera. Terminar de
+  // renderizar otro video cambia la lista, y con la lista dentro de esta
+  // firma el repintado rehacía el <video>: se te reiniciaba justo mientras
+  // lo veías. La tira se actualiza aparte, en pintaTira().
+  const a = v[Math.min(elegido, v.length - 1)];
+  return ['hay', elegido, a.archivo, a.mtime, a.publicado, JSON.stringify(a.meta),
+          abiertoRehacer, JSON.stringify(finos)].join('~');
+}
+
+// La tira de miniaturas, aparte de la ficha y con su propia firma: puede
+// crecer mientras un render avanza sin tocar nada de lo que estás usando.
+let firmaTiraActual = null;
+function pintaTira(){
+  const v = E.videos, caja = document.querySelector('#v-revisar .thumbs');
+  if(!caja) return;   // la vista aún no está montada (o no hay videos)
+  const f = [v.length, elegido,
+             v.map(x=>x.archivo+x.mtime+x.publicado).join('|')].join('~');
+  if(firmaTiraActual === f) return;
+  firmaTiraActual = f;
+
+  const enc = document.querySelector('#v-revisar h2');
+  if(enc) enc.textContent = `${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}`;
+  const ley = document.querySelector('#v-revisar .leyenda');
+  if(ley) ley.outerHTML = leyendaSubidos(v);
+
+  const izq = caja.scrollLeft;
+  caja.innerHTML = miniaturas(v);
+  caja.scrollLeft = izq;   // que no se te vaya al principio al aparecer una
+  caja.querySelectorAll('.th').forEach(t =>
+    t.onclick = ()=>{ elegido = +t.dataset.i; pintar(); });
+}
+
+function miniaturas(v){
+  return v.map((x,i)=>`
+      <div class="th ${i===elegido?'on':''} ${x.publicado?'sub':''}" data-i="${i}"
+           title="${x.publicado?'ya subido a YouTube':'sin subir'}">
+        <div class="im"><img loading="lazy" alt=""
+             src="/miniatura/${encodeURIComponent(x.archivo)}?v=${x.mtime||0}"
+             onerror="this.remove()"><span>${Math.floor(x.duracion_sec/60)}:${String(Math.round(x.duracion_sec%60)).padStart(2,'0')}</span></div>
+        <span class="ck">✓</span>
+        <div class="cp">${String(x.numero??i+1).padStart(2,'0')}</div>
+      </div>`).join('');
+}
+function leyendaSubidos(v){
+  // El recuento delante de la tira: cuántos quedan es lo que de verdad
+  // quieres saber al abrir el panel, y el número lo dice antes de que te
+  // pongas a contar miniaturas.
+  const subidos = v.filter(x => x.publicado).length;
+  const faltan = v.length - subidos;
+  return `<div class="leyenda">
+    <span class="pt"><span class="mu sub">✓</span><b>${subidos}</b> subido${subidos===1?'':'s'}</span>
+    <span class="pt"><span class="mu"></span><b>${faltan}</b> sin subir</span>
+    ${faltan ? '' : '<span style="color:var(--ok)">todo al día</span>'}
+  </div>`;
+}
+
+function pintaRevisar(){
+  const v = E.videos, cont = $('#v-revisar');
+  if(!v.length){
+    cont.innerHTML = `
+      <h2>Nada que revisar todavía</h2>
+      <p class="sub">Cuando renderices, cada video aparece aquí para verlo y aprobarlo antes de que se suba.</p>
+      <div class="aviso"><span>▸</span><div>Empieza por uno solo para ver cómo quedó el estilo:
+        <div style="margin-top:9px"><button class="btn go" onclick="ejecutar('renderizar',{historias:'1'})">▶ Renderizar la historia 1</button></div>
+      </div></div>`;
+    return;
+  }
+  if(elegido >= v.length) elegido = 0;
+  const a = v[elegido];
+  const mins = Math.floor(a.duracion_sec/60), segs = Math.round(a.duracion_sec%60);
+  const pistas = E.musica || [];
+
+  cont.innerHTML = `
+    <h2>${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}</h2>
+    <p class="sub">Míralo aquí mismo — el archivo está en este teléfono. Toca el video para pantalla completa.</p>
+    ${leyendaSubidos(v)}
+    <div class="thumbs">${miniaturas(v)}</div>
+
+    <div class="card review">
+      <div>
+        <video controls playsinline preload="metadata" class="${a.es_short?'':'wide'}"
+               src="/video/${encodeURIComponent(a.archivo)}"></video>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:11px;min-width:0">
+        <div>
+          <h3 style="margin:0 0 5px;font-size:17px;line-height:1.3">${esc(a.titulo)}</h3>
+          <div class="facts">
+            <span><b>${mins}:${String(segs).padStart(2,'0')}</b></span>
+            <span>${a.es_short?'Short':'Largo'}</span>
+            <span>Emoción <b>${esc(a.emocion)}</b></span>
+            ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
+              <button class="btn sm" data-oir="${esc(a.musica)}" style="padding:2px 8px">▶</button>`:''}
+            ${a.publicado ? '<span class="pill ok">✓ ya subido a YouTube</span>'
+                          : '<span class="pill idle">sin subir</span>'}
+          </div>
+        </div>
+        <div class="script"><b style="color:var(--ink-faint);font:10px var(--mono);
+          text-transform:uppercase;letter-spacing:.09em;display:block;margin-bottom:5px">Narración</b>${esc(a.cuerpo).slice(0,700)}${a.cuerpo.length>700?'…':''}</div>
+        ${bloqueMeta(a)}
+
+        <div style="display:flex;gap:7px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line-soft)">
+          <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar pendientes</button>
+          <button class="btn" id="b-rehacer">↺ Rehacer este</button>
+        </div>
+        <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
+
+        <div class="card" id="panel-rehacer" style="display:${abiertoRehacer?'block':'none'};background:var(--surface-2);padding:13px">
+          <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+             color:var(--ink-faint);display:block;margin-bottom:9px">Al rehacer, cambiar…</b>
+          <div class="muted" style="margin-bottom:10px">
+            Los cortes del fondo y el ritmo del TTS ya salen distintos en cada render.
+            Marca lo que además quieras forzar:</div>
+
+          <div class="finos">
+            <label class="fino ${finos.musica?'on':''}"><input type="checkbox" data-fino="musica"
+              ${finos.musica?'checked':''}> Otra música</label>
+            <label class="fino ${finos.voz?'on':''}"><input type="checkbox" data-fino="voz"
+              ${finos.voz?'checked':''}> Otra voz</label>
+            <label class="fino ${finos.fondo?'on':''} ${(E.fondos||[]).length>1?'':'no'}">
+              <input type="checkbox" data-fino="fondo" ${finos.fondo?'checked':''}
+              ${(E.fondos||[]).length>1?'':'disabled'}> Otro video de fondo</label>
+            <label class="fino ${finos.estilo?'on':''}"><input type="checkbox" data-fino="estilo"
+              ${finos.estilo?'checked':''}> Otro estilo de subtítulos</label>
+            <label class="fino ${finos.volumen?'on':''}"><input type="checkbox" data-fino="volumen"
+              ${finos.volumen?'checked':''}> Otro volumen de música</label>
+          </div>
+
+          ${finos.musica ? `<div class="sangria">
+            <select id="r-musica" class="btn sm" style="width:100%">
+              <option value="">otra al azar de su emoción</option>
+              ${pistas.map(p=>`<option value="${esc(p.archivo)}" ${p.archivo===a.musica?'disabled':''}>
+                ${esc(p.emocion)} · ${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}
+                ${p.archivo===a.musica?'(la actual)':''}</option>`).join('')}
+            </select>
+            <div style="display:flex;gap:6px"><button class="btn sm" id="b-oir-sel">▶ Oír la elegida</button></div>
+          </div>` : ''}
+
+          ${finos.voz ? `<div class="sangria">
+            <select id="r-voz" class="btn sm" style="width:100%">
+              <option value="masculina">masculina (Jorge)</option>
+              <option value="femenina">femenina (Dalia)</option>
+            </select></div>` : ''}
+
+          ${finos.fondo ? `<div class="sangria">
+            <select id="r-fondo" class="btn sm" style="width:100%">
+              ${(E.fondos||[]).map(f=>`<option value="${esc(f)}">${esc(f)}</option>`).join('')}
+            </select></div>` : ''}
+
+          ${finos.estilo ? `<div class="sangria">
+            <select id="r-estilo" class="btn sm" style="width:100%">
+              ${E.presets.map(p=>`<option value="${p}">${p}</option>`).join('')}
+            </select></div>` : ''}
+
+          ${finos.volumen ? `<div class="sangria">
+            <div class="slider"><input type="range" id="r-vol" min="0" max="30" step="1"
+                value="${Math.round((E.ajustes.volumen_musica ?? .04)*100)}">
+              <span class="v" id="r-vol-v">${Math.round((E.ajustes.volumen_musica ?? .04)*100)}%</span></div>
+            <div class="muted">Solo para este render; no cambia el ajuste general.</div>
+          </div>` : ''}
+
+          <div style="display:flex;gap:7px;margin-top:12px">
+            <button class="btn go" id="b-rehacer-ya">↺ Rehacer ahora</button>
+            <button class="btn" id="b-rehacer-no">Cancelar</button>
+          </div>
+          <div class="muted" style="margin-top:9px">Reemplaza el archivo actual. Tarda lo mismo que un render normal.</div>
+        </div>
+      </div>
+    </div>`;
+
+  conectarMeta(a);
+  // La tira acaba de salir de aquí: se anota su firma para que pintaTira()
+  // no la vuelva a pintar encima sin necesidad.
+  firmaTiraActual = [v.length, elegido,
+                     v.map(x=>x.archivo+x.mtime+x.publicado).join('|')].join('~');
+  cont.querySelectorAll('.th').forEach(t => t.onclick = ()=>{ elegido = +t.dataset.i; pintar(); });
+  cont.querySelectorAll('[data-fino]').forEach(c => c.onchange = ()=>{
+    finos[c.dataset.fino] = c.checked; pintar();
+  });
+  cont.querySelectorAll('[data-oir]').forEach(b => b.onclick = ()=>oir(b.dataset.oir, b));
+
+  const bOirSel = $('#b-oir-sel');
+  if(bOirSel) bOirSel.onclick = ()=>{
+    const f = $('#r-musica').value;
+    if(!f) return toast('Elige una pista concreta para oírla');
+    oir(f);
+  };
+  const vol = $('#r-vol');
+  if(vol) vol.oninput = ()=>{ $('#r-vol-v').textContent = vol.value + '%'; };
+
+  $('#b-rehacer').onclick = ()=>{ abiertoRehacer = !abiertoRehacer; pintar();
+    if(abiertoRehacer) $('#panel-rehacer').scrollIntoView({behavior:'smooth', block:'nearest'}); };
+  $('#b-rehacer-no').onclick = ()=>{ abiertoRehacer = false; pintar(); };
+  $('#b-rehacer-ya').onclick = ()=>{
+    const cuerpo = { historias: String(a.numero||''), rehacer: true };
+    if(finos.musica){
+      const f = $('#r-musica').value;
+      // Sin pista concreta se pide "otra al azar": se excluye la actual
+      // eligiendo una distinta de la misma emoción aquí, porque el render
+      // sortea de nuevo y podría repetir la que ya tienes.
+      const alt = f || otraPistaDe(a.emocion, a.musica);
+      if(alt) cuerpo.musica = {[String(a.numero||'*')]: alt};
+    }
+    if(finos.voz)     cuerpo.voz = $('#r-voz').value;
+    if(finos.fondo)   cuerpo.fondo = $('#r-fondo').value;
+    if(finos.estilo)  cuerpo.estilo = $('#r-estilo').value;
+    if(finos.volumen) cuerpo.volumen_musica = (+$('#r-vol').value / 100).toFixed(2);
+    ejecutar('renderizar', cuerpo);
+    abiertoRehacer = false;
+  };
+}
+/* ---------- cómo se va a publicar ----------
+   Es lo que publisher.py subirá tal cual. Antes esto no existía hasta el
+   instante de la subida: lo generaba el propio publisher justo antes de
+   mandarlo, así que no había ningún momento en que pudieras verlo. */
+function bloqueMeta(a){
+  const m = a.meta;
+  if(!m) return `
+    <div class="card" style="background:var(--surface-2);padding:13px">
+      <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+         color:var(--ink-faint);display:block;margin-bottom:8px">Cómo se va a publicar</b>
+      <div class="muted" style="margin-bottom:10px">Todavía sin preparar. Gemini escribe el título,
+        la descripción y los hashtags; hacerlo ahora te deja corregirlos antes de subir
+        (si no, se generan solos en el momento de la subida y no los ves).</div>
+      <button class="btn go sm" onclick="ejecutar('metadata')">✨ Preparar con Gemini</button>
+    </div>`;
+
+  const editado = m.origen === 'manual';
+  const tags = m.hashtags || [];
+  return `
+    <div class="card" style="background:var(--surface-2);padding:13px" id="caja-meta">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px">
+        <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+           color:var(--ink-faint)">Cómo se va a publicar</b>
+        <span class="pill ${editado?'acc':'idle'}">${editado?'editado por ti':esc(m.origen||'gemini')}</span>
+      </div>
+
+      ${!m.aprobado ? `<div class="aviso crit" style="margin-bottom:11px"><span>⛔</span><div>
+        <b>Gemini lo rechazó:</b> ${esc(m.motivo_rechazo||'sin motivo')}.
+        Si lo guardas desde aquí queda aprobado y se subirá.</div></div>` : ''}
+
+      <label class="muted" style="display:flex;justify-content:space-between">
+        <span>Título</span><span id="m-cuenta"></span></label>
+      <textarea id="m-titulo" rows="2" spellcheck="false"
+        style="width:100%;margin-top:5px;background:var(--surface);color:var(--ink);
+        border:1px solid var(--line);border-radius:8px;padding:9px;font:13.5px var(--body);
+        resize:vertical">${esc(m.titulo_youtube||'')}</textarea>
+      <div class="muted" id="m-recorte" style="display:none;margin-top:6px;
+        border-left:2px solid var(--warn);padding-left:9px"></div>
+
+      <div class="muted" style="margin-top:11px">Hashtags
+        <span style="color:var(--ink-faint)">· van al inicio de la descripción</span></div>
+      <div id="m-tags" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">
+        ${tags.map(t=>`<span class="pill acc" style="display:inline-flex;gap:6px;align-items:center;
+          text-transform:none;font-size:11.5px;padding:5px 8px">#${esc(t)}
+          <b data-quita="${esc(t)}" style="cursor:pointer;opacity:.65">×</b></span>`).join('')}
+        <button class="btn sm" id="m-add" style="padding:4px 9px;font-size:11.5px">+ agregar</button>
+      </div>
+
+      <div class="muted" style="margin-top:11px">Descripción</div>
+      <textarea id="m-desc" rows="4" spellcheck="false"
+        style="width:100%;margin-top:5px;background:var(--surface);color:var(--ink);
+        border:1px solid var(--line);border-radius:8px;padding:9px;font:13px/1.5 var(--body);
+        resize:vertical">${esc(m.descripcion_youtube||'')}</textarea>
+
+      <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn go sm" id="m-guardar">Guardar</button>
+        <button class="btn sm" id="m-regenerar">↻ Regenerar con Gemini</button>
+      </div>
+      <div class="muted" style="margin-top:9px" id="m-nota">
+        Se guarda junto al video. <code style="font:11.5px var(--mono)">publisher.py</code> sube
+        exactamente esto, sin volver a preguntarle a Gemini.</div>
+    </div>`;
+}
+
+// Vista previa del recorte. El cálculo lo hace el servidor (POST /api/recorte)
+// en vez de repetirse aquí en JavaScript: dos implementaciones del mismo
+// algoritmo acabarían separándose, y esta vista previa solo sirve si dice
+// exactamente lo que se va a subir. El servidor es local, así que preguntar
+// cuesta un milisegundo.
+let recortePedido = 0, recorteReloj = null;
+const recorteCache = new Map();
+
+function pedirRecorte(texto, caja){
+  const pinta = (donde, t) => { if(donde) donde.innerHTML =
+    `Se pasa de 100. Se subirá recortado por palabras:<br>
+     <b style="color:var(--ink)">${esc(t)}</b>`; };
+
+  if(recorteCache.has(texto)){ pinta(caja, recorteCache.get(texto)); return; }
+
+  const token = ++recortePedido;
+  caja.textContent = 'Se pasa de 100. Calculando el recorte…';
+  clearTimeout(recorteReloj);
+  recorteReloj = setTimeout(async ()=>{
+    let r;
+    try{
+      r = await (await fetch('/api/recorte', {method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({titulo: texto})})).json();
+    }catch(e){ return; }   // sin servidor no hay nada que enseñar
+    if(token !== recortePedido) return;   // ya escribiste algo más
+    recorteCache.set(texto, r.titulo);
+    // Puede haber repintado mientras tanto: se busca el div otra vez.
+    pinta(document.querySelector('#m-recorte'), r.titulo);
+  }, 250);
+}
+
+function conectarMeta(a){
+  if(!$('#caja-meta')) return;
+  const tit = $('#m-titulo'), cuenta = $('#m-cuenta');
+  // Copia de trabajo: se edita aquí y solo se manda al guardar, para que un
+  // refresco a media escritura no se lleve lo que estabas poniendo.
+  let tags = [...(a.meta.hashtags || [])];
+
+  const contar = ()=>{
+    // .length de JS ya cuenta en unidades UTF-16, que es como mide YouTube
+    // (y como mide largo_youtube en el servidor): coinciden sin convertir.
+    const n = tit.value.length;
+    cuenta.textContent = `${n}/100`;
+    cuenta.style.color = n > 100 ? 'var(--crit)' : (n > 90 ? 'var(--warn)' : 'var(--ink-faint)');
+
+    // Pasarse no es un error: se recorta por palabras. Pero verlo antes de
+    // guardar evita la sorpresa de descubrir en YouTube dónde quedó el corte.
+    const av = $('#m-recorte');
+    if(n > 100){ av.style.display = 'block'; pedirRecorte(tit.value, av); }
+    else { av.style.display = 'none'; recortePedido++; }
+  };
+  tit.oninput = contar; contar();
+
+  const repintaTags = ()=>{
+    const caja = $('#m-tags');
+    caja.querySelectorAll('.pill').forEach(e=>e.remove());
+    const add = $('#m-add');
+    tags.forEach(t=>{
+      const s = document.createElement('span');
+      s.className = 'pill acc';
+      s.style.cssText = 'display:inline-flex;gap:6px;align-items:center;text-transform:none;font-size:11.5px;padding:5px 8px';
+      s.innerHTML = `#${esc(t)} <b style="cursor:pointer;opacity:.65">×</b>`;
+      s.querySelector('b').onclick = ()=>{ tags = tags.filter(x=>x!==t); repintaTags(); };
+      caja.insertBefore(s, add);
+    });
+    add.style.display = tags.length >= 6 ? 'none' : '';
+  };
+  repintaTags();
+
+  $('#m-add').onclick = ()=>{
+    const crudo = prompt('Hashtag (sin #):');
+    if(!crudo) return;
+    const limpio = crudo.replace(/[^\w]/g, '');
+    if(!limpio) return toast('Ese hashtag se queda en nada al limpiarlo');
+    if(tags.includes(limpio)) return toast('Ya está');
+    if(tags.length >= 6) return toast('Seis es el tope que sube publisher.py');
+    tags.push(limpio); repintaTags();
+  };
+
+  $('#m-guardar').onclick = async ()=>{
+    if(!tit.value.trim()) return toast('El título no puede quedar vacío');
+    try{
+      await post('/api/metadata/'+encodeURIComponent(a.archivo), {
+        titulo_youtube: tit.value,
+        descripcion_youtube: $('#m-desc').value,
+        hashtags: tags,
+      });
+      toast('Guardado — se subirá así');
+      refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#m-regenerar').onclick = ()=>{
+    if(a.meta.origen === 'manual' &&
+       !confirm('Lo editaste a mano. Regenerar reemplaza tu texto. ¿Seguir?')) return;
+    ejecutar('regenerar_metadata', {numero: a.numero});
+  };
+}
+
+function otraPistaDe(emocion, evitar){
+  const pool = (E.musica||[]).filter(p => p.emocion === emocion && p.archivo !== evitar);
+  const alt = pool.length ? pool : (E.musica||[]).filter(p => p.archivo !== evitar);
+  return alt.length ? alt[Math.floor(Math.random()*alt.length)].archivo : '';
+}
+
+/* =========================================================
+   COLA
+   ========================================================= */
+function rangoTexto(){
+  const a = [...seleccion].sort((x,y)=>x-y), p=[]; let i=0;
+  while(i<a.length){ let j=i; while(j+1<a.length && a[j+1]===a[j]+1) j++;
+    p.push(j>i+1 ? a[i]+'-'+a[j] : a.slice(i,j+1).join(',')); i=j+1; }
+  return p.join(',');
+}
+function firmaCola(){
+  return [E.historias.length, E.historias.map(h=>h.n+h.titulo).join('|'),
+          [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
+          (E.musica||[]).length].join('~');
+}
+function pintaCola(){
+  const h = E.historias, cont = $('#v-cola');
+  if(!h.length){
+    cont.innerHTML = `<h2>Sin historias</h2>
+      <p class="sub">No hay guion.txt. Busca historias en Reddit y conviértelas en guiones.</p>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
+        <button class="btn go" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
+        <button class="btn" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+        <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
+      </div>`;
+    return;
+  }
+  if(!tocado && !seleccion.size) h.slice(0,3).forEach(x=>seleccion.add(x.n));
+  const pistas = E.musica || [];
+  const elegidas = h.filter(x=>seleccion.has(x.n));
+
+  // El scroll de la lista se guarda y se repone: sin esto, repintar mientras
+  // recorres las historias te devuelve al principio de la lista.
+  const cajaPrevia = cont.querySelector('#caja-lista');
+  const scrollPrevio = cajaPrevia ? cajaPrevia.scrollTop : 0;
+
+  cont.innerHTML = `
+    <h2>${h.length} historias listas para renderizar</h2>
+    <p class="sub">La numeración se conserva aunque pidas solo algunas: la historia 7 siempre genera <code style="font:12px var(--mono)">07_…</code></p>
+    <div class="list">
+      <div class="list-head">
+        <div><b>Elige qué renderizar</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
+        <div style="display:flex;gap:5px;flex-wrap:wrap">
+          <button class="btn sm" id="q-todas">Todas</button>
+          <button class="btn sm" id="q-ning">Ninguna</button>
+        </div>
+      </div>
+      <div id="caja-lista" style="max-height:340px;overflow:auto">${h.map(x=>`
+        <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
+          <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
+          <span class="n">${String(x.n).padStart(2,'0')}</span>
+          <span class="t">${esc(x.titulo)}</span>
+          <span class="m">${esc(x.emocion).slice(0,5)}</span>
+          <span class="m" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
+            >${x.genero==='femenino'?'♀':'♂'}</span>
+          <span class="m">${x.duracion}</span>
+        </label>`).join('')}</div>
+      <div class="list-foot">
+        <code class="equiv" id="equiv"></code>
+        <div style="display:flex;gap:7px">
+          <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
+          <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
+          <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
+          <button class="btn go" id="b-render">▶ Renderizar</button>
+        </div>
+      </div>
+    </div>
+
+    <h3 class="sec">Música de cada una</h3>
+    ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
+      Ve a <b>Ajustes → Música</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
+    : !elegidas.length ? `<div class="aviso"><span>·</span><div>Selecciona historias arriba para elegirles música.</div></div>`
+    : `<p class="sub">Por omisión sale una al azar de la emoción que detectó el guion. Si eliges
+       una a mano, óyela antes — así no descubres que no pegaba después de esperar el render.
+       Lo que dejes en «al azar» sigue funcionando sin ti, que es lo que necesita el cron.</p>
+    <div class="list">${elegidas.map(x=>`
+      <div class="row" style="grid-template-columns:26px 1fr auto auto">
+        <span class="n">${String(x.n).padStart(2,'0')}</span>
+        <select class="btn sm" data-mus="${x.n}" style="min-width:0">
+          <option value="">al azar · ${esc(x.emocion)}</option>
+          ${pistas.map(p=>`<option value="${esc(p.archivo)}" ${musicaElegida[x.n]===p.archivo?'selected':''}>
+            ${esc(p.emocion)} · ${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</option>`).join('')}
+        </select>
+        <button class="btn sm" data-oir-fila="${x.n}" style="padding:6px 9px">▶</button>
+        <span class="m">${musicaElegida[x.n] ? 'fijada' : 'auto'}</span>
+      </div>`).join('')}</div>`}`;
+
+  const caja = cont.querySelector('#caja-lista');
+  if(caja) caja.scrollTop = scrollPrevio;
+
+  const sync = ()=>{
+    $('#cuenta').textContent = `${seleccion.size} de ${h.length} seleccionadas`;
+    $('#equiv').textContent = seleccion.size ? '--historias '+rangoTexto() : 'nada seleccionado';
+    const b = $('#b-render');
+    b.textContent = seleccion.size ? `▶ Renderizar ${seleccion.size}` : '▶ Renderizar';
+    b.disabled = !seleccion.size;
+  };
+  cont.querySelectorAll('.row.sel').forEach(r=>{
+    r.querySelector('input').onchange = e=>{
+      tocado = true;
+      const n = +r.dataset.n;
+      e.target.checked ? seleccion.add(n) : seleccion.delete(n);
+      r.classList.toggle('on', e.target.checked);
+      sync(); pintar();
+    };
+  });
+  cont.querySelectorAll('[data-mus]').forEach(s => s.onchange = ()=>{
+    const n = s.dataset.mus;
+    if(s.value) musicaElegida[n] = s.value; else delete musicaElegida[n];
+    pintar();
+  });
+  cont.querySelectorAll('[data-oir-fila]').forEach(b => b.onclick = ()=>{
+    const n = b.dataset.oirFila;
+    const f = musicaElegida[n] || (E.historias.find(x=>x.n==n)
+      ? otraPistaDe(E.historias.find(x=>x.n==n).emocion, null) : '');
+    if(!f) return toast('No hay pista que oír');
+    oir(f, b);
+  });
+  $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintar(); };
+  $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintar(); };
+  $('#b-render').onclick = ()=>{
+    const mus = {};
+    for(const n of seleccion) if(musicaElegida[n]) mus[String(n)] = musicaElegida[n];
+    ejecutar('renderizar', {historias: rangoTexto(), musica: mus});
+  };
+  sync();
+  pintaBotonesOir();
+}
+
+/* =========================================================
+   ESTILO
+   ========================================================= */
+const DESCR = {
+  predeterminado:'Frase completa; solo las palabras con carga se pintan, rotando colores.',
+  verde_fijo:'Todas las palabras activas del mismo verde, sin rotación.',
+  amarillo_clasico:'Karaoke por relleno: lo ya dicho se queda amarillo.',
+  una_palabra:'Una palabra a la vez con rebote, un solo color.',
+  sobrio:'Sin color: la palabra activa solo crece. Lo más discreto.',
+  alto_contraste:'Bebas Neue, resalte rojo, menos palabras por frase.',
+  palabras_clave:'Una palabra a la vez, algunas pintadas rotando. El del video de referencia.'
+};
+function firmaEstilo(){ return JSON.stringify(E.subtitulos); }
+function pintaEstilo(){
+  const s = E.subtitulos, act = s.preset || 'predeterminado';
+  const paleta = (s.colores_resalte||[]);
+  $('#v-estilo').innerHTML = `
+    <h2>Estilo de subtítulos</h2>
+    <p class="sub">Cambiarlo escribe el preset en config.json. Aplica al próximo render, no a lo ya hecho.</p>
+    <div class="presets">${E.presets.map(p=>`
+      <div class="preset ${p===act?'on':''}" data-p="${p}">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h4>${p}</h4>${p===act?'<span class="pill acc">Activo</span>':''}
+        </div>
+        <div class="muted">${esc(DESCR[p]||'')}</div>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Qué usa el activo</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto"><span>Estilo</span><span class="m">${esc(s.estilo)}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Fuente</span><span class="m">${esc(s.fuente)}${s.italica?' · itálica':''}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Colores de resalte</span>
+        <span>${paleta.length>1 ? paleta.map(c=>`<span class="sw" style="background:${esc(c)}"></span>`).join(' ')
+              : `<span class="sw" style="background:${esc(s.color_activo)}"></span>`}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Solo palabras con carga</span>
+        <span class="m">${s.resaltar_solo_clave ? 'sí, de '+s.min_letras_resalte+'+ letras' : 'no, todas'}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto"><span>Palabras en pantalla</span>
+        <span class="m">${s.estilo==='pop' ? '1' : s.palabras_por_frase_short+' / '+s.palabras_por_frase_largo}</span></div>
+    </div>
+
+    <h3 class="sec">Comparar sobre tu gameplay</h3>
+    <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <div class="muted" style="flex-grow:1">Renderiza el mismo momento con cada preset y deja una hoja de comparación en la galería.</div>
+      <button class="btn go" onclick="ejecutar('previsualizar')">Generar comparación</button>
+    </div>`;
+
+  document.querySelectorAll('.preset').forEach(el=>{
+    el.onclick = async ()=>{
+      try{ await post('/api/preset',{preset:el.dataset.p});
+        toast('Estilo: '+el.dataset.p); refrescar();
+      }catch(e){ toast(e.message); }
+    };
+  });
+}
+
+/* =========================================================
+   PUBLICADOS
+   ========================================================= */
+function estadoPublicacion(x){
+  // Se distingue "lo pedimos y YouTube lo aplicó" de "lo pedimos y no".
+  // Antes solo se enseñaba lo que habíamos pedido, así que un video ya
+  // público seguía apareciendo como "programado" y nada lo delataba.
+  if(x.programado_ok === false)
+    return `<span style="color:var(--crit)">⛔ YouTube no respetó la ventana` +
+           (x.privacidad_real ? ` — quedó ${esc(x.privacidad_real)}` : '') + `</span>`;
+  if(x.publish_at) return 'programado ' + esc(x.publish_at.slice(0,16).replace('T',' '));
+  return 'público';
+}
+
+function firmaPublicados(){ return JSON.stringify(E.publicados); }
+function pintaPublicados(){
+  const p = E.publicados;
+  const porBorrar = p.filter(x=>x.dias_restantes!==null && x.dias_restantes<=2 && !x.borrado_local);
+  $('#v-publicados').innerHTML = `
+    <h2>Publicados</h2>
+    <p class="sub">Los archivos se quedan 7 días en el teléfono tras subirse, para que te dé tiempo de pasarlos a TikTok.</p>
+    ${(()=>{ const mal = p.filter(x=>x.programado_ok === false).length;
+      return mal ? `<div class="aviso crit"><span>⛔</span><div>
+        <b>${mal} video(s) se publicaron sin ventana de revisión.</b>
+        YouTube ignoró la fecha que se le pidió. Suele ser porque el canal no
+        está verificado por teléfono: sin verificar no deja programar.
+        <div style="margin-top:7px"><a class="btn sm" target="_blank" rel="noopener"
+          href="https://www.youtube.com/verify">Verificar el canal ↗</a></div>
+      </div></div>` : ''; })()}
+    ${porBorrar.length ? `<div class="aviso crit"><span>↓</span><div><b>${porBorrar.length} se borran pronto.</b> Si los quieres para TikTok, descárgalos ya.</div></div>`:''}
+    ${!p.length ? `<div class="aviso"><span>·</span><div>Todavía no hay nada publicado.</div></div>` : `
+    <div class="list">${p.map(x=>`
+      <div class="row" style="grid-template-columns:1fr 110px auto">
+        <div><div class="t">${esc(x.titulo)}</div>
+          <div class="m">${estadoPublicacion(x)}</div></div>
+        <span class="m">${x.borrado_local ? 'borrado local' : (x.dias_restantes!==null ? x.dias_restantes+'d en disco' : '')}</span>
+        ${x.video_id?`<a class="btn sm" target="_blank" rel="noopener"
+          href="https://studio.youtube.com/video/${esc(x.video_id)}/edit">Studio ↗</a>`:'<span></span>'}
+      </div>`).join('')}</div>`}
+
+    <h3 class="sec">Subir ahora</h3>
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div class="muted" style="flex-grow:1">Sube los pendientes respetando el límite diario de YouTube.</div>
+      <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar</button>
+      <button class="btn" onclick="if(confirm('¿Subir usando datos móviles?')) ejecutar('publicar_datos')">Con datos móviles</button>
+    </div>`;
+}
+
+
+/* =========================================================
+   TIKTOK
+   ========================================================= */
+
+/* Pantalla de publicación de TikTok. La pide su guía de revisión: tiene que
+   verse a qué cuenta va, la privacidad hay que elegirla a mano (sin valor por
+   defecto), los permisos respetan lo que la cuenta admite, y la declaración de
+   contenido comercial enseña el aviso legal que toque. */
+let creadorTk = null;
+
+const TK_ETIQUETA = {PUBLIC_TO_EVERYONE:'Público', MUTUAL_FOLLOW_FRIENDS:'Amigos',
+                     FOLLOWER_OF_CREATOR:'Seguidores', SELF_ONLY:'Solo yo (privado)'};
+
+async function abrirTiktok(nombre){
+  const caja = $('#tk-form-'+CSS.escape(nombre));
+  if(!caja) return;
+  if(caja.innerHTML){ caja.innerHTML=''; return; }
+  caja.innerHTML = '<div class="muted" style="padding:10px 13px">Preguntando a TikTok qué permite tu cuenta…</div>';
+
+  if(!creadorTk){
+    const r = await fetch('/api/tiktok/creador');
+    const d = await r.json();
+    if(!d.ok){ caja.innerHTML = '<div class="aviso crit"><span>⛔</span><div>'+esc(d.error||'')+'</div></div>'; return; }
+    creadorTk = d.creador;
+  }
+  const c = creadorTk;
+  const previo = (E.tiktok.pendientes.find(p=>p.nombre===nombre)||{}).opciones || null;
+  const n = esc(nombre);
+
+  caja.innerHTML = `
+    <div class="card" style="margin:8px 13px 13px;background:var(--surface-2)">
+      <div class="muted" style="margin-bottom:12px">
+        TikTok exige que estas decisiones se tomen una por una, sin valores por
+        defecto. Nada se publica hasta que guardes.
+      </div>
+
+      <div style="display:flex;align-items:center;gap:8px;padding-bottom:11px;
+                  border-bottom:1px solid var(--line)">
+        <span class="pill acc">Cuenta</span>
+        <b>@${esc(c.creator_username||'')}</b>
+        <span class="m">${c.creator_nickname?esc(c.creator_nickname):''}</span>
+      </div>
+
+      <div style="margin-top:13px">
+        <label for="tk-priv-${n}"><b>1 · ¿Quién puede verlo?</b></label>
+        <select id="tk-priv-${n}" class="btn" style="width:100%;margin-top:5px"
+                onchange="revisaTiktok('${n}')">
+          <option value="">— elige una opción —</option>
+          ${(c.privacy_level_options||[]).map(o=>`<option value="${esc(o)}"
+            ${previo && previo.privacidad===o?'selected':''}>${esc(TK_ETIQUETA[o]||o)}</option>`).join('')}
+        </select>
+      </div>
+
+      <div style="margin-top:15px">
+        <b>2 · ¿Qué permites a quien lo vea?</b>
+        <div class="finos" style="margin-top:6px">
+          ${[['comentarios','Comentarios',c.comment_disabled],
+             ['dueto','Dúo',c.duet_disabled],
+             ['stitch','Stitch',c.stitch_disabled]].map(([k,txt,off])=>`
+            <label class="fino ${off?'no':''}">
+              <input type="checkbox" id="tk-${k}-${n}" ${off?'disabled':''}
+                ${previo && previo[k] && !off ? 'checked':''}>
+              <span>${txt}${off?'<br><span class="m">apagado en tu cuenta</span>':''}</span>
+            </label>`).join('')}
+        </div>
+      </div>
+
+      <div style="margin-top:15px">
+        <b>3 · ¿Promociona algo?</b>
+        <label class="fino" style="margin-top:6px">
+          <input type="checkbox" id="tk-com-${n}"
+            ${previo && previo.comercial && previo.comercial.activo?'checked':''}
+            onchange="document.getElementById('tk-com-caja-${n}').hidden=!this.checked;revisaTiktok('${n}')">
+          <span>Sí, este vídeo promociona algo</span>
+        </label>
+        <div id="tk-com-caja-${n}" class="sangria"
+             ${previo && previo.comercial && previo.comercial.activo?'':'hidden'}>
+          <label class="fino"><input type="checkbox" id="tk-marca-${n}"
+            onchange="revisaTiktok('${n}')"
+            ${previo && previo.comercial && previo.comercial.marca_propia?'checked':''}>
+            <span>Mi propia marca<br><span class="m">se etiqueta «Contenido promocional»</span></span></label>
+          <label class="fino"><input type="checkbox" id="tk-patro-${n}"
+            onchange="revisaTiktok('${n}')"
+            ${previo && previo.comercial && previo.comercial.patrocinado?'checked':''}>
+            <span>Contenido patrocinado<br><span class="m">se etiqueta «Colaboración pagada»</span></span></label>
+          <div class="muted">
+            <a href="https://www.tiktok.com/legal/page/global/bc-policy/es" target="_blank" rel="noopener">Política de contenido de marca ↗</a>
+            · <a href="https://www.tiktok.com/legal/page/global/music-usage-confirmation/es" target="_blank" rel="noopener">Uso de música ↗</a></div>
+        </div>
+      </div>
+
+      <div id="tk-alerta-${n}" style="margin-top:13px"></div>
+      <div style="margin-top:11px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <button class="btn go" id="tk-ok-${n}" onclick="guardarTiktok('${n}')">Guardar y dejar listo</button>
+        <button class="btn" onclick="abrirTiktok('${n}')">Cerrar</button>
+        <span class="m" id="tk-msg-${n}"></span>
+      </div>
+    </div>`;
+  revisaTiktok(nombre);
+}
+
+/* Las mismas reglas que valida el servidor, pero dichas antes de pulsar
+   Guardar: enterarse de que el patrocinio no puede ser privado *después* de
+   rellenar el formulario es justo lo que hacia opaca esta pantalla. */
+function tkFallo(nombre){
+  const v = id => document.getElementById(id+'-'+nombre);
+  if(!v('tk-priv').value) return 'Elige quién puede verlo.';
+  if(v('tk-com').checked){
+    if(!v('tk-marca').checked && !v('tk-patro').checked)
+      return 'Marca si es tu marca, contenido patrocinado, o las dos.';
+    if(v('tk-patro').checked && v('tk-priv').value === 'SELF_ONLY')
+      return 'El contenido patrocinado no puede ser privado: elige otra visibilidad.';
+  }
+  return '';
+}
+
+function revisaTiktok(nombre){
+  const fallo = tkFallo(nombre);
+  const alerta = document.getElementById('tk-alerta-'+nombre);
+  const boton = document.getElementById('tk-ok-'+nombre);
+  if(!alerta || !boton) return;
+  boton.disabled = !!fallo;
+  alerta.innerHTML = fallo
+    ? `<div class="aviso warn"><span>·</span><div>${esc(fallo)}</div></div>` : '';
+}
+
+async function guardarTiktok(nombre){
+  const v = id => document.getElementById(id+'-'+nombre);
+  const msg = v('tk-msg');
+  const comercial = v('tk-com').checked;
+  const cuerpo = {
+    privacidad: v('tk-priv').value,
+    comentarios: v('tk-comentarios').checked,
+    dueto: v('tk-dueto').checked,
+    stitch: v('tk-stitch').checked,
+    comercial: {activo: comercial,
+                marca_propia: comercial && v('tk-marca').checked,
+                patrocinado: comercial && v('tk-patro').checked},
+  };
+  const r = await fetch('/api/tiktok/opciones/'+encodeURIComponent(nombre), {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(cuerpo)});
+  const d = await r.json();
+  msg.textContent = d.ok ? 'Guardado.' : (d.error||'No se pudo guardar');
+  if(d.ok){ firmas.tiktok = null; refrescar(); }
+}
+
+/* El || null no sobra: si falta el dato, JSON.stringify devuelve undefined, que
+   es justo lo que vale la firma guardada la primera vez. Se comparaban iguales
+   y la vista no llegaba a pintarse nunca — salia en blanco. */
+function firmaTiktok(){ return JSON.stringify(E.tiktok || null); }
+
+async function marcarEnTiktok(ruta, titulo){
+  if(!confirm('¿Dar por subido «'+titulo.slice(0,60)+'»?\n\nSale de la lista y no se subirá nunca.')) return;
+  const r = await fetch('/api/tiktok/marcar', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({rutas:[ruta]})
+  });
+  const d = await r.json();
+  if(!d.ok){ alert('No se pudo marcar: '+(d.error||'')); return; }
+  refrescar();
+}
+
+async function tiktokActivo(on){
+  await fetch('/api/tiktok/activo', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({activo:on})
+  });
+  refrescar();
+}
+
+function pintaTiktok(){
+  const t = E.tiktok || {activo:false, token:false, subidos:[], pendientes:[]};
+  const pend = t.pendientes || [], sub = t.subidos || [];
+  const alcance = Math.max(1, t.max_por_corrida || 1);
+  const directo = t.modo === 'directo';
+
+  // En directo solo sube lo que ya decidiste; en borrador sube todo lo que haya.
+  const listos = directo ? pend.filter(p=>p.opciones).length : pend.length;
+  const iran = Math.min(listos, alcance);
+  const sinPreparar = pend.length - (directo ? listos : pend.length);
+
+  // Los que se borrarian del telefono antes de que la tanda diaria les llegue.
+  const perdidos = pend.filter((p,i)=> p.dias !== null && p.dias !== undefined
+                                       && Math.floor(i / alcance) > p.dias).length;
+
+  const pasos = directo
+    ? [['Preparar', 'Eliges visibilidad y permisos de cada vídeo.'],
+       ['Subir', 'El cron lo hace solo, o pulsas Subir aquí.'],
+       ['Ya está', 'Aparece publicado en tu perfil.']]
+    : [['Subir', 'El vídeo viaja a TikTok.'],
+       ['Notificación', 'Llega a tu bandeja, no a Borradores.'],
+       ['Publicar a mano', 'Lo abres en la app y lo publicas tú.']];
+
+  $('#v-tiktok').innerHTML = `
+    <h2>TikTok</h2>
+    <p class="sub">${directo
+      ? 'Preparas cada vídeo aquí y se publica solo en tu perfil, igual que YouTube.'
+      : 'Modo borrador: el vídeo llega a tus notificaciones de TikTok y lo publicas a mano.'}</p>
+
+    <div class="pasos">${pasos.map(([b,d],i)=>`
+      <div class="paso-t"><span class="n">${i+1}</span>
+        <span class="d"><b>${b}</b><span>${d}</span></span></div>`).join('')}</div>
+
+    ${!directo ? `<div class="aviso warn"><span>·</span><div>
+      <b>El modo borrador no te ahorra el trabajo:</b> baja de TikTok un archivo
+      que ya tienes en el teléfono para que lo publiques tú. El que automatiza
+      de verdad es el modo directo, y necesita pasar la auditoría de TikTok
+      (ver <code>AUDITORIA_TIKTOK.md</code>).
+    </div></div>` : ''}
+
+    ${!t.token ? `<div class="aviso crit"><span>⛔</span><div>
+      <b>Falta autorizar la cuenta.</b> No hay <code>tiktok_token.json</code>.
+      Se genera una vez desde Termux con <code>generar_tiktok_token.py</code>.
+    </div></div>` : ''}
+
+    ${perdidos ? `<div class="aviso crit"><span>⏳</span><div>
+      <b>${perdidos} vídeo(s) se borrarán del teléfono antes de que les toque.</b>
+      El archivo local dura 7 días tras subirse a YouTube, y a ${alcance} por
+      corrida no da tiempo. Sube más de golpe o márcalos si no los quieres.
+    </div></div>` : ''}
+
+    <div class="card" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div style="flex-grow:1">
+        <span class="pill ${t.activo ? 'ok' : 'idle'}">${t.activo ? 'Encendido' : 'Apagado'}</span>
+        <span class="m"> modo ${esc(t.modo||'borrador')} · hasta ${alcance} por corrida</span>
+      </div>
+      <button class="btn sm" onclick="tiktokActivo(${t.activo ? 'false':'true'})">
+        ${t.activo ? 'Apagar' : 'Encender'}</button>
+    </div>
+
+    <div class="card" style="margin-top:10px">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+        <div style="flex-grow:1">
+          <b>${iran ? 'Subir '+iran+' ahora' : 'No hay nada que subir'}</b>
+          <div class="muted">${
+            !pend.length ? 'La lista de pendientes está vacía.'
+            : iran ? (directo
+                ? `De ${pend.length} pendiente(s), ${listos} listo(s) y caben ${alcance} por corrida.`
+                : `Hay ${pend.length} pendiente(s) y caben ${alcance} por corrida.`)
+            : 'Ninguno está preparado todavía. Pulsa Preparar en los de abajo.'}</div>
+        </div>
+        <button class="btn go" onclick="ejecutar('tiktok')" ${iran?'':'disabled'}>⬆ Subir</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn sm" ${iran?'':'disabled'}
+          onclick="if(confirm('¿Subir usando datos móviles? Los vídeos pesan cientos de MB.')) ejecutar('tiktok_datos')"
+          title="Saltarse la espera al WiFi">Subir con datos móviles</button>
+        <button class="btn sm" onclick="ejecutar('tiktok_revisar')"
+          title="Preguntar a TikTok en qué acabó cada subida">↻ Revisar estados</button>
+      </div>
+    </div>
+
+    <h3 class="sec">Pendientes <span class="m">(${pend.length}${
+      directo && sinPreparar ? ` · ${sinPreparar} sin preparar` : ''})</span></h3>
+    ${!pend.length ? `<div class="aviso"><span>·</span><div>No queda nada por subir.</div></div>` : `
+    <div class="list">${pend.map(p=>{
+      const urge = p.dias !== null && p.dias !== undefined && p.dias <= 2;
+      return `
+      <div class="row tk" style="grid-template-columns:1fr auto">
+        <div style="min-width:0">
+          <div class="t">${esc(p.titulo)}</div>
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:4px">
+            ${directo ? (p.opciones
+              ? `<span class="pill ok">Listo</span>
+                 <span class="m">${esc(TK_ETIQUETA[p.opciones.privacidad]||p.opciones.privacidad||'')}</span>`
+              : '<span class="pill warn">Falta preparar</span>') : ''}
+            ${p.dias===null||p.dias===undefined ? ''
+              : `<span class="pill ${urge?'crit':'idle'}">${p.dias===0
+                  ? 'se borra hoy' : p.dias+'d en disco'}</span>`}
+          </div>
+        </div>
+        <div style="display:flex;gap:6px">
+          ${directo ? `<button class="btn sm ${p.opciones?'':'go'}"
+            onclick="abrirTiktok('${esc(p.nombre)}')">${p.opciones?'Cambiar':'Preparar'}</button>` : ''}
+          <button class="btn sm" onclick="marcarEnTiktok('${esc(p.ruta)}', '${esc(p.titulo).replace(/'/g,"\\'")}')"
+            title="Ya lo subiste a mano: sacarlo de la lista">Ya subido</button>
+        </div>
+      </div>
+      <div id="tk-form-${esc(p.nombre)}"></div>`;}).join('')}</div>`}
+
+    <h3 class="sec">Subidos <span class="m">(${sub.length})</span></h3>
+    ${!sub.length ? `<div class="aviso"><span>·</span><div>Todavía no hay nada subido.</div></div>` : `
+    <div class="list">${sub.map(s=>`
+      <div class="row tk" style="grid-template-columns:1fr auto">
+        <div style="min-width:0"><div class="t">${esc(s.titulo || s.nombre)}</div>
+          <div class="m">${esc(s.fecha.replace('T',' '))} · ${esc(s.estado)}</div></div>
+        <span class="pill idle">${s.manual ? 'a mano' : 'API'}</span>
+      </div>`).join('')}</div>`}`;
+}
+
+/* =========================================================
+   AJUSTES
+   ========================================================= */
+let secretosCache = [];
+function firmaAjustes(){
+  return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
+          JSON.stringify(E.ajustes), E.solo_wifi,
+          JSON.stringify(E.musica), secretosCache.length].join('~');
+}
+function pintaAjustes(){
+  const m = E.material, cr = E.credenciales, aj = E.ajustes, pistas = E.musica || [];
+  const pct = v => Math.round((v ?? 0) * 100);
+
+  $('#v-ajustes').innerHTML = `
+    <h2>Ajustes</h2>
+    <p class="sub">Material, mezcla, credenciales y lo que se actualiza de vez en cuando.</p>
+
+    <h3 class="sec">Mezcla de audio</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Música de fondo</div><div class="m">se guarda al soltar</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_musica" min="0" max="30" step="1" value="${pct(aj.volumen_musica)}">
+          <span class="v">${pct(aj.volumen_musica)}%</span></div>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Narración</div><div class="m">bájala solo si satura</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_locucion" min="10" max="100" step="5" value="${pct(aj.volumen_locucion)}">
+          <span class="v">${pct(aj.volumen_locucion)}%</span></div>
+      </div>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Efecto de transición</div><div class="m">el golpe tras la tarjeta</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_sonido_transicion" min="0" max="100" step="5" value="${pct(aj.volumen_sonido_transicion)}">
+          <span class="v">${pct(aj.volumen_sonido_transicion)}%</span></div>
+      </div>
+    </div>
+    <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
+      Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
+
+    <h3 class="sec">Material</h3>
+    <div class="grid2">
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h4 style="margin:0;font:500 13px var(--mono)">Música</h4>
+          <span class="pill ${m.musica?'ok':'warn'}">${m.musica} pistas</span></div>
+        <div class="muted" style="margin:8px 0">Tres por emoción desde Jamendo, con licencia comercial. Se acredita sola en la descripción.</div>
+        <button class="btn go sm" onclick="ejecutar('musica')">↻ Actualizar música</button>
+      </div>
+      <div class="card">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <h4 style="margin:0;font:500 13px var(--mono)">Fondos y plantilla</h4>
+          <span class="pill ${m.fondos_short+m.fondos_largo?'ok':'crit'}">${m.fondos_short}+${m.fondos_largo}</span></div>
+        <div class="muted" style="margin:8px 0">
+          Plantilla: ${m.plantilla?esc(m.plantilla):'<span style="color:var(--warn)">falta — se usa el respaldo</span>'} ·
+          Efectos: ${m.efectos||'<span style="color:var(--warn)">ninguno</span>'}</div>
+        <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
+      </div>
+    </div>
+
+    <h3 class="sec">Pistas que hay ahora</h3>
+    ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>Ninguna. Sin música los videos salen solo con la voz.</div></div>`
+    : `<div class="list">${pistas.map(p=>`
+      <div class="row" style="grid-template-columns:auto 1fr 120px">
+        <button class="btn sm" data-oir="${esc(p.archivo)}" style="padding:6px 9px">▶</button>
+        <div style="min-width:0"><div class="t">${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</div>
+          <div class="m">${esc(p.artista || 'sin atribución')} · ${p.kb} KB</div></div>
+        <select class="btn sm" data-emo="${esc(p.archivo)}">
+          ${['drama','venganza','suspenso','comedia','fondo'].map(e=>`
+            <option value="${e}" ${p.emocion===e?'selected':''}>${e}</option>`).join('')}
+        </select>
+      </div>`).join('')}</div>
+    <div class="muted" style="margin-top:8px">La emoción vive en el nombre del archivo, que es lo que mira el render:
+      cambiarla aquí lo renombra. Para sumar pistas de Pixabay (que no tiene API), descárgalas
+      al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
+      «Re-enlazar material» y clasifícalas aquí.</div>`}
+
+    <h3 class="sec">Credenciales</h3>
+    <div class="list">${cr.map(c=>`
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(c.nombre)}</div>
+          ${c.origen?`<div class="m">desde ${esc(c.origen)}</div>`:''}</div>
+        <span class="pill ${c.ok?'ok':(c.opcional?'idle':'crit')}">${c.ok?'ok':(c.opcional?'opcional':'falta')}</span>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
+    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
+      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
+         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
+    <div class="list">${secretosCache.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
+          <div class="m">${esc(s.pista)}</div></div>
+        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
+        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
+          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
+          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Subida</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
+        <button class="btn sm" id="b-wifi">${E.solo_wifi?'activado':'desactivado'}</button>
+      </div>
+    </div>`;
+
+  // Sliders: se muestra en vivo, se guarda al soltar (un POST por pixel
+  // arrastrado reescribiría config.json decenas de veces por segundo).
+  document.querySelectorAll('[data-aj]').forEach(r=>{
+    const eti = r.parentElement.querySelector('.v');
+    r.oninput = ()=>{ eti.textContent = r.value + '%'; };
+    r.onchange = async ()=>{
+      try{ await post('/api/ajuste', {clave: r.dataset.aj, valor: +r.value / 100});
+        E.ajustes[r.dataset.aj] = +r.value / 100;
+        toast('Guardado');
+      }catch(e){ toast(e.message); }
+    };
+  });
+  document.querySelectorAll('[data-emo]').forEach(s => s.onchange = async ()=>{
+    try{ const j = await post('/api/musica/emocion', {archivo: s.dataset.emo, emocion: s.value});
+      toast('Ahora es ' + s.value); refrescar();
+    }catch(e){ toast(e.message); refrescar(); }
+  });
+  document.querySelectorAll('[data-oir]').forEach(b => b.onclick = ()=>oir(b.dataset.oir, b));
+  document.querySelectorAll('[data-sec]').forEach(b => b.onclick = ()=>abrirSecreto(b.dataset.sec, b.dataset.tipo));
+  $('#b-wifi').onclick = async ()=>{
+    try{ const j = await post('/api/wifi',{solo_wifi: !E.solo_wifi});
+      toast(j.solo_wifi ? 'Solo con WiFi' : 'Permite datos móviles'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  pintaBotonesOir();
+}
+
+/* ---------- ver / copiar / poner un secreto ----------
+   Copiar directamente tras el fetch fallaba: para cuando llega la respuesta,
+   Chrome ya no considera el clic "reciente" y niega el portapapeles sin
+   decir nada. Por eso primero se muestra el valor y el botón de copiar actúa
+   sobre algo que ya está en memoria — y si aun así el portapapeles falla,
+   el texto queda a la vista para seleccionarlo a mano. */
+async function abrirSecreto(nombre, tipo){
+  let valor = '';
+  try{ valor = (await api('/api/secretos/'+encodeURIComponent(nombre))).valor; }
+  catch(e){ valor = ''; }
+
+  const editable = tipo === 'entorno';
+  const caja = document.createElement('div');
+  caja.className = 'modal';
+  caja.innerHTML = `
+    <div class="caja">
+      <b style="font:12px var(--mono)">${esc(nombre)}</b>
+      <div class="muted" style="margin:8px 0 10px">
+        ${editable ? 'Pégala aquí para guardarla en secretos.env, o cópiala para GitHub.'
+                   : 'Contenido del archivo. Pégalo tal cual en el Secret de GitHub.'}</div>
+      ${editable ? `<input type="text" id="s-val" value="${esc(valor)}" spellcheck="false"
+                      placeholder="pega aquí la clave">`
+                 : `<textarea id="s-val" readonly spellcheck="false">${esc(valor)}</textarea>`}
+      <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn go" id="s-copiar">Copiar</button>
+        ${editable ? '<button class="btn" id="s-guardar">Guardar</button>' : ''}
+        <button class="btn" id="s-cerrar" style="margin-left:auto">Cerrar</button>
+      </div>
+      <div class="muted" id="s-nota" style="margin-top:9px"></div>
+    </div>`;
+  document.body.appendChild(caja);
+  const campo = caja.querySelector('#s-val');
+  const nota = caja.querySelector('#s-nota');
+
+  caja.querySelector('#s-copiar').onclick = async ()=>{
+    const texto = campo.value;
+    if(!texto) return nota.textContent = 'No hay nada que copiar todavía.';
+    campo.select(); campo.setSelectionRange(0, texto.length);
+    try{
+      await navigator.clipboard.writeText(texto);
+      nota.textContent = '✓ Copiado al portapapeles.';
+    }catch(e){
+      // Reserva para cuando el portapapeles está bloqueado.
+      const ok = document.execCommand && document.execCommand('copy');
+      nota.textContent = ok ? '✓ Copiado al portapapeles.'
+        : 'El navegador no dejó copiar. El texto ya está seleccionado: usa «Copiar» del menú largo.';
+    }
+  };
+  if(editable) caja.querySelector('#s-guardar').onclick = async ()=>{
+    try{ await post('/api/secretos/'+encodeURIComponent(nombre), {valor: campo.value.trim()});
+      nota.textContent = '✓ Guardada en secretos.env — ya sobrevive a cerrar Termux.';
+      secretosCache = []; refrescar();
+    }catch(e){ nota.textContent = 'No se pudo guardar: ' + e.message; }
+  };
+  const cerrar = ()=>caja.remove();
+  caja.querySelector('#s-cerrar').onclick = cerrar;
+  caja.onclick = e => { if(e.target === caja) cerrar(); };
+}
+
+/* =========================================================
+   CICLO DE PINTADO
+
+   Cada vista declara una firma de lo que muestra. Si la firma no cambió, no
+   se repinta: reescribir el HTML en cada refresco reiniciaba el <video>, te
+   devolvía al inicio de las listas y hacía perder lo que estabas escribiendo.
+   ========================================================= */
+const VISTAS = {
+  revisar:    [firmaRevisar,    pintaRevisar],
+  cola:       [firmaCola,       pintaCola],
+  estilo:     [firmaEstilo,     pintaEstilo],
+  publicados: [firmaPublicados, pintaPublicados],
+  tiktok:     [firmaTiktok,     pintaTiktok],
+  ajustes:    [firmaAjustes,    pintaAjustes],
+};
+let firmas = {};
+
+function vistaActual(){ return document.querySelector('.tabs button.on').dataset.v; }
+
+function pintar(){
+  if(!E) return;
+  $('#c-rev').textContent = E.videos.length;
+  $('#c-col').textContent = E.historias.length;
+  $('#c-pub').textContent = E.publicados.length;
+  $('#c-tk').textContent = (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0;
+  pintaJob();
+
+  const v = vistaActual();
+  const [firma, pinta] = VISTAS[v];
+  const f = firma();
+  if(firmas[v] !== f){ firmas[v] = f; pinta(); }
+  if(v === 'revisar') pintaTira();
+}
+
+async function refrescar(){
+  try{
+    E = await api('/api/estado');
+    // Los secretos van aparte: el valor no viaja aquí, solo si están puestos.
+    if(vistaActual() === 'ajustes' && !secretosCache.length){
+      try{ secretosCache = await api('/api/secretos'); }catch(e){}
+    }
+    pintar();
+  }
+  catch(e){ $('#job-slot').innerHTML =
+    `<div class="aviso crit"><span>✕</span><div>Se perdió la conexión con el servidor. ¿Sigue corriendo <code style="font:12px var(--mono)">python servidor.py</code>?</div></div>`; }
+}
+
+document.querySelectorAll('.tabs button').forEach(b=>{
+  b.onclick = ()=>{
+    document.querySelectorAll('.tabs button').forEach(o=>o.classList.toggle('on', o===b));
+    document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+b.dataset.v));
+    window.scrollTo(0,0);
+    refrescar();
+  };
+});
+refrescar();
+// Mientras algo corre conviene ver el avance; si no, no hace falta insistir.
+setInterval(()=>{ const j=E&&E.trabajo;
+  if(j && (j.estado==='corriendo'||j.estado==='pausado')) refrescar(); }, 1500);
+setInterval(refrescar, 12000);
+
+/* Latido: mientras la pestaña esté abierta, el servidor sabe que sigues
+   aquí. Si deja de llegar (cerraste el panel), se apaga solo y suelta el
+   wake lock. El margen del servidor es amplio porque Chrome ralentiza los
+   temporizadores en segundo plano — cambiar de app un rato no lo apaga. */
+setInterval(()=>{ fetch('/api/latido',{method:'POST'}).catch(()=>{}); }, 20000);
+fetch('/api/latido',{method:'POST'}).catch(()=>{});
+
+// Actualizar a mano. El panel ya se refresca solo, pero tenerlo a mano
+// quita la duda de si lo que ves es de hace un momento o de ahora.
+$('#b-actualizar').onclick = async (e)=>{
+  const b = e.currentTarget;
+  b.textContent = '·'; b.disabled = true;
+  await refrescar();
+  b.textContent = '↻'; b.disabled = false;
+  toast('Actualizado');
+};
+
+$('#b-apagar').onclick = async ()=>{
+  const j = E && E.trabajo;
+  if(j && (j.estado==='corriendo'||j.estado==='pausado')){
+    if(!confirm('Hay algo corriendo. ¿Apagar el panel de todas formas?\n(el trabajo se interrumpe)')) return;
+  }
+  try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
+  document.body.innerHTML = `<div style="max-width:420px;margin:22vh auto;padding:0 20px;
+    text-align:center;font:15px/1.6 var(--body);color:var(--ink-dim)">
+    <div style="font-size:34px;margin-bottom:12px">⏻</div>
+    <b style="color:var(--ink);font-size:16px">Panel apagado</b>
+    <p>Termux quedó libre y se soltó el wake lock. Ya puedes cerrar esta pestaña.</p>
+    <p style="font:12px var(--mono)">Para volver: <b>panel</b> en Termux</p></div>`;
+};
+</script>
+</body>
+</html>

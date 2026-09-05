@@ -25,6 +25,9 @@ import logging
 import subprocess
 from datetime import datetime, timedelta, timezone
 
+import secretos  # carga secretos.env si las claves no están en el entorno
+from titulos import recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE
+
 from google import genai
 from google.genai import types as genai_types
 from google.genai import errors as genai_errors
@@ -38,6 +41,11 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 RUTA_PUBLICADOS = os.path.join(CARPETA_ESTADO, "publicados.json")
 RUTA_RECHAZADOS = os.path.join(CARPETA_ESTADO, "rechazados.json")
+# Título, descripción y hashtags de cada video, por nombre de archivo. Existe
+# para poder verlos y corregirlos ANTES de subir: antes se generaban aquí
+# mismo, un instante antes de la subida, así que no había momento en que
+# alguien pudiera mirarlos.
+RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
 RUTA_CLIENT_SECRET = os.path.join(BASE_DIR, "client_secret.json")
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 
@@ -76,12 +84,16 @@ CONFIG_DEFAULT = {
     # video en revisión hasta ~6pm hora local el mismo día — buena hora pico
     # para Shorts en español. Súbelo si el cron de publicar corre más tarde.
     "buffer_horas_revision": 9,
-    # Un video público por día es mejor para el crecimiento del canal que
-    # publicar el lote entero de una sola vez (evita saturar a quien sigue
-    # el canal y da una señal más constante al algoritmo). El resto del lote
-    # ya renderizado queda esperando en resultado_lote.json para el día
-    # siguiente.
-    "max_subidas_por_corrida": 1,
+    # true = solo sube con WiFi (protege el plan de datos). Se puede saltar
+    # sin cambiar esto, con --con-datos o SUBIR_CON_DATOS=1, para una subida
+    # puntual desde la calle sin desactivar la protección del cron diario.
+    "solo_wifi": True,
+    # None = sin tope propio: sube todo lo que YouTube deje en el día (se
+    # detiene solo al toparse con el límite diario de subidas de YouTube,
+    # ver uploadLimitExceeded en subir_video/main). Pon un número aquí si
+    # en el futuro quieres volver a un ritmo de 1 video/día en vez de
+    # drenar el colchón lo más rápido posible.
+    "max_subidas_por_corrida": None,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
     "categoria_youtube": "24",  # Entertainment
@@ -160,7 +172,7 @@ SCHEMA_METADATA = {
     "properties": {
         "aprobado": {"type": "boolean", "description": "False si el contenido es clickbait engañoso, inapropiado, o el texto está roto/incoherente."},
         "motivo_rechazo": {"type": "string", "description": "Si aprobado=false, explica por qué. Si aprobado=true, cadena vacía."},
-        "titulo_youtube": {"type": "string", "description": "Título optimizado para YouTube, máx 100 caracteres, sin clickbait engañoso."},
+        "titulo_youtube": {"type": "string", "description": "Título optimizado para YouTube. MÁXIMO 100 caracteres contando espacios — cuéntalos antes de responder; si te pasas, el título se recorta y pierde el final. Apunta a 60-90 para que se lea entero en el móvil. Sin clickbait engañoso."},
         "descripcion_youtube": {"type": "string", "description": "Descripción de 2-4 líneas con hashtags relevantes al final."},
         "hashtags": {"type": "array", "items": {"type": "string"}, "description": "3 a 6 hashtags sin el símbolo #."},
     },
@@ -175,11 +187,18 @@ para generar un video, y debes:
    es clickbait manifiestamente engañoso respecto al contenido, o incluye contenido
    inapropiado (odio, sexual explícito, violencia gráfica gratuita). Historias de
    drama/venganza/conflicto normales SÍ son aptas, es el género del canal.
-2. Si es apta, genera título, descripción y hashtags optimizados para YouTube."""
+2. Si es apta, genera título, descripción y hashtags optimizados para YouTube.
+
+El título es lo único con un límite duro: 100 caracteres. Escríbelo pensando en que
+se lea entero en la miniatura de un móvil, así que 60-90 es la zona buena. Si la idea
+no cabe, reescríbela más corta en vez de dejarla a medias — un título cortado da peor
+impresión que uno menos ambicioso."""
 
 
-def revisar_y_generar_metadata(client, titulo, cuerpo):
-    prompt = f"Título/hook: {titulo}\n\nCuerpo:\n{cuerpo[:3000]}"
+INTENTOS_TITULO = 3
+
+
+def _pedir_metadata(client, prompt):
     response = client.models.generate_content(
         model=MODEL,
         contents=prompt,
@@ -192,6 +211,56 @@ def revisar_y_generar_metadata(client, titulo, cuerpo):
     return json.loads(response.text)
 
 
+def revisar_y_generar_metadata(client, titulo, cuerpo):
+    """Metadata de publicación, con el título ya dentro del límite.
+
+    Gemini no cuenta caracteres de forma fiable por mucho que se le pida en
+    el prompt: escribe el título que le parece bueno y a veces se pasa. Así
+    que se comprueba aquí y, si se pasó, se le devuelve el título con la
+    cuenta exacta y cuánto le sobra para que lo reescriba él.
+
+    Reescribir es mejor que recortar: un título que el modelo acorta sigue
+    siendo una frase pensada, mientras que uno recortado por máquina pierde
+    el final. El recorte mecánico sigue existiendo (titulos.py) pero pasa a
+    ser la red de seguridad, no el camino normal.
+    """
+    prompt = f"Título/hook: {titulo}\n\nCuerpo:\n{cuerpo[:3000]}"
+
+    for intento in range(1, INTENTOS_TITULO + 1):
+        metadata = _pedir_metadata(client, prompt)
+        propuesto = limpiar_titulo(metadata.get("titulo_youtube", ""))
+        largo = largo_youtube(propuesto)
+
+        if largo <= LIMITE_YOUTUBE:
+            metadata["titulo_youtube"] = propuesto
+            if intento > 1:
+                logger.info(f"  Título dentro del límite al intento {intento}: {largo} caracteres.")
+            return metadata
+
+        sobran = largo - LIMITE_YOUTUBE
+        logger.warning(
+            f"  Intento {intento}: el título tiene {largo} caracteres, "
+            f"{sobran} de más. Pidiendo uno más corto."
+        )
+        if intento == INTENTOS_TITULO:
+            # Se agotaron los reintentos: se devuelve tal cual y el recorte
+            # por palabras se encarga. Nunca se sube un título largo.
+            logger.warning("  Gemini no consiguió acortarlo; se recortará por palabras.")
+            return metadata
+
+        prompt = (
+            f"{prompt}\n\n"
+            f"--- CORRECCIÓN ---\n"
+            f"El título que propusiste tiene {largo} caracteres y el máximo son "
+            f"{LIMITE_YOUTUBE}: te sobran {sobran}.\n"
+            f"Era: «{propuesto}»\n"
+            f"Reescríbelo entero para que quepa, apuntando a 70-90 caracteres. No lo "
+            f"cortes ni le pongas puntos suspensivos: quita o resume lo menos importante "
+            f"y deja una frase completa que siga funcionando como gancho. "
+            f"El resto de campos puedes mantenerlos."
+        )
+
+
 # Hashtags genéricos por emoción, para cuando falla la llamada a Gemini y no
 # hay generación de metadata "inteligente" disponible.
 HASHTAGS_DE_RESPALDO_POR_EMOCION = {
@@ -200,6 +269,44 @@ HASHTAGS_DE_RESPALDO_POR_EMOCION = {
     "suspenso": ["misterio", "suspenso"],
     "comedia": ["humor", "comedia"],
 }
+
+
+def clave_metadata(ruta):
+    """El nombre del archivo, no la ruta completa: la carpeta de salida puede
+    cambiar (o venir normalizada distinto desde la SD) y la metadata seguiría
+    siendo la misma."""
+    return os.path.basename(ruta)
+
+
+def metadata_para(video, client, almacen):
+    """La metadata que se va a subir, priorizando lo que ya esté guardado.
+
+    Si el panel la generó y la corregiste, se usa TAL CUAL: volver a
+    preguntarle a Gemini aquí tiraría tus ediciones sin avisar, y el punto
+    de poder editarlas es que lo editado sea lo que se sube.
+
+    Si no hay nada guardado (el caso del cron sin pasar por el panel), se
+    genera aquí como siempre y se guarda, para que quede constancia de lo
+    que se publicó con cada video.
+    """
+    clave = clave_metadata(video["ruta"])
+    guardada = almacen.get(clave)
+    if guardada and guardada.get("titulo_youtube"):
+        origen = guardada.get("origen", "guardada")
+        logger.info(f"  Metadata {origen}: «{guardada['titulo_youtube'][:60]}»")
+        return guardada
+
+    try:
+        metadata = revisar_y_generar_metadata(client, video["titulo"], video.get("cuerpo", ""))
+        metadata["origen"] = "gemini"
+    except Exception as exc:
+        logger.warning(f"Falló la revisión de Gemini ({exc}); usando metadata de respaldo.")
+        metadata = metadata_de_respaldo(video)
+        metadata["origen"] = "respaldo"
+
+    almacen[clave] = metadata
+    guardar_json(RUTA_METADATA, almacen)
+    return metadata
 
 
 def metadata_de_respaldo(video):
@@ -212,7 +319,7 @@ def metadata_de_respaldo(video):
     return {
         "aprobado": True,
         "motivo_rechazo": "",
-        "titulo_youtube": (video.get("titulo") or "Historia de Reddit")[:100],
+        "titulo_youtube": recortar_titulo(video.get("titulo") or "Historia de Reddit"),
         "descripcion_youtube": (
             "Historia real adaptada de Reddit, narrada en español.\n\n"
             "¿Tú qué hubieras hecho? Cuéntamelo en los comentarios 👇"
@@ -253,10 +360,10 @@ def buscar_video_existente_en_canal(servicio, titulo):
     Devuelve el video_id si lo encuentra, o None."""
     try:
         resp = servicio.search().list(
-            part="snippet", forMine=True, type="video", q=titulo[:100], maxResults=5
+            part="snippet", forMine=True, type="video", q=titulo, maxResults=5
         ).execute()
         for item in resp.get("items", []):
-            if item["snippet"]["title"] == titulo[:100]:
+            if item["snippet"]["title"] == titulo:
                 return item["id"]["videoId"]
     except Exception as exc:
         logger.warning(f"No se pudo verificar duplicados en YouTube ({exc}); se sube de todas formas.")
@@ -282,9 +389,16 @@ def construir_descripcion(metadata, video):
     fuente_url = video.get("fuente_url")
     autor = video.get("autor_original")
     if fuente_url:
-        linea_fuente = f"Historia inspirada en una publicación pública de Reddit"
-        if autor:
-            linea_fuente += f" de {autor}"
+        # La frase cambia según de dónde salió: un post de Reddit lo escribió
+        # su propio autor, mientras que una anécdota de YouTube se contó en el
+        # canal de alguien más. Dar el crédito equivocado es peor que no darlo.
+        if "youtube.com" in fuente_url or "youtu.be" in fuente_url:
+            linea_fuente = "Historia inspirada en una anécdota contada en el canal"
+            linea_fuente += f" {autor}" if autor else " de un tercero"
+        else:
+            linea_fuente = "Historia inspirada en una publicación pública de Reddit"
+            if autor:
+                linea_fuente += f" de {autor}"
         linea_fuente += f", adaptada con fines narrativos. Fuente: {fuente_url}"
         partes.append(linea_fuente)
 
@@ -303,7 +417,7 @@ def construir_descripcion(metadata, video):
 def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
     body = {
         "snippet": {
-            "title": metadata["titulo_youtube"][:100],
+            "title": recortar_titulo(metadata["titulo_youtube"]),
             "description": construir_descripcion(metadata, video),
             "tags": metadata["hashtags"],
             "categoryId": "24",
@@ -324,6 +438,60 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
             logger.info(f"Subiendo {os.path.basename(ruta_video)}: {int(status.progress() * 100)}%")
 
     return respuesta["id"]
+
+
+def leer_estado_publicacion(servicio, video_id):
+    """Cómo quedó el video EN YouTube: privacidad y fecha programada.
+
+    Pedir la programación y darla por hecha no basta. YouTube acepta el
+    'publishAt' en la subida y luego puede no aplicarlo —el caso conocido es
+    un canal sin verificar por teléfono, que no tiene permitido programar—,
+    así que el registro decía "se publica el día X" mientras el video ya
+    estaba público. Preguntar cuesta una llamada y convierte una suposición
+    en un dato.
+    """
+    try:
+        r = servicio.videos().list(part="status", id=video_id).execute()
+        items = r.get("items") or []
+        if not items:
+            return None
+        st = items[0].get("status", {})
+        return {"privacidad": st.get("privacyStatus"), "publish_at": st.get("publishAt")}
+    except Exception as exc:
+        logger.warning(f"No se pudo comprobar cómo quedó {video_id} en YouTube: {exc}")
+        return None
+
+
+def avisar_si_no_quedo_programado(real, pedido_iso, video_id):
+    """True si quedó programado, False si consta que no, None si no se supo.
+
+    Se avisa fuerte a propósito: que un video salga público antes de tiempo
+    no se puede deshacer del todo —la gente ya lo vio— y el aviso tiene que
+    doler más que una línea de log entre otras cincuenta.
+    """
+    if real is None:
+        # No se pudo comprobar: no es lo mismo que haber fallado. Se devuelve
+        # None para no anotar en el registro un fallo que no consta.
+        logger.warning(f"  No se pudo confirmar la programación de {video_id}; "
+                       f"compruébala a mano si te importa esa ventana.")
+        return None
+    if real.get("publish_at") and real.get("privacidad") == "private":
+        return True
+
+    logger.error("=" * 62)
+    logger.error("  ⚠️  YouTube NO aplicó la programación de este video.")
+    logger.error(f"     Se pidió: privado hasta {pedido_iso}")
+    logger.error(f"     Quedó:    {real.get('privacidad')}"
+                 + (f", sin fecha programada" if not real.get("publish_at") else ""))
+    if real.get("privacidad") == "public":
+        logger.error("     El video YA ESTÁ PÚBLICO. No hubo ventana de revisión.")
+    logger.error("     Causa habitual: el canal no está verificado por teléfono,")
+    logger.error("     y sin verificar YouTube no deja programar publicaciones.")
+    logger.error("     Verifícalo en https://www.youtube.com/verify y vuelve a probar.")
+    logger.error(f"     Mientras tanto, ponlo privado a mano:")
+    logger.error(f"     https://studio.youtube.com/video/{video_id}/edit")
+    logger.error("=" * 62)
+    return False
 
 
 DIAS_RETENCION_LOCAL = 7
@@ -363,14 +531,30 @@ def limpiar_videos_locales_vencidos():
 # ---------------------------------------------------------
 # ORQUESTACIÓN
 # ---------------------------------------------------------
-def main():
+def main(forzar_datos=False):
     limpiar_videos_locales_vencidos()
 
-    if not conectado_a_wifi():
-        logger.info("Sin WiFi activo — se aplaza la subida a YouTube para no gastar datos móviles.")
-        return
-
     cfg = cargar_config()
+
+    # Tres formas de permitir datos móviles, de más puntual a más permanente:
+    # el argumento (una corrida), la variable de entorno (una sesión) y la
+    # config (siempre). Así se puede subir algo desde la calle sin dejar
+    # apagada la protección para el cron de todos los días.
+    permitir_datos = (
+        forzar_datos
+        or os.environ.get("SUBIR_CON_DATOS") == "1"
+        or not cfg.get("solo_wifi", True)
+    )
+
+    if not permitir_datos and not conectado_a_wifi():
+        logger.info(
+            "Sin WiFi activo — se aplaza la subida para no gastar datos móviles.\n"
+            "   Para subir ahora de todas formas: python publisher.py --con-datos"
+        )
+        return
+    if permitir_datos and not conectado_a_wifi():
+        logger.warning("Sin WiFi, pero se pidió subir con datos móviles. Ojo con tu plan.")
+
     ruta_resultado = os.path.join(cfg["carpeta_salida"], "resultado_lote.json")
 
     if not os.path.exists(ruta_resultado):
@@ -387,6 +571,7 @@ def main():
 
     publicados = cargar_json(RUTA_PUBLICADOS, [])
     rechazados = cargar_json(RUTA_RECHAZADOS, [])
+    almacen_metadata = cargar_json(RUTA_METADATA, {})
     rutas_ya_procesadas = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
 
     pendientes = [v for v in completados if v["ruta"] not in rutas_ya_procesadas]
@@ -417,11 +602,7 @@ def main():
             guardar_json(RUTA_RECHAZADOS, rechazados)
             continue
 
-        try:
-            metadata = revisar_y_generar_metadata(client, video["titulo"], video.get("cuerpo", ""))
-        except Exception as exc:
-            logger.warning(f"Falló la revisión de Gemini ({exc}); usando metadata de respaldo.")
-            metadata = metadata_de_respaldo(video)
+        metadata = metadata_para(video, client, almacen_metadata)
 
         if not metadata["aprobado"]:
             logger.warning(f"Rechazado (contenido): {metadata['motivo_rechazo']}")
@@ -432,7 +613,8 @@ def main():
         if servicio_yt is None:
             servicio_yt = obtener_servicio_youtube()
 
-        video_id_existente = buscar_video_existente_en_canal(servicio_yt, metadata["titulo_youtube"][:100])
+        video_id_existente = buscar_video_existente_en_canal(
+            servicio_yt, recortar_titulo(metadata["titulo_youtube"]))
         if video_id_existente:
             logger.warning(
                 f"'{metadata['titulo_youtube']}' ya existe en el canal (video_id={video_id_existente}) — "
@@ -455,17 +637,34 @@ def main():
         try:
             video_id = subir_video(servicio_yt, ruta, metadata, video, publish_at_iso)
         except Exception as exc:
-            logger.error(f"Fallo al subir {ruta}: {exc}")
-            rechazados.append({"ruta": ruta, "fase": "subida", "motivo": str(exc)})
-            guardar_json(RUTA_RECHAZADOS, rechazados)
+            if "uploadLimitExceeded" in str(exc):
+                logger.info(
+                    "Se alcanzó el límite diario de subidas de YouTube — el resto del "
+                    "colchón queda pendiente para la próxima corrida (no se pierde nada)."
+                )
+                break
+            # Cualquier otro fallo de subida (red, timeout, error temporal de la
+            # API) tampoco descarta el video: se reintenta en la próxima corrida
+            # en vez de quedar rechazado para siempre.
+            logger.warning(f"Fallo al subir {ruta} (se reintentará más adelante): {exc}")
             continue
 
-        logger.info(f"✅ Subido como privado, se publica solo el {publish_at_iso} — https://studio.youtube.com/video/{video_id}/edit")
+        real = leer_estado_publicacion(servicio_yt, video_id)
+        programado = avisar_si_no_quedo_programado(real, publish_at_iso, video_id)
+        if programado is not False:
+            logger.info(f"✅ Subido como privado, se publica solo el {publish_at_iso} — "
+                        f"https://studio.youtube.com/video/{video_id}/edit")
         publicados.append({
             "ruta": ruta,
             "video_id": video_id,
             "titulo_youtube": metadata["titulo_youtube"],
             "publish_at": publish_at_iso,
+            # Lo que YouTube dice de verdad, no lo que le pedimos. El panel
+            # enseña esto: si no coinciden, quieres enterarte ahí y no en el
+            # canal.
+            "privacidad_real": (real or {}).get("privacidad"),
+            "publish_at_real": (real or {}).get("publish_at"),
+            "programado_ok": programado,
             "url_revision": f"https://studio.youtube.com/video/{video_id}/edit",
             # Para el borrado retrasado (ver limpiar_videos_locales_vencidos):
             # se conserva el archivo local unos días para poder subirlo a
@@ -476,5 +675,66 @@ def main():
         subidas_en_esta_corrida += 1
 
 
+def revisar_programados():
+    """Qué estado tienen AHORA en YouTube los videos que ya subimos.
+
+    Sirve para responder «¿se está respetando la ventana de revisión?» sin
+    tener que subir otro video y esperar: pregunta por los que ya están y
+    enseña lo que YouTube dice de cada uno.
+    """
+    publicados = cargar_json(RUTA_PUBLICADOS, [])
+    con_id = [p for p in publicados if p.get("video_id")]
+    if not con_id:
+        print("No hay videos subidos que revisar.")
+        return
+
+    servicio = obtener_servicio_youtube()
+    print(f"\n  {len(con_id)} video(s) subidos:\n")
+    fallos = 0
+    for p in con_id:
+        real = leer_estado_publicacion(servicio, p["video_id"]) or {}
+        privacidad = real.get("privacidad") or "?"
+        cuando = real.get("publish_at")
+        pedido = p.get("publish_at")
+
+        if privacidad == "private" and cuando:
+            marca, nota = "✅", f"privado hasta {cuando}"
+        elif privacidad == "public":
+            marca, nota = "⛔", "PÚBLICO" + (f" (se pidió esperar a {pedido})" if pedido else "")
+            fallos += 1
+        elif privacidad == "private":
+            marca, nota = "⚠️ ", "privado pero SIN fecha: no se publicará solo"
+            fallos += 1
+        else:
+            marca, nota = "· ", privacidad
+
+        print(f"  {marca} {(p.get('titulo_youtube') or '')[:44]:<44} {nota}")
+        print(f"       https://studio.youtube.com/video/{p['video_id']}/edit")
+
+    print()
+    if fallos:
+        print(f"  {fallos} video(s) no quedaron programados.")
+        print("  Causa habitual: el canal no está verificado por teléfono, y sin")
+        print("  verificar YouTube no deja programar publicaciones.")
+        print("  Verifícalo en https://www.youtube.com/verify\n")
+    else:
+        print("  Todos respetan su ventana de revisión.\n")
+
+
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Sube a YouTube los videos pendientes.")
+    parser.add_argument(
+        "--con-datos", action="store_true",
+        help="Subir aunque no haya WiFi (usa datos móviles). Solo para esta corrida.",
+    )
+    parser.add_argument(
+        "--revisar-programados", action="store_true",
+        help="No sube nada: enseña el estado real en YouTube de los ya subidos.",
+    )
+    args = parser.parse_args()
+    if args.revisar_programados:
+        revisar_programados()
+    else:
+        main(forzar_datos=args.con_datos)

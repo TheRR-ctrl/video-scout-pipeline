@@ -7,39 +7,93 @@ schedule (cron, Termux, or GitHub Actions).
 
 ## How it works
 
-1. **`trend_scout.py`** — read-only scan of a fixed list of subreddits, using
-   reddit.com's public `top/.json` endpoints (no OAuth/API-key needed — see
-   "Reddit access" below). Filters by score/comment thresholds and text
-   length, and stores up to ~15-20 candidates/day in
-   `pipeline_state/candidatos.json`. Already-seen post IDs are tracked
-   locally so nothing is re-fetched. No write access to Reddit at any point
-   (no posting, commenting, voting, or messaging).
-2. **`script_writer.py`** — sends each candidate's text to Gemini (free tier,
-   outside Reddit, no further Reddit access) to adapt it into a first-person
-   narration script, preserving the core facts. Each rewritten story keeps a
-   `# Fuente:` / `# Autor:` reference back to the original post.
-3. **`generar_video_maestro.py`** — renders the narration (edge-tts), karaoke
+1. **`trend_scout.py`** — read-only scan of a fixed list of subreddits via
+   each subreddit's public RSS feed (no OAuth/API-key needed — see "Reddit
+   access" below). Filters by feed rank and text length, and appends
+   candidates to a queue in `pipeline_state/candidatos.json`. No write access
+   to Reddit at any point (no posting, commenting, voting, or messaging).
+   `--diagnostico` explains a scan that came back empty; `--estado` shows the
+   queue.
+2. **`youtube_scout.py`** — second source feeding the *same* queue. With a
+   free `YOUTUBE_API_KEY` it searches by view count, so a three-year-old video
+   with two million views is found (age is never a filter — only views are);
+   without a key it falls back to channel RSS feeds, which only expose the
+   ~15 newest uploads. Public captions supply the text; audio and video are
+   never downloaded or reused — see "YouTube sources" below.
+3. **`script_writer.py`** — sends each candidate's text to Gemini (free tier)
+   to adapt it into a first-person narration script, preserving the core
+   facts. A YouTube episode is first split into the separate anecdotes it
+   contains, each becoming its own story. Every rewritten story keeps a
+   `# Fuente:` / `# Autor:` reference back to the original. A candidate is
+   only marked as consumed once its script is on disk, so a failed run never
+   burns the story.
+4. **`generar_video_maestro.py`** — renders the narration (edge-tts), karaoke
    subtitles, and background video locally with ffmpeg into a finished video
-   file, and writes `resultado_lote.json` describing what was produced.
-4. **`publisher.py`** — runs a technical + content quality check (Gemini free
-   tier), then uploads the video to YouTube as **private**, scheduled to go
-   public only after a manual review window. Every published video's
-   description credits the original subreddit and author, with a link back
-   to the source Reddit post.
-5. **`pipeline.py`** — orchestrates all four stages in one command, so the
+   file, and writes `resultado_lote.json` describing what was produced. Shorts
+   vs. long-form isn't decided up front: it falls out of the finished
+   narration's real duration (`duracion_max_short_sec`, default 180 s), so the
+   script is never padded or trimmed to hit a format.
+5. **`publisher.py`** — runs a technical + content quality check (Gemini free
+   tier, with an automatic fallback description/hashtags if that check
+   fails), then uploads the video to YouTube as **private**, scheduled to go
+   public only after a manual review window. Hashtags are placed at the
+   start of the description so YouTube renders them as clickable chips.
+   Every published video's description credits the original subreddit and
+   author, with a link back to the source Reddit post. Uploads only run
+   while connected to WiFi, and local video files are kept for 7 days after
+   upload (so you can still cross-post them to TikTok manually) before
+   being deleted automatically.
+6. **`pipeline.py`** — orchestrates every stage in one command, so the
    whole thing can be triggered by cron/CI without babysitting it.
 
 ## Reddit access
 
 Reddit's official Data API (PRAW / OAuth "script" app) requires app approval
-that isn't always granted for personal projects. `trend_scout.py` instead
-reads reddit.com's public, unauthenticated `top/.json` endpoints — the same
-data a logged-out browser sees. It's still 100% read-only (no posting,
+that isn't always granted for personal projects, and the unauthenticated
+`top/.json` endpoints are blocked by Reddit's anti-bot filter. `trend_scout.py`
+instead reads each subreddit's public RSS feed — the same read-only access any
+news aggregator uses. It's still 100% read-only (no posting,
 voting, or messaging) and keeps a conservative delay between requests, but
 it's not the "official" API path, so: keep run frequency low (once or twice
 a day is plenty), and if you start seeing consistent 429/403s, space runs out
 further. If you're later approved for the official API, swapping back to
 PRAW in `trend_scout.py` is a small, isolated change.
+
+## YouTube sources
+
+`youtube_scout.py` treats other people's videos more carefully than Reddit
+posts, not less: a Reddit post is text its own author published, while a
+podcast episode is a creator's edited recording.
+
+- Only public captions are read. The audio and video are never downloaded,
+  clipped, or reused in any form.
+- Captions are raw material, never output: `script_writer.py` retells the
+  anecdote from scratch in its own words rather than polishing the
+  transcript, and the prompt says so explicitly.
+- Channel name and video URL travel with the candidate into `# Fuente:` /
+  `# Autor:`, and `publisher.py` credits the channel with a link in the
+  published description.
+- Defaults point at channels built on audience-submitted anecdotes, which
+  have the clearest provenance. Keep that criterion when adding channels.
+
+### Finding the viral ones
+
+Virality lives in a channel's back catalogue, not its latest upload, and the
+two discovery paths differ sharply on that:
+
+- **With `YOUTUBE_API_KEY`** (free, from Google Cloud Console — enable
+  "YouTube Data API v3"): `search.list` with `order=viewCount` returns the
+  most-viewed videos ever, plus keyword searches across all of YouTube via
+  `youtube_busquedas`, so the channel list stops being a bottleneck.
+- **Without a key**: only each channel's RSS feed, which carries the ~15 most
+  recent uploads. Those rarely have views yet, so a whole scan getting
+  discarded as "pocas vistas" is the expected outcome, not a misconfiguration.
+  `--diagnostico` says so explicitly rather than leaving you guessing.
+
+Configure channels, searches and thresholds in `config_trends.json` (see
+`config_trends.ejemplo.json`), or set `"youtube_activo": false` to turn the
+source off. Verify any `@handle` you add by opening it in a browser first — a
+handle that 404s silently wastes a run.
 
 ## Publishing beyond YouTube (TikTok)
 
@@ -54,6 +108,13 @@ later get TikTok API access approved, a `publisher_tiktok.py` mirroring
 
 ## Setup
 
+On a phone (Termux), `instalar.sh` does the whole thing in one command —
+system packages, Python deps, storage permission, the panel, and a report of
+which credentials and media are still missing. See **[INSTALAR.md](INSTALAR.md)**
+(Spanish, since that is where it runs).
+
+On a PC:
+
 ```bash
 pip install -r requirements.txt
 ```
@@ -65,6 +126,42 @@ built in). Never commit `config_trends.json`, `config.json`,
 
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
+
+## Subtitle style and fonts
+
+Subtitles are configured under `subtitulos` in `config.json` — nothing else
+needs touching to change how they look:
+
+```json
+{
+  "subtitulos": {
+    "estilo": "frase_activa",
+    "fuente": "Anton",
+    "color_activo": "#3BF07A",
+    "tamano_short": 84,
+    "escala_activa": 112
+  }
+}
+```
+
+Keys you omit keep their defaults, so the snippet above is a complete,
+valid config. Three styles are available:
+
+| `estilo` | What it looks like |
+|---|---|
+| `frase_activa` (default) | The whole phrase stays readable in white and only the word being spoken turns green and grows — the current TikTok/CapCut look. |
+| `relleno` | Classic karaoke fill: words already spoken keep the accent color, upcoming ones stay white. |
+| `pop` | One word at a time, entering with a scale bounce. |
+
+**Fonts ship in `fuentes/`** (Anton, Montserrat Black, Archivo Black, Bebas
+Neue — all SIL OFL, redistributable and fine for monetized video) and ffmpeg
+is pointed at that directory with `fontsdir`. This matters: libass silently
+*substitutes* a font that isn't installed rather than failing, so a style
+asking for `Montserrat Black` on a phone that doesn't have it was rendering
+as DejaVu Sans at regular weight — a font nobody chose. Bundling the files
+makes the output identical on the phone and on a PC. To add another font,
+drop its `.ttf` into `fuentes/` and set `fuente` to the font's internal
+family name (`fc-query -f '%{family}\n' file.ttf` prints it).
 
 ## Background music (`actualizar_musica.py`)
 
@@ -117,14 +214,16 @@ run `python pipeline.py` on a schedule with cron (Linux/macOS) or
 `cronie` + `termux-services` (Android). Your background footage/music files
 stay local, no upload needed.
 
-**Recommended split — generate in batches, publish daily.** Uploading an
-entire batch (10-20 videos) at once, a few times a week, floods anyone
-following the channel and gives the algorithm a spiky, inconsistent signal.
-Shorts channels grow better with **one video going public per day, at a
-consistent time** — that's what `publisher.py`'s `max_subidas_por_corrida`
-(default: 1) enforces: each run uploads just one video from the backlog and
-leaves the rest queued in `resultado_lote.json` for the next run. So split
-generation (heavier, less often) from publishing (light, daily):
+**Recommended split — generate in batches, publish daily.** So split
+generation (heavier, less often) from publishing (light, daily). Each
+publish run drains as much of the backlog as YouTube's real daily upload
+quota allows that day (`max_subidas_por_corrida` is `None` by default, so
+it only stops on an actual `uploadLimitExceeded` from YouTube, counting
+whatever was already uploaded earlier that same day) — before uploading, it
+also checks the channel for a video with the same title already there, so a
+connection drop mid-run never causes a duplicate or a lost upload; whatever
+doesn't fit in a day's quota just stays queued in `resultado_lote.json` for
+the next run:
 
 ```cron
 # crontab -e
