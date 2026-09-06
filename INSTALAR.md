@@ -66,6 +66,10 @@ panel               # abre el panel en el navegador
 python pipeline.py  # una tanda completa sin tocar nada
 ```
 
+Casi todo lo de aquí abajo tiene su botón en **Ajustes → Mantenimiento**, con
+la orden escrita al lado. La terminal sigue sirviendo para lo mismo; la lista
+del panel está para no tener que acordarse de ellas.
+
 De dónde salen las historias:
 
 ```bash
@@ -100,6 +104,18 @@ posición dentro de `guion.txt`. Al quitar historias, las que quedan se
 renumeran — los videos ya hechos conservan su nombre, pero un `--historias 44`
 anotado de antes deja de apuntar a lo mismo. Hazlo cuando no tengas
 selecciones a medias.
+
+### Borrar un video del teléfono
+
+En la pestaña **Revisar**, debajo del video, está «🗑 Borrar del teléfono».
+Borra el `.mp4` y su miniatura, y nada más: lo que ya se subió sigue en
+YouTube, y la anotación de que esa historia se grabó se queda donde está —
+si se borrara, `limpiar_cola.py` dejaría de saberlo y la historia volvería a
+la cola para renderizarse otra vez.
+
+El aviso antes de borrar cambia según el caso. Si el video ya está subido,
+solo estás tirando la copia local. Si no, es la única que hay: para
+recuperarlo habría que renderizarlo de nuevo desde la historia.
 
 **Para encontrar los virales viejos de YouTube** hace falta una clave gratis
 (si no, solo se ven los videos recién subidos, que todavía no tienen vistas):

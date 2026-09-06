@@ -26,6 +26,7 @@ import subprocess
 from datetime import datetime, timedelta, timezone
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE
 
 from google import genai
@@ -110,6 +111,7 @@ SCOPES = [
 MODEL = "gemini-3.5-flash-lite"
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+ruido.callar_sdk_google()   # los avisos de AFC del SDK, que aqui no aplican
 logger = logging.getLogger("publisher")
 
 

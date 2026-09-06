@@ -46,6 +46,7 @@ CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
 RUTA_CONFIG = os.path.join(BASE_DIR, "config.json")
 RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
+CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
 
 ES_TERMUX = "PREFIX" in os.environ or os.path.exists("/sdcard")
 
@@ -415,6 +416,57 @@ def api_metadata_guardar(archivo):
     return jsonify({"ok": True, "meta": almacen[nombre]})
 
 
+@app.post("/api/borrar/<path:archivo>")
+def api_borrar_video(archivo):
+    """Borra del teléfono el .mp4 de un video ya renderizado.
+
+    Solo el archivo (y su miniatura). NO se toca resultado_lote.json a
+    propósito: ese registro es lo que hace que limpiar_cola.py sepa que esa
+    historia ya se grabó. Borrando la anotación, la historia volvería a la
+    cola en la siguiente pasada y se renderizaría otra vez, que es justo lo
+    contrario de lo que pide quien borra un video.
+
+    Lo mismo con publicados.json: lo que se subió a YouTube se subió, y el
+    historial no cambia porque el archivo local ya no esté. Lo que sí se
+    marca es _borrado_local, que es como publisher.py anota los que se llevó
+    la limpieza de los siete días; sin eso la pestaña Publicados seguiría
+    diciendo que el video está en el teléfono hasta que venciera el plazo.
+    """
+    nombre = os.path.basename(archivo)
+    carpeta = cfg_actual()["carpeta_salida"]
+    ruta = os.path.join(carpeta, nombre)
+    if not os.path.isfile(ruta):
+        return jsonify({"error": "Ese video ya no está en el teléfono"}), 404
+
+    kb = os.path.getsize(ruta) // 1024
+    try:
+        os.remove(ruta)
+    except Exception as exc:
+        return jsonify({"error": f"No se pudo borrar: {exc}"}), 500
+
+    # La miniatura se rehace sola con ffmpeg si el video vuelve; dejarla
+    # ocupando sitio por un archivo que ya no existe no ayuda a nadie.
+    jpg = os.path.join(CARPETA_MINIATURAS, nombre + ".jpg")
+    if os.path.exists(jpg):
+        try:
+            os.remove(jpg)
+        except Exception:
+            pass
+
+    ruta_pub = os.path.join(CARPETA_ESTADO, "publicados.json")
+    publicados = leer_json(ruta_pub, [])
+    tocado = False
+    for pub in publicados:
+        if os.path.basename(pub.get("ruta", "")) == nombre and not pub.get("_borrado_local"):
+            pub["_borrado_local"] = True
+            tocado = True
+    if tocado:
+        with open(ruta_pub, "w", encoding="utf-8") as f:
+            json.dump(publicados, f, ensure_ascii=False, indent=2)
+
+    return jsonify({"ok": True, "nombre": nombre, "kb": kb, "estaba_publicado": tocado})
+
+
 @app.post("/api/ajuste")
 def api_ajuste():
     d = request.json or {}
@@ -574,6 +626,19 @@ ACCIONES = {
     "tiktok":     ("Subiendo a TikTok", [sys.executable, "tiktok_publisher.py"]),
     "tiktok_datos": ("Subiendo a TikTok (datos móviles)", [sys.executable, "tiktok_publisher.py", "--con-datos"]),
     "tiktok_revisar": ("Consultando estados en TikTok", [sys.executable, "tiktok_publisher.py", "--revisar"]),
+
+    # Mantenimiento. Son las órdenes que si no habría que escribir a mano en
+    # Termux, y de las que uno no se acuerda cuando hacen falta. Las que
+    # cambian algo van en pareja: primero la que solo enseña qué haría.
+    "estado_cola": ("Mirando la cola", [sys.executable, "trend_scout.py", "--estado"]),
+    "probar_clave_gemini": ("Probando la clave de Gemini", [sys.executable, "script_writer.py", "--probar-clave"]),
+    "ver_limpiar_cola": ("Viendo qué sobra en la cola", [sys.executable, "limpiar_cola.py"]),
+    "limpiar_cola": ("Quitando de la cola lo ya grabado", [sys.executable, "limpiar_cola.py", "--si"]),
+    "ver_recomprimir": ("Buscando videos que pesan de más", [sys.executable, "recomprimir.py"]),
+    "recomprimir": ("Recomprimiendo videos", [sys.executable, "recomprimir.py", "--si"]),
+    "recomprimir_limpiar": ("Borrando temporales de recompresión", [sys.executable, "recomprimir.py", "--limpiar"]),
+    "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
+    "tiktok_simular": ("Simulando la subida a TikTok", [sys.executable, "tiktok_publisher.py", "--simular"]),
 }
 
 
@@ -866,8 +931,6 @@ def api_video(archivo):
         abort(404)
     return servir_con_rango(ruta, "video/mp4")
 
-
-CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
 
 # El panel pide todas las miniaturas de golpe, y cada una que falte lanza un
 # ffmpeg. En un teléfono, cinco a la vez compiten con el render que puede

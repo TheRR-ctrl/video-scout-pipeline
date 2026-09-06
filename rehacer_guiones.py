@@ -42,7 +42,10 @@ import logging
 import argparse
 from datetime import datetime
 
+import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+ruido.callar_sdk_google()   # los avisos de AFC del SDK, que aqui no aplican
 logger = logging.getLogger("rehacer_guiones")
 
 from google import genai

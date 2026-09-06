@@ -16,6 +16,7 @@ import time
 import argparse
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 import narrador  # comprobar que el género declarado casa con el texto escrito
 import cola      # cola de candidatos e historial compartidos con trend_scout.py
 
@@ -152,6 +153,7 @@ Reglas:
 - No incluyas markdown ni encabezados, solo el texto narrado."""
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+ruido.callar_sdk_google()   # los avisos de AFC del SDK, que aqui no aplican
 logger = logging.getLogger("script_writer")
 
 

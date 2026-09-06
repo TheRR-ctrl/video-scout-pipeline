@@ -26,6 +26,7 @@ import logging
 import argparse
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +34,7 @@ CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+ruido.callar_sdk_google()   # los avisos de AFC del SDK, que aqui no aplican
 logger = logging.getLogger("preparar_metadata")
 
 
