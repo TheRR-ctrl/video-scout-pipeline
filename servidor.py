@@ -208,7 +208,13 @@ def videos_renderizados():
 
     publicados = leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), [])
     rechazados = leer_json(os.path.join(CARPETA_ESTADO, "rechazados.json"), [])
-    ya = {p.get("ruta") for p in publicados} | {r.get("ruta") for r in rechazados}
+    # Dos cosas distintas que antes iban juntas. "Subido" es lo que está en
+    # YouTube; "visto" es lo que publisher.py ya procesó, y ahí dentro también
+    # están los rechazados, que NO se subieron. La diferencia importa al
+    # borrar: de uno subido queda copia en YouTube, de uno rechazado no queda
+    # ninguna.
+    subidas = {p.get("ruta") for p in publicados}
+    vistas = subidas | {r.get("ruta") for r in rechazados}
     metadatos = leer_json(RUTA_METADATA, {})
 
     out = []
@@ -234,7 +240,8 @@ def videos_renderizados():
             # cambiarle el nombre dejaría al navegador enseñando la miniatura
             # vieja durante los siete días de caché.
             "mtime": int(os.path.getmtime(ruta)),
-            "publicado": ruta in ya,
+            "publicado": ruta in vistas,
+            "subido": ruta in subidas,
             # Lo que publisher.py subirá tal cual. None mientras no se haya
             # preparado: el panel distingue "todavía no existe" de "existe y
             # dice esto", que no es lo mismo para quien va a aprobarlo.
@@ -433,16 +440,54 @@ def api_borrar_video(archivo):
     diciendo que el video está en el teléfono hasta que venciera el plazo.
     """
     nombre = os.path.basename(archivo)
+    kb, error = borrar_de_salida(nombre)
+    if error:
+        return jsonify({"error": error}), (404 if kb is None else 500)
+    marcar_borrados_localmente([nombre])
+    return jsonify({"ok": True, "nombre": nombre, "kb": kb})
+
+
+@app.post("/api/borrar-subidos")
+def api_borrar_subidos():
+    """Borra de golpe todos los que ya están en YouTube.
+
+    Solo los subidos de verdad: los rechazados también los ha visto
+    publisher.py, pero de esos no hay copia en ningún otro sitio.
+    """
+    subidos = [v["archivo"] for v in videos_renderizados() if v["subido"]]
+    if not subidos:
+        return jsonify({"error": "No hay ninguno subido en el teléfono"}), 404
+
+    borrados, kb_total, fallos = [], 0, []
+    for nombre in subidos:
+        kb, error = borrar_de_salida(nombre)
+        if error:
+            fallos.append(nombre)
+            continue
+        borrados.append(nombre)
+        kb_total += kb
+    marcar_borrados_localmente(borrados)
+    return jsonify({"ok": True, "borrados": len(borrados), "kb": kb_total,
+                    "fallos": len(fallos)})
+
+
+def borrar_de_salida(nombre):
+    """Borra un .mp4 de la carpeta de salida y su miniatura.
+
+    Devuelve (kb liberados, None) o (None, motivo). No toca ningún registro:
+    de eso se encarga marcar_borrados_localmente, que sabe cuáles hay que
+    anotar y escribe publicados.json una sola vez.
+    """
     carpeta = cfg_actual()["carpeta_salida"]
     ruta = os.path.join(carpeta, nombre)
     if not os.path.isfile(ruta):
-        return jsonify({"error": "Ese video ya no está en el teléfono"}), 404
+        return None, "Ese video ya no está en el teléfono"
 
     kb = os.path.getsize(ruta) // 1024
     try:
         os.remove(ruta)
     except Exception as exc:
-        return jsonify({"error": f"No se pudo borrar: {exc}"}), 500
+        return 0, f"No se pudo borrar: {exc}"
 
     # La miniatura se rehace sola con ffmpeg si el video vuelve; dejarla
     # ocupando sitio por un archivo que ya no existe no ayuda a nadie.
@@ -452,19 +497,29 @@ def api_borrar_video(archivo):
             os.remove(jpg)
         except Exception:
             pass
+    return kb, None
 
+
+def marcar_borrados_localmente(nombres):
+    """Anota en publicados.json que esos archivos ya no están en el teléfono.
+
+    Es la misma marca que pone publisher.py al hacer la limpieza de los siete
+    días. Sin ella, la pestaña Publicados seguiría diciendo que el video se
+    puede ver aquí hasta que venciera el plazo.
+    """
+    if not nombres:
+        return
     ruta_pub = os.path.join(CARPETA_ESTADO, "publicados.json")
     publicados = leer_json(ruta_pub, [])
+    quedan = set(nombres)
     tocado = False
     for pub in publicados:
-        if os.path.basename(pub.get("ruta", "")) == nombre and not pub.get("_borrado_local"):
+        if os.path.basename(pub.get("ruta", "")) in quedan and not pub.get("_borrado_local"):
             pub["_borrado_local"] = True
             tocado = True
     if tocado:
         with open(ruta_pub, "w", encoding="utf-8") as f:
             json.dump(publicados, f, ensure_ascii=False, indent=2)
-
-    return jsonify({"ok": True, "nombre": nombre, "kb": kb, "estaba_publicado": tocado})
 
 
 @app.post("/api/ajuste")

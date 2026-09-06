@@ -417,7 +417,7 @@ function firmaRevisar(){
   // firma el repintado rehacía el <video>: se te reiniciaba justo mientras
   // lo veías. La tira se actualiza aparte, en pintaTira().
   const a = v[Math.min(elegido, v.length - 1)];
-  return ['hay', elegido, a.archivo, a.mtime, a.publicado, JSON.stringify(a.meta),
+  return ['hay', elegido, a.archivo, a.mtime, a.publicado, a.subido, JSON.stringify(a.meta),
           abiertoRehacer, JSON.stringify(finos)].join('~');
 }
 
@@ -428,7 +428,7 @@ function pintaTira(){
   const v = E.videos, caja = document.querySelector('#v-revisar .thumbs');
   if(!caja) return;   // la vista aún no está montada (o no hay videos)
   const f = [v.length, elegido,
-             v.map(x=>x.archivo+x.mtime+x.publicado).join('|')].join('~');
+             v.map(x=>x.archivo+x.mtime+x.subido).join('|')].join('~');
   if(firmaTiraActual === f) return;
   firmaTiraActual = f;
 
@@ -446,8 +446,8 @@ function pintaTira(){
 
 function miniaturas(v){
   return v.map((x,i)=>`
-      <div class="th ${i===elegido?'on':''} ${x.publicado?'sub':''}" data-i="${i}"
-           title="${x.publicado?'ya subido a YouTube':'sin subir'}">
+      <div class="th ${i===elegido?'on':''} ${x.subido?'sub':''}" data-i="${i}"
+           title="${x.subido?'ya subido a YouTube':(x.publicado?'rechazado, no se subió':'sin subir')}">
         <div class="im"><img loading="lazy" alt=""
              src="/miniatura/${encodeURIComponent(x.archivo)}?v=${x.mtime||0}"
              onerror="this.remove()"><span>${Math.floor(x.duracion_sec/60)}:${String(Math.round(x.duracion_sec%60)).padStart(2,'0')}</span></div>
@@ -459,7 +459,7 @@ function leyendaSubidos(v){
   // El recuento delante de la tira: cuántos quedan es lo que de verdad
   // quieres saber al abrir el panel, y el número lo dice antes de que te
   // pongas a contar miniaturas.
-  const subidos = v.filter(x => x.publicado).length;
+  const subidos = v.filter(x => x.subido).length;
   const faltan = v.length - subidos;
   return `<div class="leyenda">
     <span class="pt"><span class="mu sub">✓</span><b>${subidos}</b> subido${subidos===1?'':'s'}</span>
@@ -483,6 +483,7 @@ function pintaRevisar(){
   const a = v[elegido];
   const mins = Math.floor(a.duracion_sec/60), segs = Math.round(a.duracion_sec%60);
   const pistas = E.musica || [];
+  const subidos = v.filter(x => x.subido).length;
 
   cont.innerHTML = `
     <h2>${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}</h2>
@@ -504,8 +505,9 @@ function pintaRevisar(){
             <span>Emoción <b>${esc(a.emocion)}</b></span>
             ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
               <button class="btn sm" data-oir="${esc(a.musica)}" style="padding:2px 8px">▶</button>`:''}
-            ${a.publicado ? '<span class="pill ok">✓ ya subido a YouTube</span>'
-                          : '<span class="pill idle">sin subir</span>'}
+            ${a.subido ? '<span class="pill ok">✓ ya subido a YouTube</span>'
+              : (a.publicado ? '<span class="pill warn">rechazado, no se subió</span>'
+                             : '<span class="pill idle">sin subir</span>')}
           </div>
         </div>
         <div class="script"><b style="color:var(--ink-faint);font:10px var(--mono);
@@ -516,6 +518,7 @@ function pintaRevisar(){
           <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar pendientes</button>
           <button class="btn" id="b-rehacer">↺ Rehacer este</button>
           <button class="btn danger" id="b-borrar">🗑 Borrar del teléfono</button>
+          ${subidos ? `<button class="btn danger" id="b-borrar-subidos">🗑 Borrar los ${subidos} subidos</button>` : ''}
         </div>
         <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
 
@@ -586,7 +589,7 @@ function pintaRevisar(){
   // La tira acaba de salir de aquí: se anota su firma para que pintaTira()
   // no la vuelva a pintar encima sin necesidad.
   firmaTiraActual = [v.length, elegido,
-                     v.map(x=>x.archivo+x.mtime+x.publicado).join('|')].join('~');
+                     v.map(x=>x.archivo+x.mtime+x.subido).join('|')].join('~');
   cont.querySelectorAll('.th').forEach(t => t.onclick = ()=>{ elegido = +t.dataset.i; pintar(); });
   cont.querySelectorAll('[data-fino]').forEach(c => c.onchange = ()=>{
     finos[c.dataset.fino] = c.checked; pintar();
@@ -606,7 +609,7 @@ function pintaRevisar(){
   // El aviso cambia según esté subido o no: para uno que ya está en YouTube
   // esto es tirar una copia; para uno sin subir es tirar lo único que hay.
   $('#b-borrar').onclick = async ()=>{
-    const aviso = a.publicado
+    const aviso = a.subido
       ? `¿Borrar «${a.titulo.slice(0,60)}» del teléfono?\n\n`
         + 'Sigue en YouTube: esto solo tira la copia local. Sale de esta lista.'
       : `¿Borrar «${a.titulo.slice(0,60)}» del teléfono?\n\n`
@@ -617,6 +620,22 @@ function pintaRevisar(){
       const j = await post('/api/borrar/' + encodeURIComponent(a.archivo), {});
       const sitio = j.kb >= 1024 ? (j.kb/1024).toFixed(1) + ' MB' : j.kb + ' KB';
       toast(`Borrado · ${sitio} libres`);
+      elegido = 0;
+      await refrescar();
+    }catch(e){ toast(e.message); }
+  };
+
+  // Vaciar de una vez lo que ya está a salvo en YouTube, que es de donde
+  // sale el sitio de verdad: uno a uno son diez confirmaciones.
+  const bSub = $('#b-borrar-subidos');
+  if(bSub) bSub.onclick = async ()=>{
+    if(!confirm(`¿Borrar del teléfono los ${subidos} videos que ya están en YouTube?\n\n`
+      + 'Siguen en tu canal; esto solo tira las copias locales. Los que no se '
+      + 'subieron (y los rechazados) se quedan.')) return;
+    try{
+      const j = await post('/api/borrar-subidos', {});
+      const sitio = j.kb >= 1024 ? (j.kb/1024).toFixed(1) + ' MB' : j.kb + ' KB';
+      toast(`${j.borrados} borrados · ${sitio} libres` + (j.fallos ? ` · ${j.fallos} no se pudo` : ''));
       elegido = 0;
       await refrescar();
     }catch(e){ toast(e.message); }

@@ -117,6 +117,12 @@ El aviso antes de borrar cambia según el caso. Si el video ya está subido,
 solo estás tirando la copia local. Si no, es la única que hay: para
 recuperarlo habría que renderizarlo de nuevo desde la historia.
 
+Al lado está **«Borrar los N subidos»**, que hace lo mismo de golpe con todos
+los que ya están en YouTube — que es de donde sale el sitio de verdad, sin ir
+uno por uno. Solo toca los subidos: los que aún no se han publicado, y los
+que `publisher.py` rechazó (que tampoco llegaron a subirse), se quedan donde
+están.
+
 **Para encontrar los virales viejos de YouTube** hace falta una clave gratis
 (si no, solo se ven los videos recién subidos, que todavía no tienen vistas):
 
