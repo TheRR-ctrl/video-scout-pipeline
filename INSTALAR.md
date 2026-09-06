@@ -80,6 +80,27 @@ Las dos fuentes llenan la misma cola y `pipeline.py` corre las dos. Para
 elegir canales de YouTube o apagar esa fuente, copia
 `config_trends.ejemplo.json` como `config_trends.json` y edítalo.
 
+### Vaciar la cola de lo ya grabado
+
+`guion.txt` guarda todo lo que Gemini escribió, y renderizar no borra nada de
+ahí: con las semanas la pestaña **Cola** acumula historias que ya tienen
+video. Para quitarlas:
+
+```bash
+python limpiar_cola.py       # dice qué quitaría
+python limpiar_cola.py --si  # lo hace, guardando antes una copia
+```
+
+Empareja por título contra los `.mp4` de la carpeta de salida **y** contra
+`resultado_lote.json`, así que también quita las que se grabaron y luego se
+borraron del teléfono a los 7 días.
+
+Ojo con la numeración: el video se llama `NN_Titulo.mp4`, donde `NN` es la
+posición dentro de `guion.txt`. Al quitar historias, las que quedan se
+renumeran — los videos ya hechos conservan su nombre, pero un `--historias 44`
+anotado de antes deja de apuntar a lo mismo. Hazlo cuando no tengas
+selecciones a medias.
+
 **Para encontrar los virales viejos de YouTube** hace falta una clave gratis
 (si no, solo se ven los videos recién subidos, que todavía no tienen vistas):
 
