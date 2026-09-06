@@ -129,7 +129,8 @@ def main(argv=None):
 
     print(f"\n   ✓ Copia de la cola anterior en {os.path.basename(respaldo)}")
     print(f"   ✓ {RUTA_GUION}: quedan {len(quedan)} historia(s).")
-    print("\n  Reinicia el panel para que la pestaña Cola lo lea.\n")
+    # El servidor relee guion.txt en cada peticion, no hace falta reiniciarlo.
+    print("\n  Pulsa ↻ en el panel para que la pestaña Cola lo relea.\n")
     return 0
 
 
