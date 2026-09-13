@@ -123,6 +123,91 @@ uno por uno. Solo toca los subidos: los que aún no se han publicado, y los
 que `publisher.py` rechazó (que tampoco llegaron a subirse), se quedan donde
 están.
 
+### Videos largos: por qué no se hacen ahora
+
+Los 18 videos largos del canal sumaron 43 vistas entre todos. Los 48 shorts,
+29.000. No es que gustaran menos: un canal sin base de suscriptores no recibe
+tráfico de «sugeridos» ni de «inicio», que es de donde vive el formato largo,
+mientras que el feed de Shorts empuja el video a desconocidos sin que nadie te
+conozca. Renderizar cinco minutos en el teléfono para sacar dos vistas es
+tirar el trabajo.
+
+Así que están bloqueados, pero con una condición y no a mano: cuando el canal
+llegue a 500 suscriptores se abren solos. Para ver en qué estado están:
+
+```bash
+python formato.py
+```
+
+Mientras estén bloqueados, una historia que no quepa en un short **no se
+pierde**: el render la salta con un `⏸️ aplazado` y la deja en la cola. El día
+que se abran, se graba sola en el siguiente lote.
+
+Para abrirlos antes de llegar al umbral, en `config.json`:
+
+```json
+"forzar_largos": true
+```
+
+### Historias que no se cuentan dos veces
+
+Antes, dos posts distintos de Reddit que contaban la misma historia entraban
+los dos a la cola: se comparaban por el id del post, no por el texto. La
+segunda versión salía como refrito y el feed no la repartía. Ahora se comparan
+también las palabras del cuerpo, y al buscar aparece cuántas se descartaron
+por ser la misma historia que una ya contada.
+
+Con lo mismo, `script_writer.py` tira las historias de temas que el feed de
+Shorts no empuja (maltrato infantil, suicidio, violencia grave, contenido
+sexual, conspiraciones). Gemini etiqueta el tema al escribir, y la historia
+descartada no llega al guion. La lista se puede cambiar en `config.json`:
+
+```json
+"temas_bloqueados": ["suicidio_autolesion", "violencia_grave"]
+```
+
+### Borrar de YouTube lo que no arrancó y volver a grabarlo
+
+De los 48 shorts, 18 se quedaron por debajo de 300 vistas y la mitad de esos
+no pasó de 12. No hay ninguno entre 60 y 300: o el feed reparte el video o no
+lo reparte, y cuando no lo reparte el video no se recupera nunca solo.
+
+Un video así no hace nada por el canal, pero la historia sigue sirviendo. En
+**Ajustes → Mantenimiento** hay tres cosas:
+
+```bash
+python relanzar.py                  # las vistas reales de cada video subido
+python relanzar.py --duplicados     # copias repetidas que no tuvieron ni una vista
+python relanzar.py --sin-vistas     # los que no vio nadie, para rehacerlos
+```
+
+Sin `--si` solo enseñan el listado. Con `--si`:
+
+- `--duplicados` borra la copia repetida del canal y **no** la rehace: la
+  historia ya está contada en la copia que sí funcionó (se queda la que más
+  vistas tiene).
+- `--sin-vistas` borra el video **y devuelve la historia a la cola**, así que
+  el siguiente `generar_video_maestro.py` la graba de cero, con otro título y
+  otra miniatura. Si el guion ya no estaba en `guion.txt`, lo recupera de las
+  copias `guion.txt.bak-…` que deja `limpiar_cola.py`.
+
+Un video borrado de YouTube no vuelve. Lo que se borró queda anotado en
+`pipeline_state/relanzados.json` con el título y las vistas que tenía.
+
+**Esto necesita un permiso que el token viejo no tiene.** El token se generó
+solo con «subir» y «leer»; borrar se pide aparte. Para añadirlo:
+
+```bash
+rm youtube_token.json
+python generar_youtube_token.py
+```
+
+Sale el link de autorización, lo abres en el navegador del teléfono y das
+permiso, igual que la primera vez. Los permisos nuevos ya están puestos en el
+código, así que no hay que tocar nada más. Si te lo saltas, `relanzar.py` lo
+dice antes de tocar nada en vez de fallar a mitad. `rehacer_todo.py`, que
+también borra del canal, necesitaba lo mismo y nunca había podido hacerlo.
+
 **Para encontrar los virales viejos de YouTube** hace falta una clave gratis
 (si no, solo se ven los videos recién subidos, que todavía no tienen vistas):
 

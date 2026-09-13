@@ -162,6 +162,14 @@ PRESETS_SUBTITULOS = {
 CONFIG_DEFAULT = {
     "carpeta_salida": "/sdcard/DCIM/Videos creados" if ES_ANDROID else os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados"),
     "duracion_max_short_sec": 180.0,
+    # Formato largo. Mientras largos_activos siga en False, una historia que
+    # no quepa en un short no se renderiza y se queda en la cola: en este
+    # canal los largos sacaban 2 vistas contra las 1000 de un short, y el
+    # render de cinco minutos en el teléfono no se recupera. Se abren solos al
+    # cruzar el umbral de suscriptores — lo decide formato.py, no esto.
+    "largos_activos": False,
+    "umbral_suscriptores_largos": 500,
+    "forzar_largos": False,
     "voz_masculina": "es-MX-JorgeNeural",
     "voz_femenina": "es-MX-DaliaNeural",
     "reintentar_existentes": False,
@@ -244,6 +252,8 @@ def cargar_config(ruta="config.json", preset=None):
             print(f"⚠️ No se pudo leer {ruta}, usando valores por defecto: {exc}")
     cfg["subtitulos"] = resolver_subtitulos(usuario_subs, preset)
     return cfg
+
+import formato   # decide si los videos largos están abiertos
 
 CONFIG = cargar_config()
 CARPETA_SALIDA = CONFIG["carpeta_salida"]
@@ -1496,6 +1506,47 @@ def generar_audio(txt, voz, pitch, rate, audio_out, srt_out):
 
     return False
 
+class HistoriaAplazada(Exception):
+    """No se renderiza ahora, pero no ha fallado nada.
+
+    Se usa para las historias que no caben en un short mientras el formato
+    largo está bloqueado. El lote las cuenta aparte de las fallidas: una
+    fallida hay que ir a mirarla, una aplazada se renderiza sola el día que
+    los largos se abran.
+    """
+
+
+# Palabras por segundo de la narración generada, medidas sobre los videos ya
+# hechos. Sirve para descartar un guion demasiado largo ANTES de gastar el
+# TTS; el número que manda sigue siendo la duración del audio real.
+PALABRAS_POR_SEGUNDO = 2.6
+
+# Margen sobre el tope antes de descartar por número de palabras. La
+# estimación se equivoca en un 10-15% según cuánto diálogo traiga la historia,
+# y equivocarse hacia abajo sería aplazar una historia que sí cabía.
+HOLGURA_ESTIMACION = 1.25
+
+
+def aplazar_si_es_largo(cuerpo, num, nombre):
+    """Corta antes del TTS una historia que no va a caber en un short.
+
+    Solo cuando se pasa con holgura: en la frontera se deja seguir y decide
+    la duración del audio real, que es la que no se equivoca.
+    """
+    tope = DURACION_MAX_SHORT_SEC * HOLGURA_ESTIMACION
+    palabras = len(limpiar_texto_seguro(cuerpo).split())
+    estimado = palabras / PALABRAS_POR_SEGUNDO
+    if estimado <= tope:
+        return
+    p = formato.politica()
+    if p["permite_largos"]:
+        return
+    raise HistoriaAplazada(
+        f"~{estimado/60:.1f} min estimados ({palabras} palabras) y los largos "
+        f"están bloqueados ({p['motivo']})"
+    )
+
+
 def renderizar_una_historia(contenido, num=1):
     gestor = GestorTemporales()
     try:
@@ -1508,6 +1559,11 @@ def renderizar_una_historia(contenido, num=1):
             print(f"\n⏭️  [Video {num}] Ya existe, se omite: {os.path.basename(ruta_out)}")
             logger.info(f"Video {num} omitido (ya existe): {ruta_out}")
             return
+
+        # Antes del TTS: si por número de palabras esto no cabe ni de lejos en
+        # un short y los largos están cerrados, no vale la pena gastar la
+        # locución de cinco minutos para descubrirlo después.
+        aplazar_si_es_largo(cue, num, n_arch)
 
         print(f"\n🎬 [Video {num}] Procesando: {n_arch}")
         print(f" ├─ ⚙️  Emoción: {emocion.upper()} ({origen_emocion(contenido)}) | Música: {musica or 'Ninguna'}")
@@ -1569,6 +1625,17 @@ def renderizar_una_historia(contenido, num=1):
         
         es_short = (dur_sec <= DURACION_MAX_SHORT_SEC) 
         num_palabras = len(limpiar_texto_seguro(cue).split())
+
+        # El número que manda: la locución ya está medida. Si resultó larga y
+        # los largos están cerrados, se corta aquí — antes del fondo, que es
+        # la parte cara del render.
+        if not es_short:
+            p = formato.politica()
+            if not p["permite_largos"]:
+                raise HistoriaAplazada(
+                    f"dura {dur_sec/60:.1f} min y los largos están bloqueados "
+                    f"({p['motivo']})"
+                )
         
         msg_formato = f" ├─ 📐 Formato: {'Vertical (Short/TikTok)' if es_short else 'Horizontal (Largo)'} ({num_palabras} palabras, {dur_sec/60.0:.1f} min)"
         print(msg_formato[:term_cols - 1])
@@ -1932,6 +1999,7 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
             pares = list(enumerate(hists, 1))
 
         fallidas = []
+        aplazadas = []
         completados = []
 
         for i, h in pares:
@@ -1950,6 +2018,12 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
                 # registro se escribe abajo igual, no se pierde el trabajo.
                 print(f"\n\n⏹️  Interrumpido en la historia {i}. Se guarda lo completado.")
                 break
+            except HistoriaAplazada as exc:
+                # No es un fallo: la historia sigue en la cola y se renderiza
+                # sola el día que los largos se abran.
+                aplazadas.append((i, str(exc)))
+                logger.info(f"Video {i} aplazado: {exc}")
+                print(f"\n⏸️  Video {i} aplazado: {exc}")
             except Exception as exc:
                 fallidas.append((i, str(exc)))
                 logger.error(f"Video {i} falló: {exc}")
@@ -1958,11 +2032,17 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
         guardar_resultado_lote(completados, fallidas, avisar=True)
 
         print("--------------------------------------------------")
+        if aplazadas:
+            print(f"⏸️  {len(aplazadas)} historia(s) aplazada(s) por no caber en un short:")
+            for numero, motivo in aplazadas:
+                print(f"   • Video {numero}: {motivo}")
+            print("   Siguen en la cola. Se renderizan cuando se abran los largos")
+            print("   (python formato.py para ver cuánto falta).")
         if fallidas:
             print(f"⚠️ Lote terminado con {len(fallidas)} historia(s) fallida(s).")
             for numero, error in fallidas:
                 print(f"   • Video {numero}: {error}")
-        else:
+        elif not aplazadas:
             print("🎉 ¡PROCESAMIENTO POR LOTE COMPLETADO SIN ERRORES!")
         print("--------------------------------------------------")
     finally:

@@ -101,12 +101,19 @@ CONFIG_DEFAULT = {
     "idioma": "es",
 }
 
+# Lo que se le PIDE a Google al generar un token nuevo. Un token que ya
+# existe se usa con los permisos que tenga (ver obtener_servicio_youtube):
+# añadir algo aquí no invalida el token de nadie, solo hace que el siguiente
+# que se genere venga con el permiso nuevo.
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     # De solo lectura: para poder revisar si un video ya existe en el canal
     # antes de subirlo (evita duplicados si pipeline_state/publicados.json
     # se pierde o se corrompe).
     "https://www.googleapis.com/auth/youtube.readonly",
+    # Para borrar del canal (videos.delete), que es lo que necesitan
+    # relanzar.py y rehacer_todo.py. Con solo "upload" la API responde 403.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 MODEL = "gemini-3.5-flash-lite"
 
@@ -336,7 +343,12 @@ def metadata_de_respaldo(video):
 def obtener_servicio_youtube():
     creds = None
     if os.path.exists(RUTA_TOKEN):
-        creds = Credentials.from_authorized_user_file(RUTA_TOKEN, SCOPES)
+        # Sin pasarle SCOPES: así se usa con los permisos que el token trae
+        # escritos. Si se le impone una lista más amplia que la que Google
+        # concedió, el refresco del token falla con "Not all requested scopes
+        # were granted" y deja de poder subir — un token viejo tiene que
+        # seguir sirviendo para lo que sí le dieron permiso.
+        creds = Credentials.from_authorized_user_file(RUTA_TOKEN)
 
     if not creds or not creds.valid:
         if creds and creds.expired and creds.refresh_token:

@@ -719,9 +719,13 @@ def main(argv=None):
     pendientes_antes = len(cola.cargar_pendientes())
     contar = {}
     nuevos = escanear(cfg, contar)
-    total_cola, agregados = cola.agregar_candidatos(nuevos)
+    total_cola, agregados, repetidos = cola.agregar_candidatos(nuevos)
 
     logger.info(f"{agregados} video(s) nuevo(s); {total_cola} en cola en {cola.RUTA_CANDIDATOS}")
+    if repetidos:
+        # Descartados por parecerse a una historia ya escrita, no por el id.
+        # Verlo en el log importa: si sale alto, la fuente está reciclando.
+        logger.info(f"{repetidos} descartado(s) por ser la misma historia que una ya contada")
     for c in nuevos:
         print(f" • [{c['canal']}] {c['titulo_original']} ({c['vistas']:,} vistas)")
 

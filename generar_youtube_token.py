@@ -27,6 +27,10 @@ RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 SCOPES = [
     "https://www.googleapis.com/auth/youtube.upload",
     "https://www.googleapis.com/auth/youtube.readonly",
+    # Borrar videos del canal (relanzar.py, rehacer_todo.py). Un token
+    # generado antes de que esto estuviera aquí no puede borrar: hay que
+    # borrar youtube_token.json y volver a pasar por este script.
+    "https://www.googleapis.com/auth/youtube.force-ssl",
 ]
 
 

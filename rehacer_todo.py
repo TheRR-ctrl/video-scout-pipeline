@@ -90,6 +90,15 @@ def main():
                 logger.info("Cancelado. No se borró nada.")
                 return
 
+        # El token generado antes de que existiera relanzar.py no tiene
+        # permiso para borrar, y la API responde 403 por cada video. Mejor
+        # decirlo una vez y no seguir: si se borrasen los archivos locales
+        # pero no los videos del canal, quedarían duplicados al volver a subir.
+        import relanzar
+        if not relanzar.comprobar_permiso_de_borrado():
+            logger.info("No se tocó nada. Arregla el permiso y vuelve a correrlo.")
+            return
+
         servicio_yt = publisher.obtener_servicio_youtube()
         publicados_restantes = []
         borrados = 0

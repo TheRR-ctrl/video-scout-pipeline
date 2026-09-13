@@ -692,6 +692,12 @@ ACCIONES = {
     "ver_recomprimir": ("Buscando videos que pesan de más", [sys.executable, "recomprimir.py"]),
     "recomprimir": ("Recomprimiendo videos", [sys.executable, "recomprimir.py", "--si"]),
     "recomprimir_limpiar": ("Borrando temporales de recompresión", [sys.executable, "recomprimir.py", "--limpiar"]),
+    "formato": ("Mirando si toca hacer largos", [sys.executable, "formato.py"]),
+    "ver_relanzar": ("Leyendo las vistas del canal", [sys.executable, "relanzar.py"]),
+    "ver_relanzar_dup": ("Buscando copias repetidas sin vistas", [sys.executable, "relanzar.py", "--duplicados"]),
+    "relanzar_dup": ("Borrando las copias repetidas", [sys.executable, "relanzar.py", "--duplicados", "--si"]),
+    "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
+    "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
     "tiktok_simular": ("Simulando la subida a TikTok", [sys.executable, "tiktok_publisher.py", "--simular"]),
 }

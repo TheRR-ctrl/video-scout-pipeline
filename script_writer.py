@@ -42,6 +42,40 @@ EMOCIONES_VALIDAS = ["venganza", "suspenso", "drama", "comedia"]
 # generar_video_maestro.py, es_short sale de la duración real del audio ya
 # generado (dur_sec <= duracion_max_short_sec), no de una cuota de palabras.
 
+# Qué temas reparte peor el feed de Shorts. Medido en el canal: en el lote del
+# 11/09, publicado entero en diez minutos, los de maltrato infantil, intento de
+# filicidio, violencia y conspiración sacaron entre 2 y 19 vistas mientras los
+# pleitos domésticos del MISMO lote sacaban entre 337 y 1640. No hay nada entre
+# 60 y 300 vistas en todo el canal, y un hueco así no lo hace el público —que
+# vota en una escala continua— sino el reparto, que es binario.
+#
+# No es un juicio sobre las historias: están igual de bien escritas que las de
+# mil vistas. Es que renderizarlas y subirlas es trabajo del teléfono que no va
+# a ver nadie.
+TEMAS = [
+    "cotidiano",          # pleitos de familia, pareja, trabajo, vecinos, dinero
+    "paranormal",         # sustos, casas embrujadas, apariciones
+    "maltrato_infantil",
+    "suicidio_autolesion",
+    "violencia_grave",    # agresiones, atentados, crimen violento
+    "contenido_sexual",
+    "salud_mental",       # ansiedad, depresión, diagnósticos como eje del relato
+    "conspiracion",
+    "drogas",
+]
+
+# Los que no se escriben. salud_mental y drogas se quedan fuera de la lista a
+# propósito: el único dato que tengo es un video de ansiedad con 7 vistas, y
+# bloquear el tema entero se llevaría media cola de dramas de pareja. Si
+# quieres apretar más, añádelos en config.json → temas_bloqueados.
+TEMAS_BLOQUEADOS_DEFECTO = [
+    "maltrato_infantil",
+    "suicidio_autolesion",
+    "violencia_grave",
+    "contenido_sexual",
+    "conspiracion",
+]
+
 SCHEMA_HISTORIA = {
     "type": "object",
     "properties": {
@@ -65,6 +99,22 @@ SCHEMA_HISTORIA = {
             "type": "string",
             "enum": EMOCIONES_VALIDAS,
         },
+        "tema": {
+            "type": "string",
+            "enum": TEMAS,
+            "description": (
+                "De qué trata el NÚCLEO de la historia, no un detalle de paso. "
+                "Si el eje es un pleito de familia, pareja, trabajo, vecinos o "
+                "dinero, es «cotidiano», aunque alguien grite o llore. Reserva "
+                "las otras etiquetas para cuando el tema ES eso: «maltrato_infantil» "
+                "si lo que se cuenta es el daño a un niño, «suicidio_autolesion» si "
+                "alguien intenta quitarse la vida o quitársela a otro, "
+                "«violencia_grave» para agresiones o crímenes violentos, "
+                "«conspiracion» para sociedades secretas y teorías, «salud_mental» "
+                "si un diagnóstico es el eje del relato. Esta etiqueta decide si la "
+                "historia se publica, así que no la adornes ni la suavices."
+            ),
+        },
         "cuerpo": {
             "type": "string",
             "description": (
@@ -83,7 +133,7 @@ SCHEMA_HISTORIA = {
             ),
         },
     },
-    "required": ["titulo_hook", "genero_narrador", "emocion", "cuerpo", "cierre"],
+    "required": ["titulo_hook", "genero_narrador", "emocion", "tema", "cuerpo", "cierre"],
 }
 
 # De un episodio largo (un podcast de anécdotas puede traer diez) se toman
@@ -369,6 +419,37 @@ def segmentar_transcripcion(client, candidato):
     return derivados
 
 
+def temas_bloqueados():
+    """Los temas que no se escriben, de config.json o los de fábrica."""
+    try:
+        import generar_video_maestro as gvm
+        cfg = gvm.cargar_config(os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.json"))
+        lista = cfg.get("temas_bloqueados")
+    except Exception:
+        lista = None
+    if not isinstance(lista, list):
+        lista = TEMAS_BLOQUEADOS_DEFECTO
+    return {str(t) for t in lista}
+
+
+def motivo_para_tirar(historia, huellas):
+    """Por qué esta historia no se lleva al guion, o None si sí.
+
+    Se mira DESPUÉS de escribirla, no antes: el tema lo etiqueta Gemini con la
+    historia ya entendida, y para saber si es la misma que otra hace falta el
+    texto. La llamada ya está gastada de todos modos; lo que se ahorra es el
+    render de cinco minutos en el teléfono y una subida que nadie va a ver.
+    """
+    tema = historia.get("tema", "")
+    if tema in temas_bloqueados():
+        return f"tema «{tema}», que el feed de Shorts no reparte"
+
+    cuanto = cola.ya_contada(historia.get("cuerpo", ""), huellas)
+    if cuanto:
+        return f"ya se contó esta historia (se parecen en {cuanto:.0%})"
+    return None
+
+
 def construir_bloque_guion(historia, candidato):
     # Prefijo '#' para que extraer_titulo_y_cuerpo() las trate como comentario
     # y no las tome como primera línea (título) de la historia.
@@ -492,6 +573,10 @@ def main(argv=None):
     bloques = []
     usados = []      # ids que sí se convirtieron en guion
     descartados = [] # ids que fallaron demasiadas veces
+    tiradas = []     # escritas pero no publicables (tema o repetida)
+    # Se cargan una vez, no por historia: esto crece hasta 400 huellas y
+    # releerlas del disco en cada una sería leer el mismo archivo veinte veces.
+    huellas = cola.cargar_huellas()
     quedan = []      # candidatos que vuelven a la cola para el próximo intento
     error_global = None  # fallo de configuración que corta la corrida entera
 
@@ -521,7 +606,23 @@ def main(argv=None):
                     logger.info(f"  → Reescribiendo: {parte['titulo_original'][:60]}...")
                 try:
                     historia = con_reintentos(reescribir_historia, client, parte)
+                    motivo_tirar = motivo_para_tirar(historia, huellas)
+                    if motivo_tirar:
+                        logger.info(f"  ✗ Descartada: {motivo_tirar}")
+                        tiradas.append((historia.get("titulo_hook", "")[:70], motivo_tirar))
+                        # Cuenta como escrita para que el candidato se dé por
+                        # consumido: la decisión no va a cambiar si se
+                        # reintenta, y dejarlo en la cola lo haría volver a
+                        # gastar una llamada a Gemini en cada corrida.
+                        escritas += 1
+                        continue
                     bloques.append(construir_bloque_guion(historia, parte))
+                    # La huella entra en la lista viva, no solo en el disco: dos
+                    # segmentos del MISMO video que se pisan llegan dentro de
+                    # esta misma vuelta, y comparándolos solo contra el
+                    # historial guardado pasarían los dos.
+                    huellas.append(cola.huella(historia["cuerpo"]))
+                    cola.guardar_huella(historia["cuerpo"])
                     escritas += 1
                 except Exception as exc:
                     # Un fallo de credencial o cuota no es de esta anécdota y
@@ -581,6 +682,11 @@ def main(argv=None):
     if bloques:
         escribir_guion(bloques)
         logger.info(f"{len(bloques)} historia(s) agregada(s) a {RUTA_GUION}")
+
+    if tiradas:
+        logger.info(f"{len(tiradas)} escrita(s) pero no llevada(s) al guion:")
+        for titulo, motivo in tiradas:
+            logger.info(f"   • {titulo} — {motivo}")
 
     # La cola se actualiza siempre, aunque no haya salido ningún bloque: si
     # no, los contadores de intentos se perderían y los mismos candidatos
