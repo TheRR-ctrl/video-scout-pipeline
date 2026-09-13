@@ -12,5 +12,14 @@ video_maestro.log
 *.wav
 *.aac
 *.png
+# ...salvo los iconos del panel, que son parte de la app
+!web/icono-*.png
 __pycache__/
 *.pyc
+secretos.env
+tiktok_token.json
+
+# Copias y guiones de prueba: nunca al repo
+guion.bak
+guion_prueba.txt
+*.bak
