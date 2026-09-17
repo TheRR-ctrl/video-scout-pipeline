@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # Programa las tandas automáticas con cron.
 #
-#   bash instalar_cron.sh            instala/actualiza las tres tareas
+#   bash instalar_cron.sh            instala/actualiza las tareas
 #   bash instalar_cron.sh --quitar   las borra
 #
 # Es idempotente: solo toca las líneas marcadas con MARCA, así que cualquier
@@ -45,6 +45,7 @@ NUEVAS="$(cat <<EOF
 0 6 * * 1,4 cd $REPO && $PYTHON pipeline.py --hasta video >> $REPO/pipeline.log 2>&1 $MARCA
 0 9 * * * cd $REPO && $PYTHON pipeline.py --desde publicar >> $REPO/pipeline.log 2>&1 $MARCA
 0 8 1 * * cd $REPO && $PYTHON actualizar_musica.py >> $REPO/musica.log 2>&1 $MARCA
+30 7 1,15 * * cd $REPO && bash revision_quincenal.sh >> $REPO/revision.log 2>&1 $MARCA
 EOF
 )"
 
@@ -53,6 +54,7 @@ echo "  ✓ Programado:"
 echo "      lunes y jueves 06:00  → buscar historias, guiones y video"
 echo "      todos los días 09:00  → publicar lo que haya en la cola"
 echo "      día 1 de cada mes     → refrescar la música"
+echo "      días 1 y 15   07:30   → revisar qué funcionó y rehacer lo que no"
 echo
 
 # ---- 3. crond vivo --------------------------------------------------------

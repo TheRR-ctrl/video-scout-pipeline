@@ -23,3 +23,6 @@ tiktok_token.json
 guion.bak
 guion_prueba.txt
 *.bak
+
+# Los logs de las tandas automáticas (cron).
+*.log

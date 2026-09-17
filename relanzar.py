@@ -24,6 +24,17 @@ siguiente `python generar_video_maestro.py` la graba otra vez de cero.
 Las vistas se leen del canal (videos.list), no se adivinan. Borrar necesita
 un permiso que el token actual no tiene; si falta, esto lo dice antes de
 tocar nada y explica cómo añadirlo.
+
+Dos guardas, para que esto se pueda dejar en el cron sin vigilarlo:
+
+  --dias-minimos 14   no toca lo subido hace menos de dos semanas. Un video
+                      de ayer con 0 vistas no fracasó, es que no le ha tocado.
+  --max-intentos 2    una historia se rehace dos veces como mucho. Si a la
+                      tercera sigue a cero, el problema es la historia.
+
+La revisión quincenal del cron (instalar_cron.sh, días 1 y 15) es esto mismo
+con los valores por omisión, así que lo que borra automáticamente es lo que
+verías corriéndolo a mano.
 """
 import io
 import os
@@ -53,6 +64,17 @@ PERMISO_BORRADO = "https://www.googleapis.com/auth/youtube.force-ssl"
 # canal no tiene videos entre 60 y 300 vistas, así que subirlo a 50 no
 # cambiaría a quién señala; queda como palanca por si el reparto cambia.
 MAX_VISTAS_DEFECTO = 0
+
+# Días que se le dan a un video antes de darlo por muerto. Un video subido
+# ayer con 0 vistas no fracasó: todavía no le ha tocado. Sin este margen,
+# la revisión automática borraría lo que acaba de publicarse. 14 son los de
+# la revisión quincenal, y de sobra para los 9h de buffer de publisher.
+DIAS_MINIMOS_DEFECTO = 14
+
+# Cuántas veces se rehace la misma historia antes de dejarla ir. Si a la
+# tercera sigue sin arrancar, el problema es la historia y no el reparto:
+# volver a grabarla es gastar TTS y render para repetir el resultado.
+MAX_INTENTOS_DEFECTO = 2
 
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 logger = logging.getLogger("relanzar")
@@ -185,35 +207,96 @@ def _vistas(p):
     return p["vistas"] if p.get("vistas") is not None else -1
 
 
-def sobrantes_de_los_repetidos(registros, max_vistas):
+def dias_desde_subida(p):
+    """Días que lleva subido, o None si el registro no dice cuándo."""
+    crudo = p.get("subido_en")
+    if not crudo:
+        return None
+    try:
+        cuando = datetime.strptime(crudo, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+    return (datetime.now(timezone.utc) - cuando).total_seconds() / 86400.0
+
+
+def es_maduro(p, dias_minimos):
+    """True si ya se le dio tiempo suficiente para arrancar.
+
+    Un registro sin fecha se queda fuera: no se puede saber si es de hace un
+    año o de esta mañana, y en la duda no se borra. Con --dias-minimos 0 se
+    revisa todo, que es lo que quieres cuando lo corres a mano y mirando.
+    """
+    if dias_minimos <= 0:
+        return True
+    dias = dias_desde_subida(p)
+    return dias is not None and dias >= dias_minimos
+
+
+def intentos_previos():
+    """{apodo: cuántas veces se rehizo ya} según pipeline_state/relanzados.json.
+
+    Solo cuentan los que se borraron para rehacerlos (relanzado=True): los
+    de --duplicados se borran sin volver a grabarse, y no son un intento.
+    """
+    cuenta = {}
+    for reg in publisher.cargar_json(RUTA_HISTORIAL, []):
+        if not reg.get("relanzado"):
+            continue
+        apodo = limpiar_cola._apodo_de_archivo(os.path.basename(reg.get("ruta") or ""))
+        if apodo:
+            cuenta[apodo] = cuenta.get(apodo, 0) + 1
+    return cuenta
+
+
+def sobrantes_de_los_repetidos(registros, max_vistas, dias_minimos=0):
     """De cada grupo repetido, cuáles se pueden borrar.
 
     Se queda la copia con más vistas (a igualdad, la que se subió antes: es
     la que lleva tiempo indexada). De las otras solo se borran las que no
     pasaron de max_vistas — si una copia repetida sí arrancó, no se toca,
-    aunque sea la segunda.
+    aunque sea la segunda — y que ya llevan dias_minimos subidas.
+
+    La copia que se queda se elige mirando el grupo entero, también los
+    recién subidos: si el que más vistas tiene es el de ayer, el viejo sin
+    vistas es el refrito y es el que sobra.
     """
     fuera = []
     for grupo in grupos_repetidos(registros):
         orden = sorted(grupo, key=lambda p: (-_vistas(p), p.get("subido_en") or ""))
         for p in orden[1:]:
-            if p.get("vistas") is not None and p["vistas"] <= max_vistas:
+            if (p.get("vistas") is not None and p["vistas"] <= max_vistas
+                    and es_maduro(p, dias_minimos)):
                 p["_se_queda"] = orden[0]
                 fuera.append(p)
     return fuera
 
 
-def sin_vistas(registros, max_vistas):
+def sin_vistas(registros, max_vistas, dias_minimos=0, max_intentos=0):
     """Los no vistos que tiene sentido rehacer.
 
-    Se dejan fuera las copias repetidas: rehacer una historia que ya está
-    contada en otro video (y funcionando) vuelve a subir el refrito que
-    hundió a la copia. Esas van por --duplicados, que borra sin rehacer.
+    Se dejan fuera tres cosas:
+
+    - Las copias repetidas: rehacer una historia que ya está contada en otro
+      video (y funcionando) vuelve a subir el refrito que hundió a la copia.
+      Esas van por --duplicados, que borra sin rehacer.
+    - Los que llevan menos de dias_minimos subidos, que no han fracasado
+      todavía: nadie los ha visto porque no les ha tocado.
+    - Las historias que ya se rehicieron max_intentos veces y siguen a cero.
+      Esas no se tocan: se quedan en el canal y en el registro, para que al
+      revisar quede claro cuáles ya se intentaron.
     """
-    repetidos = {id(p) for p in sobrantes_de_los_repetidos(registros, max_vistas)}
-    return [p for p in registros
-            if p.get("vistas") is not None and p["vistas"] <= max_vistas
-            and id(p) not in repetidos]
+    repetidos = {id(p) for p in sobrantes_de_los_repetidos(registros, max_vistas, dias_minimos)}
+    gastados = intentos_previos() if max_intentos > 0 else {}
+    elegidos = []
+    for p in registros:
+        if p.get("vistas") is None or p["vistas"] > max_vistas:
+            continue
+        if id(p) in repetidos or not es_maduro(p, dias_minimos):
+            continue
+        if gastados.get(apodo_de_registro(p), 0) >= max_intentos > 0:
+            continue
+        elegidos.append(p)
+    return elegidos
 
 
 # ---------------------------------------------------------
@@ -394,7 +477,9 @@ def _linea(p):
     return f"  {vistas} vistas  {(p.get('titulo_youtube') or '(sin título)')[:56]}"
 
 
-def listar_todo(registros):
+def listar_todo(registros, max_vistas=MAX_VISTAS_DEFECTO,
+                dias_minimos=DIAS_MINIMOS_DEFECTO,
+                max_intentos=MAX_INTENTOS_DEFECTO):
     print(f"\n  {len(registros)} video(s) subidos al canal:\n")
     for p in sorted(registros, key=lambda x: -_vistas(x)):
         print(_linea(p))
@@ -404,11 +489,26 @@ def listar_todo(registros):
         print(f"\n  {len(desconocidos)} con «?»: YouTube no los reconoce (borrados a mano)")
         print("  o tienen las estadísticas ocultas. No entran en los filtros.")
 
-    repes = sobrantes_de_los_repetidos(registros, MAX_VISTAS_DEFECTO)
-    rehacibles = sin_vistas(registros, MAX_VISTAS_DEFECTO)
-    print(f"\n  Sin ninguna vista: {len(repes) + len(rehacibles)}")
+    # Las cuatro cuentas suman los que están a cero, sin solaparse: cada uno
+    # cae en una sola, así que si alguna sorprende se sabe por qué quedó ahí.
+    ceros = [p for p in registros
+             if p.get("vistas") is not None and p["vistas"] <= max_vistas]
+    verdes = [p for p in ceros if not es_maduro(p, dias_minimos)]
+    sin_fecha = [p for p in verdes if dias_desde_subida(p) is None]
+    nuevos = [p for p in verdes if p not in sin_fecha]
+    repes = sobrantes_de_los_repetidos(registros, max_vistas, dias_minimos)
+    rehacibles = sin_vistas(registros, max_vistas, dias_minimos, max_intentos)
+    ya_intentadas = (len(ceros) - len(verdes) - len(repes) - len(rehacibles))
+
+    print(f"\n  Sin ninguna vista: {len(ceros)}")
     print(f"    copias repetidas de una historia ya contada: {len(repes)}")
     print(f"    historias que se pueden volver a grabar:     {len(rehacibles)}")
+    if nuevos:
+        print(f"    todavía nuevos, menos de {dias_minimos} días subidos:{len(nuevos):>5}")
+    if sin_fecha:
+        print(f"    sin fecha de subida, no se sabe si les tocó:{len(sin_fecha):>4}")
+    if ya_intentadas > 0:
+        print(f"    ya se rehicieron {max_intentos} vez/veces, se dejan estar: {ya_intentadas}")
     print("\n  python relanzar.py --duplicados    para ver las repetidas")
     print("  python relanzar.py --sin-vistas    para ver las que se pueden rehacer\n")
 
@@ -422,6 +522,12 @@ def main(argv=None):
                     help="Los que no vio nadie. Se borran y la historia vuelve a la cola.")
     ap.add_argument("--max-vistas", type=int, default=MAX_VISTAS_DEFECTO,
                     help=f"Hasta cuántas vistas cuenta como «no visto» (por omisión {MAX_VISTAS_DEFECTO}).")
+    ap.add_argument("--dias-minimos", dest="dias_minimos", type=int, default=DIAS_MINIMOS_DEFECTO,
+                    help=f"Días que se le dan a un video antes de darlo por muerto "
+                         f"(por omisión {DIAS_MINIMOS_DEFECTO}; 0 revisa todo).")
+    ap.add_argument("--max-intentos", dest="max_intentos", type=int, default=MAX_INTENTOS_DEFECTO,
+                    help=f"Cuántas veces se rehace la misma historia antes de dejarla "
+                         f"(por omisión {MAX_INTENTOS_DEFECTO}; 0 sin límite).")
     ap.add_argument("--si", action="store_true", help="Hacerlo de verdad.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
 
@@ -441,20 +547,24 @@ def main(argv=None):
         return 0
 
     if not (args.duplicados or args.sin_vistas):
-        listar_todo(registros)
+        listar_todo(registros, args.max_vistas, args.dias_minimos, args.max_intentos)
         return 0
 
     if args.duplicados:
-        elegidos = sobrantes_de_los_repetidos(registros, args.max_vistas)
+        elegidos = sobrantes_de_los_repetidos(registros, args.max_vistas, args.dias_minimos)
         relanzar = False
         titular = "copia(s) repetida(s) sin vistas"
     else:
-        elegidos = sin_vistas(registros, args.max_vistas)
+        elegidos = sin_vistas(registros, args.max_vistas, args.dias_minimos, args.max_intentos)
         relanzar = True
         titular = "video(s) que no vio nadie"
 
     if not elegidos:
-        print(f"\n  No hay {titular}. No hay nada que borrar.\n")
+        print(f"\n  No hay {titular}. No hay nada que borrar.")
+        if args.dias_minimos > 0:
+            print(f"  (no se miran los subidos hace menos de {args.dias_minimos} días; "
+                  f"para verlos todos: --dias-minimos 0)")
+        print()
         return 0
 
     print(f"\n  {len(elegidos)} {titular}:\n")

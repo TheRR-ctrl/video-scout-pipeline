@@ -173,7 +173,8 @@ no pasó de 12. No hay ninguno entre 60 y 300: o el feed reparte el video o no
 lo reparte, y cuando no lo reparte el video no se recupera nunca solo.
 
 Un video así no hace nada por el canal, pero la historia sigue sirviendo. En
-**Ajustes → Mantenimiento** hay tres cosas:
+**Ajustes → Mantenimiento** están estos, y la revisión quincenal que los corre
+juntos (más abajo, en «Que corra solo»):
 
 ```bash
 python relanzar.py                  # las vistas reales de cada video subido
@@ -193,6 +194,20 @@ Sin `--si` solo enseñan el listado. Con `--si`:
 
 Un video borrado de YouTube no vuelve. Lo que se borró queda anotado en
 `pipeline_state/relanzados.json` con el título y las vistas que tenía.
+
+Dos guardas hacen que esto se pueda dejar corriendo solo sin vigilarlo:
+
+- **No toca lo subido hace menos de 14 días.** Un video de ayer con 0 vistas
+  no fracasó: es que todavía no le ha tocado. Con `--dias-minimos 0` se revisa
+  todo, que es lo que quieres cuando lo corres a mano y mirando la lista.
+- **Una historia se rehace dos veces como mucho.** Se cuentan en
+  `relanzados.json`. Si a la tercera sigue a cero, el problema es la historia
+  y no el reparto: se queda en el canal y el listado la marca como ya
+  intentada. Con `--max-intentos 0` se quita el límite.
+
+Un registro sin fecha de subida tampoco se borra: no hay forma de saber si es
+de hace un año o de esta mañana, y en la duda no se toca. El listado los
+cuenta aparte para que los números cuadren.
 
 **Esto necesita un permiso que el token viejo no tiene.** El token se generó
 solo con «subir» y «leer»; borrar se pide aparte. Para añadirlo:
@@ -365,10 +380,38 @@ sin estropear nada. Después, reinicia el panel.
 bash instalar_cron.sh
 ```
 
-Deja tres tareas: generar una tanda lunes y jueves a las 6:00, publicar un
-video cada día a las 9:00, y refrescar la música el día 1 de cada mes.
-Correrlo dos veces no duplica nada, y `bash instalar_cron.sh --quitar` las
-borra.
+Deja cuatro tareas: generar una tanda lunes y jueves a las 6:00, publicar un
+video cada día a las 9:00, refrescar la música el día 1 de cada mes, y la
+revisión del canal los días 1 y 15 a las 7:30. Correrlo dos veces no duplica
+nada, y `bash instalar_cron.sh --quitar` las borra.
+
+### La revisión quincenal
+
+Es lo que mira qué funcionó y qué no, y rehace lo que no:
+
+```bash
+bash revision_quincenal.sh --ver    # solo lista, no borra nada
+bash revision_quincenal.sh          # lo hace
+```
+
+También está en **Ajustes → Mantenimiento**, en las dos versiones. Hace, por
+ese orden, `relanzar.py --duplicados --si` y `relanzar.py --sin-vistas --si`
+con las guardas por omisión (14 días, 2 intentos). El orden importa: si se
+hiciera al revés, una historia repetida entraría por `--sin-vistas` y se
+volvería a grabar el refrito.
+
+Cada pasada se apunta con la fecha en `revision.log`:
+
+```bash
+tail -40 revision.log
+```
+
+No renderiza nada: deja las historias en la cola y las graba el cron de lunes
+y jueves. Si no quieres esperar, `python generar_video_maestro.py`.
+
+Los días 1 y 15 son dos semanas justas de media, y caen siempre en la misma
+fecha — un `*/14` en el día del mes se desfasa cada mes, porque los meses no
+tienen 28 días.
 
 No lo escribas a mano en el crontab. La ruta del proyecto es larga, y cuando
 se equivoca no avisa: cron lanza la línea a su hora, el `cd` falla, el `&&`

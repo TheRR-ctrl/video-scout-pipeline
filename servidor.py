@@ -698,6 +698,8 @@ ACCIONES = {
     "relanzar_dup": ("Borrando las copias repetidas", [sys.executable, "relanzar.py", "--duplicados", "--si"]),
     "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
     "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
+    "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
+    "revision": ("Revisión del canal: borrar y rehacer", ["bash", "revision_quincenal.sh"]),
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
     "tiktok_simular": ("Simulando la subida a TikTok", [sys.executable, "tiktok_publisher.py", "--simular"]),
 }
