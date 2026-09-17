@@ -53,6 +53,7 @@ from xml.etree import ElementTree as ET
 
 import cola      # cola de candidatos e historial compartidos con script_writer.py
 import secretos  # carga secretos.env si YOUTUBE_API_KEY no está en el entorno
+import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 
 try:
     import requests
@@ -68,6 +69,8 @@ try:
     from googleapiclient.discovery import build as construir_servicio
 except ImportError:
     construir_servicio = None
+
+ruido.callar_sdk_google()   # el aviso de file_cache al construir el cliente
 
 RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_trends.json")
 RUTA_CANALES = os.path.join(cola.CARPETA_ESTADO, "canales_youtube.json")  # caché de @handle → channel_id
