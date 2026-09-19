@@ -43,6 +43,11 @@ RUTA_FUENTES = os.path.join(BASE_DIR, "fuentes")
 # cómo se ven, sin meter mano en la generación del .ass.
 ESTILOS_SUBTITULOS = ("frase_activa", "relleno", "pop")
 
+# Cómo se reparte el tiempo en el RESPALDO por SRT (ver
+# convertir_srt_a_karaoke_ass). No toca el camino normal: ese usa el timing
+# real por palabra de edge-tts, que le gana a cualquier estimación.
+REPARTOS_RESPALDO = ("igual", "proporcional")
+
 SUBTITULOS_DEFAULT = {
     "estilo": "frase_activa",
     "fuente": "Anton",
@@ -69,6 +74,14 @@ SUBTITULOS_DEFAULT = {
     # que hace que el resalte se sienta como acento y no como un metrónomo.
     "resaltar_solo_clave": True,
     "min_letras_resalte": 5,
+    # Solo aplica cuando no se pudo capturar el timing real por palabra y se
+    # cae al respaldo por SRT:
+    #   igual        -> cada palabra dura lo mismo (lo de siempre).
+    #   proporcional -> dura según sus letras, que es la idea que usa el repo
+    #                   hermano video_generation, donde Gemini TTS no da
+    #                   marcas de tiempo y no hay otra. Con el reparto igual,
+    #                   "a" y "extraordinariamente" duran lo mismo.
+    "reparto_respaldo": "igual",
 }
 
 # Palabras que no aportan y por eso no se pintan cuando resaltar_solo_clave
@@ -1134,6 +1147,12 @@ def _cfg_subs():
     if subs.get("estilo") not in ESTILOS_SUBTITULOS:
         logger.warning(f"Estilo de subtítulo desconocido '{subs.get('estilo')}'; se usa 'frase_activa'.")
         subs["estilo"] = "frase_activa"
+    if subs.get("reparto_respaldo") not in REPARTOS_RESPALDO:
+        logger.warning(
+            f"Reparto de respaldo desconocido '{subs.get('reparto_respaldo')}'; se usa 'igual'. "
+            f"Hay: {', '.join(REPARTOS_RESPALDO)}."
+        )
+        subs["reparto_respaldo"] = "igual"
     return subs
 
 
@@ -1415,12 +1434,43 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
     with open(ass_out_path, 'w', encoding='utf-8') as f: f.writelines(lineas_ass)
 
 
+def _repartir(trozos, total_cs, modo):
+    """Cuántos centisegundos le toca a cada trozo dentro de `total_cs`.
+
+    `trozos` son cadenas: palabras sueltas, o los grupos ya unidos.
+
+    Con "igual" todos duran lo mismo, que es lo que se hacía siempre.
+    Con "proporcional" cada uno dura según sus letras — la idea que usa el
+    repo hermano video_generation, donde Gemini TTS no devuelve marcas de
+    tiempo por palabra y esto es lo mejor que se puede estimar. La diferencia
+    no es cosmética: en una oración de 6 s, "a" y "extraordinariamente" pasan
+    de durar 0,33 s las dos a durar 0,07 s y 1,37 s.
+
+    El resto de la división se le da al último para que la suma cuadre
+    exactamente con `total_cs`: si no, el redondeo va dejando hueco y el
+    karaoke se desfasa un poco más en cada bloque.
+    """
+    n = len(trozos)
+    if n == 0:
+        return []
+    if modo != "proporcional":
+        base = total_cs // n
+        return [base] * (n - 1) + [total_cs - base * (n - 1)]
+
+    letras = [max(1, len(t)) for t in trozos]
+    suma = sum(letras)
+    duraciones = [max(1, total_cs * l // suma) for l in letras[:-1]]
+    duraciones.append(max(1, total_cs - sum(duraciones)))
+    return duraciones
+
+
 def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True):
     """Respaldo si no se pudo capturar el timing real por palabra (ver
     convertir_timing_a_karaoke_ass): reparte cada bloque del SRT (por
     oración) en partes iguales entre sus palabras — aproximado, con algo
     de desfase en oraciones largas, pero mejor que nada."""
     header, palabras_por_grupo = _header_ass(es_short)
+    reparto = _cfg_subs()["reparto_respaldo"]
 
     if not os.path.exists(srt_in_path):
         with open(ass_out_path, 'w', encoding='utf-8') as f: f.write(header)
@@ -1443,12 +1493,18 @@ def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, e
         if dur_cs <= 0: continue
 
         grupos = [palabras[i:i+palabras_por_grupo] for i in range(0, len(palabras), palabras_por_grupo)]
-        dur_grp = dur_cs // max(1, len(grupos))
+        # Se reparte dos veces: primero la oración entre sus grupos, y luego
+        # cada grupo entre sus palabras. Con "igual" las dos divisiones son a
+        # partes iguales, que es lo que se hacía antes de existir la opción.
+        duraciones_grupo = _repartir([" ".join(g) for g in grupos], dur_cs, reparto)
 
         t_act = t_inicio
-        for grupo in grupos:
+        for grupo, dur_grp in zip(grupos, duraciones_grupo):
             t_sig = t_act + timedelta(seconds=dur_grp / 100.0)
-            texto_karaoke = "".join([f"{{\\k{max(6, dur_grp // len(grupo))}}}{p.upper()} " for p in grupo])
+            dur_palabra = _repartir(grupo, dur_grp, reparto)
+            texto_karaoke = "".join(
+                f"{{\\k{max(6, d)}}}{p.upper()} " for p, d in zip(grupo, dur_palabra)
+            )
             lineas_ass.append(f"Dialogue: 0,{format_ass_time(t_act)},{format_ass_time(t_sig)},Karaoke,,0,0,0,,{texto_karaoke.strip()}\n")
             t_act = t_sig
 

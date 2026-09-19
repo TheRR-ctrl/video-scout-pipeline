@@ -1193,6 +1193,9 @@ function pintaEstilo(){
         <span class="m">${s.resaltar_solo_clave ? 'sí, de '+s.min_letras_resalte+'+ letras' : 'no, todas'}</span></div>
       <div class="row" style="grid-template-columns:1fr auto"><span>Palabras en pantalla</span>
         <span class="m">${s.estilo==='pop' ? '1' : s.palabras_por_frase_short+' / '+s.palabras_por_frase_largo}</span></div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <span>Reparto del respaldo<div class="m">Solo si edge-tts no da el tiempo por palabra</div></span>
+        <span class="m">${s.reparto_respaldo === 'proporcional' ? 'por letras' : 'partes iguales'}</span></div>
     </div>
 
     <h3 class="sec">Comparar sobre tu gameplay</h3>
