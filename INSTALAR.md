@@ -223,6 +223,29 @@ código, así que no hay que tocar nada más. Si te lo saltas, `relanzar.py` lo
 dice antes de tocar nada en vez de fallar a mitad. `rehacer_todo.py`, que
 también borra del canal, necesitaba lo mismo y nunca había podido hacerlo.
 
+### La pestaña Canal
+
+Lo mismo de arriba, pero mirándolo en vez de leyendo la terminal. La pestaña
+**Canal** del panel enseña cuántos videos hay subidos, las vistas que suman,
+la mediana, y uno por uno con las vistas que tiene cada uno y cuántos días
+lleva en el canal. Los que la revisión quincenal se llevaría van marcados:
+«repetida», «nadie la vio» o «sin dato».
+
+Las vistas no se piden ahí. Las deja `relanzar.py` en
+`pipeline_state/vistas.json` y el panel las pinta: abrir una pestaña no puede
+depender de que haya cobertura, y la API de YouTube tiene cuota diaria. Por eso
+arriba dice cuándo se leyeron y hay un botón **↻ Releer vistas** que las vuelve
+a pedir. La revisión quincenal las refresca sola cada vez que corre.
+
+Desde ahí mismo están los dos botones de la revisión —**Ver qué haría** y
+**Hacerlo ahora**, este último con confirmación— y el estado de los videos
+largos, con lo que falta para el umbral de suscriptores.
+
+Esas vistas salen también en **Publicados**, en la línea de debajo de cada
+título. «vistas sin leer» no es lo mismo que 0: quiere decir que ese video no
+estaba en la última lectura (borrado a mano, con las estadísticas ocultas, o
+subido después). Nada que diga «sin leer» entra en los filtros que borran.
+
 **Para encontrar los virales viejos de YouTube** hace falta una clave gratis
 (si no, solo se ven los videos recién subidos, que todavía no tienen vistas):
 

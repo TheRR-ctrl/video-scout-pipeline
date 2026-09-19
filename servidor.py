@@ -18,7 +18,6 @@ abrir desde otro dispositivo, usa --host 0.0.0.0 sabiendo lo que implica.
 import os
 import re
 import sys
-import json
 import glob
 import time
 import signal
@@ -157,6 +156,7 @@ def lanzar(nombre, cmd):
 # =========================================================
 # El panel solo enseña: un json ilegible es una tarjeta vacía, no un error.
 leer_json = almacen.leer
+guardar_json = almacen.guardar
 
 
 def cfg_actual():
@@ -342,9 +342,7 @@ def api_musica_emocion():
     atrib = leer_json(ruta_atrib, {})
     if archivo in atrib:
         atrib[nuevo] = atrib.pop(archivo)
-        os.makedirs(CARPETA_ESTADO, exist_ok=True)
-        with open(ruta_atrib, "w", encoding="utf-8") as f:
-            json.dump(atrib, f, ensure_ascii=False, indent=2)
+        guardar_json(ruta_atrib, atrib)
     return jsonify({"ok": True, "archivo": nuevo})
 
 
@@ -414,9 +412,7 @@ def api_metadata_guardar(archivo):
         "origen": "manual",
         "origen_previo": previa.get("origen", ""),
     }
-    os.makedirs(CARPETA_ESTADO, exist_ok=True)
-    with open(RUTA_METADATA, "w", encoding="utf-8") as f:
-        json.dump(almacen, f, ensure_ascii=False, indent=2)
+    guardar_json(RUTA_METADATA, almacen)
     return jsonify({"ok": True, "meta": almacen[nombre]})
 
 
@@ -515,8 +511,7 @@ def marcar_borrados_localmente(nombres):
             pub["_borrado_local"] = True
             tocado = True
     if tocado:
-        with open(ruta_pub, "w", encoding="utf-8") as f:
-            json.dump(publicados, f, ensure_ascii=False, indent=2)
+        guardar_json(ruta_pub, publicados)
 
 
 @app.post("/api/ajuste")
@@ -534,8 +529,7 @@ def api_ajuste():
 
     cfg = leer_json(RUTA_CONFIG, {})
     cfg[clave] = valor
-    with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "clave": clave, "valor": valor})
 
 
@@ -557,6 +551,82 @@ def credenciales():
 # =========================================================
 # API
 # =========================================================
+def resumen_canal():
+    """Cómo le va al canal, sin tocar la red.
+
+    Todo sale de archivos: las vistas de pipeline_state/vistas.json (las dejó
+    ahí el último `relanzar.py`), los suscriptores de la caché de formato.py,
+    y lo borrado de relanzados.json. Pintar una pestaña no puede depender de
+    que haya cobertura, y la API de YouTube tiene cuota diaria: si el panel
+    preguntara en cada refresco, un rato con el panel abierto la agotaría.
+
+    Por eso hay un botón de «releer»: el número que se ve es de cuando se
+    leyó, y la pestaña dice cuándo fue.
+    """
+    import relanzar
+    import formato
+
+    vistas, cuando = relanzar.vistas_guardadas()
+    registros = relanzar.subidos_con_vistas_guardadas()
+
+    repes = relanzar.sobrantes_de_los_repetidos(
+        registros, relanzar.MAX_VISTAS_DEFECTO, relanzar.DIAS_MINIMOS_DEFECTO)
+    rehacibles = relanzar.sin_vistas(
+        registros, relanzar.MAX_VISTAS_DEFECTO, relanzar.DIAS_MINIMOS_DEFECTO,
+        relanzar.MAX_INTENTOS_DEFECTO)
+    ids_repes = {id(p) for p in repes}
+    ids_rehacibles = {id(p) for p in rehacibles}
+
+    def como_fila(p, marca):
+        return {
+            "titulo": p.get("titulo_youtube") or "(sin título)",
+            "video_id": p.get("video_id"),
+            "vistas": p.get("vistas"),
+            "dias": (lambda d: None if d is None else int(d))(
+                relanzar.dias_desde_subida(p)),
+            "marca": marca,
+        }
+
+    filas = []
+    for p in sorted(registros, key=lambda x: -(x.get("vistas") if x.get("vistas") is not None else -1)):
+        if id(p) in ids_repes:
+            marca = "repetida"
+        elif id(p) in ids_rehacibles:
+            marca = "rehacible"
+        elif p.get("vistas") is None:
+            marca = "sin_dato"
+        else:
+            marca = ""
+        filas.append(como_fila(p, marca))
+
+    historial = leer_json(relanzar.RUTA_HISTORIAL, [])
+    ultima = historial[-1]["borrado_en"] if historial else None
+
+    try:
+        politica = formato.politica()
+    except Exception as exc:                       # noqa: BLE001 — informativo
+        politica = {"permite_largos": False, "suscriptores": None,
+                    "umbral": None, "motivo": f"no se pudo mirar ({exc})"}
+
+    with_vistas = [f["vistas"] for f in filas if f["vistas"] is not None]
+    return {
+        "cuando": cuando,
+        "puede_borrar": relanzar.PERMISO_BORRADO in (relanzar.permisos_del_token() or set()),
+        "videos": filas,
+        "total": len(filas),
+        "vistas_totales": sum(with_vistas),
+        "mediana": sorted(with_vistas)[len(with_vistas) // 2] if with_vistas else None,
+        "repetidas": len(repes),
+        "rehacibles": len(rehacibles),
+        "sin_dato": sum(1 for f in filas if f["vistas"] is None),
+        "dias_minimos": relanzar.DIAS_MINIMOS_DEFECTO,
+        "max_intentos": relanzar.MAX_INTENTOS_DEFECTO,
+        "ultima_revision": ultima,
+        "borrados_en_total": len(historial),
+        "largos": politica,
+    }
+
+
 def tiktok_resumen():
     """Lo que el panel enseña de TikTok: registro, pendientes y días de disco.
 
@@ -615,6 +685,11 @@ def api_estado():
     publicados = leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), [])
 
     ahora = datetime.now(timezone.utc)
+    # Las vistas de la última lectura, para enseñarlas junto a cada subida.
+    # Un video que no esté en la caché sale sin número, no con cero: son
+    # cosas distintas y confundirlas haría pensar que un video fracasó.
+    import relanzar
+    vistas_guardadas, _ = relanzar.vistas_guardadas()
     pubs = []
     for p in publicados:
         dias = None
@@ -634,6 +709,7 @@ def api_estado():
             "privacidad_real": p.get("privacidad_real"),
             "dias_restantes": dias,
             "borrado_local": bool(p.get("_borrado_local")),
+            "vistas": vistas_guardadas.get(p.get("video_id")),
         })
 
     return jsonify({
@@ -653,6 +729,7 @@ def api_estado():
         ),
         "ajustes": {k: cfg.get(k) for k in AJUSTES_NUMERICOS},
         "tiktok": tiktok_resumen(),
+        "canal": resumen_canal(),
         "trabajo": TRABAJO["actual"].como_dict() if TRABAJO["actual"] else None,
     })
 
@@ -695,6 +772,7 @@ ACCIONES = {
     "relanzar_dup": ("Borrando las copias repetidas", [sys.executable, "relanzar.py", "--duplicados", "--si"]),
     "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
     "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
+    "vistas": ("Releyendo las vistas del canal", [sys.executable, "relanzar.py", "--refrescar-vistas"]),
     "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
     "revision": ("Revisión del canal: borrar y rehacer", ["bash", "revision_quincenal.sh"]),
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
@@ -778,8 +856,7 @@ def api_preset():
     subs = dict(cfg.get("subtitulos") or {})
     subs["preset"] = nombre
     cfg["subtitulos"] = subs
-    with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "preset": nombre})
 
 
@@ -787,8 +864,7 @@ def api_preset():
 def api_wifi():
     cfg = leer_json(RUTA_CONFIG, {})
     cfg["solo_wifi"] = bool((request.json or {}).get("solo_wifi", True))
-    with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "solo_wifi": cfg["solo_wifi"]})
 
 
@@ -863,9 +939,7 @@ def api_tiktok_opciones(archivo):
         "comercial": {"activo": activo, "marca_propia": marca, "patrocinado": patro},
         "elegido_en": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
-    os.makedirs(CARPETA_ESTADO, exist_ok=True)
-    with open(tk.RUTA_OPCIONES, "w", encoding="utf-8") as f:
-        json.dump(todas, f, ensure_ascii=False, indent=2)
+    guardar_json(tk.RUTA_OPCIONES, todas)
     return jsonify({"ok": True, "opciones": todas[nombre]})
 
 
@@ -877,8 +951,7 @@ def api_tiktok_activo():
     seccion.setdefault("modo", "borrador")
     seccion.setdefault("max_por_corrida", 1)
     cfg["tiktok"] = seccion
-    with open(RUTA_CONFIG, "w", encoding="utf-8") as f:
-        json.dump(cfg, f, ensure_ascii=False, indent=2)
+    guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "activo": seccion["activo"]})
 
 

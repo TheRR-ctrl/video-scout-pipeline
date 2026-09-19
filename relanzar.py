@@ -46,12 +46,18 @@ import argparse
 from datetime import datetime, timezone
 
 import cola
+import almacen
 import publisher
 import limpiar_cola
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 RUTA_HISTORIAL = os.path.join(publisher.CARPETA_ESTADO, "relanzados.json")
+
+# Las vistas leídas la última vez. El panel las pinta desde aquí en vez de
+# preguntarle a YouTube en cada refresco: pintar la pestaña no puede depender
+# de que haya red, y la API tiene cuota diaria.
+RUTA_VISTAS = os.path.join(publisher.CARPETA_ESTADO, "vistas.json")
 
 # El permiso que hace falta para videos.delete. youtube.upload deja subir
 # pero no borrar, y youtube.readonly solo deja mirar.
@@ -168,7 +174,38 @@ def subidos_con_vistas(servicio=None):
     vistas = vistas_de(servicio, [p["video_id"] for p in con_id])
     for p in con_id:
         p["vistas"] = vistas.get(p["video_id"])
+    guardar_vistas(vistas)
     return con_id
+
+
+def guardar_vistas(vistas):
+    """Deja las vistas leídas para que el panel las pueda pintar sin red."""
+    publisher.guardar_json(RUTA_VISTAS, {
+        "cuando": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "vistas": vistas,
+    })
+
+
+def vistas_guardadas():
+    """(vistas, cuándo se leyeron). Sin caché todavía: ({}, None)."""
+    datos = almacen.leer(RUTA_VISTAS, {}) or {}
+    return datos.get("vistas") or {}, datos.get("cuando")
+
+
+def subidos_con_vistas_guardadas():
+    """Como subidos_con_vistas pero desde la caché, sin tocar la red.
+
+    Un video subido después del último refresco no está en la caché: queda
+    con vistas None, igual que uno que YouTube ya no reconoce. Para el panel
+    es lo correcto —los dos se pintan con «?» y ninguno entra en los
+    filtros—, pero por eso esto no decide borrados: eso siempre relee.
+    """
+    vistas, _ = vistas_guardadas()
+    registros = [p for p in publisher.cargar_json(publisher.RUTA_PUBLICADOS, [])
+                 if p.get("video_id")]
+    for p in registros:
+        p["vistas"] = vistas.get(p["video_id"])
+    return registros
 
 
 # ---------------------------------------------------------
@@ -486,8 +523,8 @@ def listar_todo(registros, max_vistas=MAX_VISTAS_DEFECTO,
         print(f"\n  {len(desconocidos)} con «?»: YouTube no los reconoce (borrados a mano)")
         print("  o tienen las estadísticas ocultas. No entran en los filtros.")
 
-    # Las cuatro cuentas suman los que están a cero, sin solaparse: cada uno
-    # cae en una sola, así que si alguna sorprende se sabe por qué quedó ahí.
+    # Las cuentas de abajo reparten los que están a cero sin solaparse: cada
+    # uno cae en una sola, así que si alguna sorprende se sabe por qué.
     ceros = [p for p in registros
              if p.get("vistas") is not None and p["vistas"] <= max_vistas]
     verdes = [p for p in ceros if not es_maduro(p, dias_minimos)]
@@ -497,15 +534,24 @@ def listar_todo(registros, max_vistas=MAX_VISTAS_DEFECTO,
     rehacibles = sin_vistas(registros, max_vistas, dias_minimos, max_intentos)
     ya_intentadas = (len(ceros) - len(verdes) - len(repes) - len(rehacibles))
 
-    print(f"\n  Sin ninguna vista: {len(ceros)}")
-    print(f"    copias repetidas de una historia ya contada: {len(repes)}")
-    print(f"    historias que se pueden volver a grabar:     {len(rehacibles)}")
+    filas = [
+        ("copias repetidas de una historia ya contada", len(repes)),
+        ("historias que se pueden volver a grabar", len(rehacibles)),
+    ]
     if nuevos:
-        print(f"    todavía nuevos, menos de {dias_minimos} días subidos:{len(nuevos):>5}")
+        filas.append((f"todavía nuevos, menos de {dias_minimos} días subidos", len(nuevos)))
     if sin_fecha:
-        print(f"    sin fecha de subida, no se sabe si les tocó:{len(sin_fecha):>4}")
+        filas.append(("sin fecha de subida, no se sabe si les tocó", len(sin_fecha)))
     if ya_intentadas > 0:
-        print(f"    ya se rehicieron {max_intentos} vez/veces, se dejan estar: {ya_intentadas}")
+        veces = "una vez" if max_intentos == 1 else f"{max_intentos} veces"
+        filas.append((f"ya se rehicieron {veces}, se dejan estar", ya_intentadas))
+
+    # El ancho sale de las etiquetas que de verdad se van a imprimir, para que
+    # los números queden en columna sin contar espacios a mano.
+    ancho = max(len(etiqueta) for etiqueta, _ in filas)
+    print(f"\n  Sin ninguna vista: {len(ceros)}")
+    for etiqueta, cuantos in filas:
+        print(f"    {etiqueta:<{ancho}}  {cuantos}")
     print("\n  python relanzar.py --duplicados    para ver las repetidas")
     print("  python relanzar.py --sin-vistas    para ver las que se pueden rehacer\n")
 
@@ -526,6 +572,8 @@ def main(argv=None):
                     help=f"Cuántas veces se rehace la misma historia antes de dejarla "
                          f"(por omisión {MAX_INTENTOS_DEFECTO}; 0 sin límite).")
     ap.add_argument("--si", action="store_true", help="Hacerlo de verdad.")
+    ap.add_argument("--refrescar-vistas", dest="refrescar_vistas", action="store_true",
+                    help="Solo releer las vistas del canal y guardarlas para el panel.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
 
     if args.duplicados and args.sin_vistas:
@@ -541,6 +589,14 @@ def main(argv=None):
     registros = subidos_con_vistas()
     if not registros:
         print("\n  No hay videos subidos con video_id en publicados.json.\n")
+        return 0
+
+    if args.refrescar_vistas:
+        # subidos_con_vistas ya guardó la caché al leerlas.
+        vistos = [p for p in registros if p.get("vistas") is not None]
+        _, cuando = vistas_guardadas()
+        print(f"\n  Vistas releídas de {len(vistos)} video(s) ({cuando}).")
+        print("  El panel ya las puede pintar sin conectarse.\n")
         return 0
 
     if not (args.duplicados or args.sin_vistas):

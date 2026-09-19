@@ -165,8 +165,24 @@
   .row.sel{grid-template-columns:20px 26px 1fr 56px 14px 46px;cursor:pointer}
   .row.sel.on{background:var(--accent-soft)}
   .row.sel input{accent-color:var(--accent);width:15px;height:15px;margin:0}
+  /* Una celda de cuadricula no baja de lo que mide su contenido salvo que se
+     le diga. Sin esto un titulo largo estira la fila entera y se sale por el
+     lado derecho de la pantalla, en vez de cortarse con puntos suspensivos. */
+  .row>*{min-width:0}
   .row .n,.row .m{font:11.5px var(--mono);color:var(--ink-faint)}
   .row .t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  /* Titulo de dos lineas: en un telefono el titulo es lo unico que distingue
+     una fila de otra, y cortarlo en la segunda palabra deja dos historias
+     distintas con el mismo aspecto. */
+  .row .t.dos{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden}
+  /* Dos lineas de datos debajo del titulo, y la diferencia importa: .meta es
+     una caja flexible para alinear etiquetas, y ahi cada trozo de texto suelto
+     cuenta como un elemento aparte que puede saltar de renglon por su cuenta
+     («1770» en un renglon y «vistas» en el siguiente). Cuando lo de debajo es
+     una frase y no etiquetas, va en .info, que es texto normal. */
+  .row .meta{display:flex;gap:7px;align-items:center;flex-wrap:wrap;margin-top:3px}
+  .row .info{margin-top:3px}
   .list-head{display:flex;align-items:center;justify-content:space-between;gap:10px;
     flex-wrap:wrap;padding:11px 13px;background:var(--surface-2);border-bottom:1px solid var(--line-soft)}
   .list-foot{display:flex;align-items:center;justify-content:space-between;gap:10px;
@@ -216,8 +232,6 @@
   /* En un movil caben dos por fila y la tercera queda suelta a lo ancho, que se
      lee como si fuera otra cosa. O las tres en fila, o una debajo de otra. */
   @media (max-width:560px){ .paso-t{flex-basis:100%} }
-  /* En TikTok el titulo es lo unico que distingue una fila de otra: cortarlo a
-     mitad de palabra deja dos historias distintas con el mismo aspecto. */
   .row.tk .t{white-space:normal;display:-webkit-box;-webkit-line-clamp:2;
     -webkit-box-orient:vertical;overflow:hidden}
 
@@ -255,6 +269,7 @@
     <button data-v="cola">Cola <span class="c" id="c-col">0</span></button>
     <button data-v="estilo">Estilo</button>
     <button data-v="publicados">Publicados <span class="c" id="c-pub">0</span></button>
+    <button data-v="canal">Canal <span class="c" id="c-can">0</span></button>
     <button data-v="tiktok">TikTok <span class="c" id="c-tk">0</span></button>
     <button data-v="ajustes">Ajustes</button>
   </div>
@@ -269,6 +284,7 @@
   <section class="view" id="v-cola"></section>
   <section class="view" id="v-estilo"></section>
   <section class="view" id="v-publicados"></section>
+  <section class="view" id="v-canal"></section>
   <section class="view" id="v-tiktok"></section>
   <section class="view" id="v-ajustes"></section>
 </div>
@@ -1029,6 +1045,24 @@ function estadoPublicacion(x){
   return 'público';
 }
 
+function datosPublicado(x){
+  // Todo en una linea debajo del titulo, con su etiqueta al lado del numero.
+  // Antes iba en columnas, y en un telefono las columnas dejaban al titulo
+  // unos 80 px: ninguna fila se distinguia de la siguiente.
+  // Los espacios duros no son decoracion: sin ellos la linea parte entre el
+  // numero y la palabra, y queda un "1770" solo al final de un renglon.
+  const d = [estadoPublicacion(x)];
+  // Falta el dato no es lo mismo que cero vistas: un video borrado a mano, con
+  // las estadisticas ocultas o subido despues de la ultima lectura no aparece
+  // en vistas.json, y ensenar "0" ahi seria inventarselo.
+  d.push(x.vistas === null || x.vistas === undefined
+    ? '<span title="Sin leer todavía: pestaña Canal → Releer vistas">vistas&nbsp;sin&nbsp;leer</span>'
+    : `<b style="color:var(--ink);font-variant-numeric:tabular-nums">${x.vistas.toLocaleString('es')}</b>&nbsp;vistas`);
+  if(x.borrado_local) d.push('borrado&nbsp;del&nbsp;teléfono');
+  else if(x.dias_restantes !== null) d.push(`${x.dias_restantes}d&nbsp;en&nbsp;el&nbsp;teléfono`);
+  return d;
+}
+
 function firmaPublicados(){ return JSON.stringify(E.publicados); }
 function pintaPublicados(){
   const p = E.publicados;
@@ -1047,10 +1081,11 @@ function pintaPublicados(){
     ${porBorrar.length ? `<div class="aviso crit"><span>↓</span><div><b>${porBorrar.length} se borran pronto.</b> Si los quieres para TikTok, descárgalos ya.</div></div>`:''}
     ${!p.length ? `<div class="aviso"><span>·</span><div>Todavía no hay nada publicado.</div></div>` : `
     <div class="list">${p.map(x=>`
-      <div class="row" style="grid-template-columns:1fr 110px auto">
-        <div><div class="t">${esc(x.titulo)}</div>
-          <div class="m">${estadoPublicacion(x)}</div></div>
-        <span class="m">${x.borrado_local ? 'borrado local' : (x.dias_restantes!==null ? x.dias_restantes+'d en disco' : '')}</span>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div>
+          <div class="t dos">${esc(x.titulo)}</div>
+          <div class="info m">${datosPublicado(x).join('\u00a0· ')}</div>
+        </div>
         ${x.video_id?`<a class="btn sm" target="_blank" rel="noopener"
           href="https://studio.youtube.com/video/${esc(x.video_id)}/edit">Studio ↗</a>`:'<span></span>'}
       </div>`).join('')}</div>`}
@@ -1063,6 +1098,133 @@ function pintaPublicados(){
     </div>`;
 }
 
+
+/* =========================================================
+   CANAL
+
+   Lo que pasó después de publicar: cuántas vistas tiene cada video de
+   verdad, cuáles la revisión quincenal daría por muertos, y si ya toca
+   volver a hacer largos.
+
+   Las vistas no se piden aquí. Las deja relanzar.py en vistas.json y esto
+   las pinta: pintar una pestaña no puede depender de que haya cobertura, y
+   la API de YouTube tiene cuota diaria. Por eso se ve la fecha de la última
+   lectura y hay un botón para releerlas.
+   ========================================================= */
+function firmaCanal(){ return JSON.stringify(E.canal || null); }
+
+function haceCuanto(iso){
+  if(!iso) return null;
+  const min = Math.round((Date.now() - new Date(iso).getTime())/60000);
+  if(min < 2) return 'ahora mismo';
+  if(min < 60) return `hace ${min} min`;
+  const h = Math.round(min/60);
+  if(h < 24) return `hace ${h} h`;
+  const d = Math.round(h/24);
+  return d === 1 ? 'ayer' : `hace ${d} días`;
+}
+
+function pintaCanal(){
+  const c = E.canal;
+  if(!c){ $('#v-canal').innerHTML = '<h2>Canal</h2><p class="sub">Sin datos.</p>'; return; }
+
+  const leido = haceCuanto(c.cuando);
+  const L = c.largos || {};
+  const pct = (L.suscriptores != null && L.umbral)
+    ? Math.min(100, Math.round(L.suscriptores / L.umbral * 100)) : null;
+
+  const fila = v => {
+    const marca = {
+      repetida:  '<span class="pill warn">repetida</span>',
+      rehacible: '<span class="pill crit">nadie la vio</span>',
+      sin_dato:  '<span class="pill idle">sin dato</span>',
+    }[v.marca] || '';
+    // La marca va debajo del titulo y no en una columna propia: «nadie la vio»
+    // ocupa a lo ancho justo lo que hace falta para reconocer la historia.
+    return `<div class="row" style="grid-template-columns:56px 1fr">
+      <span class="m" style="text-align:right;font-variant-numeric:tabular-nums"
+        title="${v.vistas === null ? 'No estaba en la última lectura' : 'Vistas en la última lectura'}"
+        >${v.vistas === null ? '—' : v.vistas.toLocaleString('es')}</span>
+      <div>
+        <div class="t dos">${esc(v.titulo)}</div>
+        <div class="meta">
+          <span class="m">${v.dias === null ? 'sin fecha de subida' : v.dias + '&nbsp;días en el canal'}</span>
+          ${marca}
+        </div>
+      </div>
+    </div>`;
+  };
+
+  $('#v-canal').innerHTML = `
+    <h2>Cómo le va al canal</h2>
+    <p class="sub">Las vistas son las que YouTube dice, no una estimación.
+      ${leido ? `Leídas ${leido}.` : 'Todavía no se han leído nunca.'}</p>
+
+    ${!c.puede_borrar ? `<div class="aviso warn"><span>!</span><div>
+      <b>El token no tiene permiso para borrar.</b> Esta pestaña se ve igual,
+      pero la revisión solo podrá listar. Para arreglarlo, una vez, en Termux:
+      <div style="margin-top:7px"><code style="font:12px var(--mono)">rm youtube_token.json && python generar_youtube_token.py</code></div>
+    </div></div>` : ''}
+
+    ${!c.total ? `<div class="aviso"><span>·</span><div>Todavía no hay nada subido al canal.</div></div>` : `
+    <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <div style="flex-grow:1" class="muted">
+        <b style="color:var(--ink)">${c.total}</b> subidos ·
+        <b style="color:var(--ink)">${c.vistas_totales.toLocaleString('es')}</b> vistas en total ·
+        mediana <b style="color:var(--ink)">${c.mediana ?? '—'}</b>
+      </div>
+      <button class="btn sm" onclick="ejecutar('vistas')">↻ Releer vistas</button>
+    </div>
+
+    <h3 class="sec">Lo que haría la revisión</h3>
+    <div class="card">
+      <div class="muted" style="margin-bottom:10px">
+        Corre sola los días 1 y 15. No toca lo subido hace menos de
+        ${c.dias_minimos} días, ni rehace una historia que ya se intentó
+        ${c.max_intentos} veces.</div>
+      <div class="list">
+        <div class="row" style="grid-template-columns:44px 1fr">
+          <b style="font-variant-numeric:tabular-nums">${c.repetidas}</b>
+          <div><div class="t">copias repetidas</div>
+            <div class="m">se borran del canal y no se rehacen</div></div></div>
+        <div class="row" style="grid-template-columns:44px 1fr">
+          <b style="font-variant-numeric:tabular-nums">${c.rehacibles}</b>
+          <div><div class="t">que no vio nadie</div>
+            <div class="m">se borran y la historia vuelve a la cola</div></div></div>
+        ${c.sin_dato ? `<div class="row" style="grid-template-columns:44px 1fr">
+          <b style="font-variant-numeric:tabular-nums">${c.sin_dato}</b>
+          <div><div class="t">sin dato de vistas</div>
+            <div class="m">borrados a mano, ocultos, o subidos después de la última lectura</div></div></div>` : ''}
+      </div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:11px">
+        <button class="btn" onclick="ejecutar('ver_revision')">Ver qué haría</button>
+        <button class="btn danger" onclick="if(confirm('Borra del canal las copias repetidas y los videos sin ninguna vista, y devuelve esas historias a la cola.\\n\\nLos videos borrados no vuelven.')) ejecutar('revision')">Hacerlo ahora</button>
+      </div>
+      <div class="muted" style="margin-top:9px">
+        ${c.ultima_revision ? `Última vez que se borró algo: ${haceCuanto(c.ultima_revision)}
+          (${c.borrados_en_total} en total desde que se lleva la cuenta).`
+        : 'Todavía no se ha borrado nada por aquí.'}</div>
+    </div>`}
+
+    <h3 class="sec">Videos largos</h3>
+    <div class="card">
+      <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+        ${L.permite_largos ? '<span class="pill ok">ya se pueden hacer</span>'
+                           : '<span class="pill idle">bloqueados</span>'}
+        <span class="muted" style="flex-grow:1">${esc(L.motivo || '')}</span>
+        <button class="btn sm" onclick="ejecutar('formato')">Comprobar</button>
+      </div>
+      ${pct !== null ? `<div class="barra" style="margin-top:11px"><i style="width:${pct}%"></i></div>
+        <div class="m" style="margin-top:5px">${L.suscriptores} de ${L.umbral} suscriptores</div>` : ''}
+      <div class="muted" style="margin-top:9px">
+        Un largo necesita que YouTube lo recomiende, y sin suscriptores no lo
+        recomienda: se renderiza igual y no lo ve nadie. Mientras tanto se
+        aplazan solos, la historia no se pierde.</div>
+    </div>
+
+    ${c.total ? `<h3 class="sec">Uno por uno</h3>
+    <div class="list">${c.videos.map(fila).join('')}</div>` : ''}`;
+}
 
 /* =========================================================
    TIKTOK
@@ -1629,6 +1791,7 @@ const VISTAS = {
   cola:       [firmaCola,       pintaCola],
   estilo:     [firmaEstilo,     pintaEstilo],
   publicados: [firmaPublicados, pintaPublicados],
+  canal:      [firmaCanal,      pintaCanal],
   tiktok:     [firmaTiktok,     pintaTiktok],
   ajustes:    [firmaAjustes,    pintaAjustes],
 };
@@ -1641,6 +1804,8 @@ function pintar(){
   $('#c-rev').textContent = E.videos.length;
   $('#c-col').textContent = E.historias.length;
   $('#c-pub').textContent = E.publicados.length;
+  // En Canal el número que importa es lo que la revisión se llevaría.
+  $('#c-can').textContent = E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0;
   $('#c-tk').textContent = (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0;
   pintaJob();
 
