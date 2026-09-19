@@ -229,6 +229,27 @@ paquete puede pesar: son hasta 60 MB por clip.
 
 Los clips nuevos no sustituyen al gameplay: el render elige entre **todos** los
 `fondo_vertical*` que encuentre, así que esto solo añade variedad a la baraja.
+
+#### Fondos fabricados en vez de grabados
+
+Hay un segundo workflow, *Fabricar fondos con IA*, que no busca material: lo
+**genera**. Le pide a Gemini una animación en HTML y la renderiza a MP4 con el
+motor de HyperFrames. Salen fondos abstractos en bucle, pensados para que no
+le roben atención a los subtítulos.
+
+Va en Actions por la misma razón que el otro, pero más a lo bruto: ese motor
+le pide los frames a Chrome headless, y el Chrome que se baja es un binario de
+glibc. Android es bionic, así que **en Termux no arranca**. En el servidor sí.
+
+Necesita el secret `GEMINI_API_KEY` (la misma clave del teléfono, puesta
+también en *Settings → Secrets and variables → Actions*) y que
+`hyperframes_broll.py` esté en el repo. Si no está, el workflow se para en
+diez segundos con un error claro en vez de gastar minutos de runner.
+
+Tarda: cada clip son 20 segundos de video y el render va a un tercio de
+velocidad, así que cuenta un minuto largo por clip. El artefacto se
+descomprime igual que el de Pexels, y los archivos (`fondo_vertical_ia_*.mp4`)
+entran en la misma baraja que el gameplay y los clips de Pexels.
 Quién grabó cada uno queda anotado en
 `pipeline_state/fondos_atribucion.json` por si quieres citarlo, aunque la
 licencia de Pexels no lo exige.
