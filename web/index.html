@@ -35,14 +35,43 @@
        -webkit-font-smoothing:antialiased;padding-bottom:env(safe-area-inset-bottom)}
   .wrap{max-width:1000px;margin:0 auto;padding:0 14px 70px}
 
+  /* Cabecera en dos alturas: la marca arriba, las pestañas debajo. Antes iba
+     todo en una sola fila que se plegaba sola, y en un movil de 412px las
+     siete pestañas caian en tres renglones apretados contra el titulo. */
   .nav{position:sticky;top:0;z-index:30;background:var(--ground);border-bottom:1px solid var(--line);margin-bottom:20px}
-  .nav-in{max-width:1000px;margin:0 auto;padding:11px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap}
-  .logo{font:500 13px var(--mono);margin-right:auto}
-  .logo .b{color:var(--accent)}
-  .tabs{display:flex;gap:2px;flex-wrap:wrap}
-  .tabs button{font:500 13px var(--body);color:var(--ink-dim);background:none;border:0;
-    padding:7px 11px;border-radius:7px;cursor:pointer;display:flex;align-items:center;gap:6px}
-  .tabs button.on{color:var(--accent);background:var(--accent-soft)}
+  .nav-in{max-width:1000px;margin:0 auto;padding:12px 14px 0}
+  .marca{display:flex;align-items:center;gap:11px;margin-bottom:10px}
+  /* El glifo es el unico adorno de la cabecera: un boton de reproducir, que es
+     de lo que va todo esto. Va dibujado con texto y color, no con una imagen
+     que haya que cargar aparte. */
+  .marca .glifo{flex-shrink:0;width:30px;height:30px;border-radius:9px;
+    background:var(--accent-soft);color:var(--accent);font-size:11px;
+    border:1px solid color-mix(in srgb,var(--accent) 35%,transparent);
+    display:flex;align-items:center;justify-content:center}
+  .marca .txt{min-width:0}
+  .kicker{display:block;font:500 9px var(--mono);text-transform:uppercase;
+    letter-spacing:.2em;color:var(--ink-faint);margin-bottom:1px}
+  .titulo{margin:0;font:600 20px/1.05 var(--body);letter-spacing:-.02em;color:var(--ink)}
+  .titulo .b{color:var(--accent)}
+  .nav-acc{margin-left:auto;display:flex;gap:6px;flex-shrink:0}
+
+  /* Las pestañas ya no se pliegan: ruedan de lado en un solo renglon. Los
+     margenes negativos las llevan hasta el borde de la pantalla, que es lo que
+     deja ver que hay mas a la derecha. */
+  .tabs{display:flex;gap:3px;overflow-x:auto;scrollbar-width:none;
+    margin:0 -14px;padding:0 14px;scroll-snap-type:x proximity}
+  .tabs::-webkit-scrollbar{display:none}
+  /* Difuminado en el borde derecho, pero solo mientras quede pestaña por ver:
+     lo enciende el JS segun donde este el scroll. Una mascara fija fingiria
+     que siempre hay mas, tambien al llegar al final. */
+  .tabs.mas{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent);
+    mask-image:linear-gradient(90deg,#000 calc(100% - 26px),transparent)}
+  .tabs button{flex-shrink:0;scroll-snap-align:center;
+    font:500 13px var(--body);color:var(--ink-dim);background:none;
+    border:0;border-bottom:2px solid transparent;
+    padding:8px 11px;border-radius:7px 7px 0 0;cursor:pointer;
+    display:flex;align-items:center;gap:6px}
+  .tabs button.on{color:var(--accent);background:var(--accent-soft);border-bottom-color:var(--accent)}
   .tabs .c{font:11px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:4px}
   .tabs button.on .c{background:color-mix(in srgb,var(--accent) 22%,transparent)}
 
@@ -255,7 +284,6 @@
     .review{grid-template-columns:1fr}
     video{max-width:330px;margin:0 auto}
     .grid2,.presets,.finos{grid-template-columns:1fr}
-    .logo{width:100%;margin-bottom:2px}
   }
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
@@ -263,7 +291,17 @@
 <body>
 
 <div class="nav"><div class="nav-in">
-  <div class="logo">mesa de <span class="b">revisión</span></div>
+  <div class="marca">
+    <div class="glifo" aria-hidden="true">▶</div>
+    <div class="txt">
+      <span class="kicker">video scout</span>
+      <h1 class="titulo">Mesa de <span class="b">Revisión</span></h1>
+    </div>
+    <div class="nav-acc">
+      <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
+      <button class="btn sm" id="b-apagar" title="Apagar el panel y liberar el wake lock">⏻</button>
+    </div>
+  </div>
   <div class="tabs">
     <button data-v="revisar" class="on">Revisar <span class="c" id="c-rev">0</span></button>
     <button data-v="cola">Cola <span class="c" id="c-col">0</span></button>
@@ -273,8 +311,6 @@
     <button data-v="tiktok">TikTok <span class="c" id="c-tk">0</span></button>
     <button data-v="ajustes">Ajustes</button>
   </div>
-  <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
-  <button class="btn sm" id="b-apagar" title="Apagar el panel y liberar el wake lock">⏻</button>
 </div></div>
 
 <div class="wrap">
@@ -1960,11 +1996,25 @@ async function refrescar(){
     `<div class="aviso crit"><span>✕</span><div>Se perdió la conexión con el servidor. ¿Sigue corriendo <code style="font:12px var(--mono)">python servidor.py</code>?</div></div>`; }
 }
 
+/* La tira de pestañas rueda de lado, así que hay que avisar de que queda
+   alguna fuera del borde derecho. */
+const tiraTabs = document.querySelector('.tabs');
+function sombraTabs(){
+  tiraTabs.classList.toggle('mas',
+    tiraTabs.scrollLeft + tiraTabs.clientWidth < tiraTabs.scrollWidth - 1);
+}
+tiraTabs.addEventListener('scroll', sombraTabs, {passive:true});
+addEventListener('resize', sombraTabs);
+sombraTabs();
+
 document.querySelectorAll('.tabs button').forEach(b=>{
   b.onclick = ()=>{
     document.querySelectorAll('.tabs button').forEach(o=>o.classList.toggle('on', o===b));
     document.querySelectorAll('.view').forEach(s=>s.classList.toggle('on', s.id==='v-'+b.dataset.v));
     window.scrollTo(0,0);
+    // Si la pestaña estaba medio asomada por un lado, se centra: da igual que
+    // ya se haya pintado, lo que importa es poder leer en cuál estás.
+    b.scrollIntoView({block:'nearest', inline:'center', behavior:'smooth'});
     refrescar();
   };
 });
