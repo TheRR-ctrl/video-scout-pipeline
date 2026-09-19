@@ -542,8 +542,11 @@ def api_ajuste():
 def credenciales():
     out = []
     for clave, tiene, origen in secretos.estado():
+        # Opcionales: sin ellas el pipeline entero sigue corriendo. Jamendo
+        # solo añade música nueva y Pexels solo añade fondos de archivo; el
+        # material que ya está en el teléfono no depende de ninguna de las dos.
         out.append({"nombre": clave, "ok": tiene, "origen": origen,
-                    "opcional": clave == "JAMENDO_CLIENT_ID"})
+                    "opcional": clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY")})
     for archivo in ("client_secret.json", "youtube_token.json"):
         out.append({"nombre": archivo, "ok": os.path.exists(os.path.join(BASE_DIR, archivo)),
                     "origen": "", "opcional": False})
@@ -986,6 +989,7 @@ SECRETOS_COPIABLES = {
     "GEMINI_API_KEY": ("entorno", "GEMINI_API_KEY"),
     "JAMENDO_CLIENT_ID": ("entorno", "JAMENDO_CLIENT_ID"),
     "YOUTUBE_API_KEY": ("entorno", "YOUTUBE_API_KEY"),
+    "PEXELS_API_KEY": ("entorno", "PEXELS_API_KEY"),
 }
 
 

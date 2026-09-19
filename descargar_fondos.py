@@ -82,6 +82,17 @@ cargar_json = almacen.cargar
 guardar_json = almacen.guardar
 
 
+class ClaveRechazada(Exception):
+    """Pexels dijo que no a la credencial, no al contenido.
+
+    Se distingue de «no encontré nada» porque el remedio es opuesto: con una
+    clave mala, reintentar con otra búsqueda da exactamente el mismo 401. Sin
+    esto, una clave mal pegada salía como quince avisos de búsqueda fallida y
+    un «no se encontró nada usable» por cada tema, que es justo el mensaje que
+    te manda a mirar donde no es.
+    """
+
+
 def limpiar_nombre(nombre):
     return re.sub(r"[^\w\-]", "_", nombre or "na")[:40]
 
@@ -125,6 +136,17 @@ def buscar(clave, consultas, cantidad, vertical, ya_bajados):
             resp.raise_for_status()
             data = resp.json()
         except Exception as exc:
+            codigo = getattr(getattr(exc, "response", None), "status_code", None)
+            if codigo in (401, 403):
+                raise ClaveRechazada(
+                    f"Pexels rechazó la clave (HTTP {codigo}). Revisa PEXELS_API_KEY: "
+                    "se copia entera desde https://www.pexels.com/api/ → Your API Key."
+                )
+            if codigo == 429:
+                raise ClaveRechazada(
+                    "Pexels dice que has hecho demasiadas peticiones (HTTP 429). "
+                    "El límite gratuito se renueva solo; prueba más tarde."
+                )
             logger.warning(f"    fallo consultando «{consulta}»: {exc}")
             continue
 
@@ -222,7 +244,15 @@ def main(argv=None):
             continue
 
         logger.info(f"{tema}: buscando {faltan} clip(s) nuevo(s)...")
-        encontrados = buscar(clave, consultas, faltan, vertical, ya_bajados)
+        try:
+            encontrados = buscar(clave, consultas, faltan, vertical, ya_bajados)
+        except ClaveRechazada as exc:
+            # Se para aquí en vez de seguir con los demás temas: el siguiente
+            # daría el mismo error, y lo ya bajado sí se guarda al salir.
+            if not args.ver:
+                guardar_json(RUTA_HISTORIAL, sorted(ya_bajados))
+                guardar_json(RUTA_ATRIBUCION, atribucion)
+            raise SystemExit(str(exc))
         if not encontrados:
             logger.warning(f"{tema}: no se encontró nada usable.")
             continue

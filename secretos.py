@@ -28,7 +28,8 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_SECRETOS = os.path.join(BASE_DIR, "secretos.env")
 
 CLAVES_CONOCIDAS = ("GEMINI_API_KEY", "JAMENDO_CLIENT_ID", "YOUTUBE_API_KEY",
-                    "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET")
+                    "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET",
+                    "PEXELS_API_KEY")
 
 # Qué claves acabaron viniendo del archivo. Se registra al cargar, porque
 # después no hay forma de saberlo: en os.environ ya no se distingue el
