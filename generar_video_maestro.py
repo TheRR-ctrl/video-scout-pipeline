@@ -188,8 +188,12 @@ CONFIG_DEFAULT = {
     # "cortes"      -> corta al azar tus propios videos de fondo (por defecto)
     # "hyperframes" -> genera el fondo con IA, sin necesitar videos propios
     "motor_fondo": "cortes",
-    # Tope de la composición generada. El render va a ~3x tiempo real, así que
-    # para una historia larga se genera un fondo de este largo y se loopea.
+    # Largo de la composición generada, que se loopea hasta cubrir la historia.
+    # El render va a ~3x tiempo real, así que cuanto más corta, antes está; y
+    # como es el mismo largo para todas las historias, el clip se reaprovecha
+    # en vez de renderizarse otra vez por cada video.
+    "duracion_composicion_seg": 20.0,
+    # Tope duro por si se sube la de arriba a mano.
     "duracion_max_composicion_seg": 45.0,
     "subtitulos": dict(SUBTITULOS_DEFAULT),
     # La tarjeta de intro de los videos largos ocupa todo el cuadro en vez de
@@ -367,9 +371,16 @@ def comprobar_dependencias():
         )
 
     if CONFIG.get("motor_fondo") == "hyperframes":
-        # Necesita además Node/npx; mejor saberlo antes del lote que a mitad
-        # del primer video.
-        hyperframes_broll.comprobar_dependencias()
+        apta, motivo = hyperframes_broll.plataforma_apta()
+        if not apta:
+            # Es el caso normal desde el teléfono, y no es razón para no hacer
+            # los videos: se avisa y el fondo sale por los cortes de siempre.
+            logger.warning(motivo)
+            print(f" ⚠️  {motivo}")
+        else:
+            # Necesita además Node/npx; mejor saberlo antes del lote que a
+            # mitad del primer video.
+            hyperframes_broll.comprobar_dependencias()
 
 class GestorTemporales:
     """Directorio temporal aislado por historia; evita colisiones entre procesos."""
@@ -676,7 +687,7 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
         return None
 
 def crear_fondo_hyperframes(duracion_requerida_sec, es_short, gestor_temp,
-                            num_index, titulo, emocion):
+                            num_index, emocion):
     """Fondo generado con IA en vez de cortado de videos propios.
 
     Devuelve un video de exactamente `duracion_requerida_sec`, o None si el
@@ -684,29 +695,51 @@ def crear_fondo_hyperframes(duracion_requerida_sec, es_short, gestor_temp,
     siempre). A diferencia de `crear_fondo_multi_corte`, no necesita que
     tengas ningún video de fondo en la carpeta.
 
-    La composición se genera con el largo de la historia hasta el tope de
-    `duracion_max_composicion_seg` y se loopea para cubrir el resto; por eso
-    el perfil visual pide una animación cíclica, para que el corte no se vea."""
+    Solo para PC: el render necesita Chrome headless y Node, y ninguno de los
+    dos corre en Android. Desde el teléfono devuelve None y el fondo sale por
+    los cortes de siempre.
+
+    La composición se genera cíclica y se loopea para cubrir la historia, así
+    que su largo no depende del de la historia: es el mismo para todas y por
+    eso se puede reaprovechar."""
     if CONFIG.get("motor_fondo") != "hyperframes":
         return None
 
     aspecto = "9:16" if es_short else "16:9"
     w_res, h_res = (1080, 1920) if es_short else (1920, 1080)
-    tope = float(CONFIG.get("duracion_max_composicion_seg", 45.0))
-    dur_composicion = min(duracion_requerida_sec, tope)
+    # El perfil tiene que ir con el formato: el vertical deja libre la franja
+    # central porque ahí van los subtítulos de un Short, y el horizontal deja
+    # libre el 25% de abajo porque ahí van los del video largo. Usar el
+    # vertical en 16:9 pone la parte interesante justo donde luego se quema
+    # el texto.
+    perfil = (hyperframes_broll.PERFIL_HISTORIA_VERTICAL if es_short
+              else hyperframes_broll.PERFIL_HISTORIA_HORIZONTAL)
 
+    # El fondo no cuenta la historia —el propio perfil se lo prohíbe al
+    # modelo—, así que el título no aporta nada a la composición. Lo que sí
+    # hacía era entrar en la clave de caché: con el título dentro, cada
+    # historia era una idea distinta y no había acierto posible, o sea un
+    # render de varios minutos por video para acabar en un fondo abstracto
+    # equivalente. Con el tono y el formato como única variable, el catálogo
+    # se cierra en unos pocos clips que se reusan para siempre.
     idea = (
         f"Historia personal narrada de tono '{emocion}'. Fondo abstracto que "
-        f"sostenga la atención mientras se escucha: {limpiar_texto_seguro(titulo)[:200]}"
+        "sostenga la atención mientras se escucha, sin ilustrar nada concreto."
     )
+
+    # Lo mismo con la duración, que también entra en la clave: la composición
+    # es cíclica y ffmpeg la repite hasta cubrir la historia, así que pedirla
+    # del largo exacto de cada historia solo servía para no acertar nunca.
+    dur_composicion = min(float(CONFIG.get("duracion_composicion_seg", 20.0)),
+                          float(CONFIG.get("duracion_max_composicion_seg", 45.0)),
+                          duracion_requerida_sec)
 
     anch = max(10, shutil.get_terminal_size((40, 24)).columns - 35)
     txt_base = " ├─ 🎞️ [2/4] Fondo IA:"
     actualizar_hud([f"{txt_base} [ generando composición... ]"])
 
     base = hyperframes_broll.generar_clip_cacheado(
-        idea, aspecto=aspecto, duracion_seg=dur_composicion,
-        perfil=hyperframes_broll.PERFIL_HISTORIA_VERTICAL,
+        idea, aspecto=aspecto, duracion_seg=dur_composicion, perfil=perfil,
     )
     if not base:
         logger.warning("El fondo con HyperFrames falló; se cae a los cortes de siempre.")
@@ -1766,7 +1799,7 @@ def renderizar_una_historia(contenido, num=1):
         print(msg_formato[:term_cols - 1])
         
         # FASE 2: Fondo
-        vid_fondo = (crear_fondo_hyperframes(dur_sec, es_short, gestor, num, tit, emocion)
+        vid_fondo = (crear_fondo_hyperframes(dur_sec, es_short, gestor, num, emocion)
                      or crear_fondo_multi_corte(dur_sec, es_short, gestor, num)
                      or seleccionar_fondo_video(es_short))
         if not vid_fondo:

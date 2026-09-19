@@ -35,6 +35,7 @@ créditos de HeyGen ni pide cuenta.
 """
 import os
 import re
+import sys
 import time
 import json
 import math
@@ -42,6 +43,7 @@ import shutil
 import hashlib
 import logging
 import tempfile
+import platform
 import subprocess
 from dataclasses import dataclass
 
@@ -67,6 +69,13 @@ MARGEN_DURACION_SEG = 0.6
 # El render va a ~3x tiempo real, así que una composición muy larga bloquea el
 # lote. Por encima de esto, el llamador debe loopear un clip más corto.
 DURACION_MAX_SEG = 120.0
+
+# Tope de la caché de clips. Cada MP4 de 1080p ronda los 2-6 MB y la clave
+# incluye el prompt, así que sin poda la carpeta crece sin fin — y en un
+# teléfono el disco se acaba mucho antes que las ganas de generar fondos.
+# Cuando se pasa, se borran los menos usados recientemente hasta volver bajo
+# el tope (a un clip borrado le cuesta un render volver, no es una pérdida).
+CACHE_MAX_MB = 600.0
 
 # Cambiar la plantilla del prompt cambia el resultado para el mismo
 # prompt_visual, así que la versión entra en la clave de caché.
@@ -154,6 +163,33 @@ PERFIL_HISTORIA_VERTICAL = PerfilVisual(
         "subtítulos karaoke, que son grandes. Deja esa zona oscura y sin "
         "detalle fino ni elementos brillantes.\n"
         "- **20% superior**: ahí va la tarjeta de título del hook."
+    ),
+    max_palabras_pantalla=0,
+    loopable=True,
+)
+
+
+# El mismo fondo de historia, pero para el formato horizontal. Existe porque
+# los dos perfiles de arriba no sirven tal cual: el vertical deja libre la
+# franja central (donde van los subtítulos de un Short) y en 16:9 los
+# subtítulos van abajo, así que lo interesante acabaría justo debajo del
+# texto; y el reflexivo, que sí tiene las zonas libres correctas, no es
+# cíclico, porque está pensado para una escena de largo exacto. Este pipeline
+# siempre loopea el fondo para cubrir la historia, así que necesita las zonas
+# del horizontal y el bucle cerrado a la vez.
+PERFIL_HISTORIA_HORIZONTAL = PerfilVisual(
+    nombre="historia_horizontal",
+    contexto=(
+        "Fondo de un video horizontal en español: una historia personal "
+        "narrada (drama, venganza, suspenso o comedia) con subtítulos karaoke "
+        "quemados encima. El fondo NO cuenta la historia, solo sostiene la "
+        "atención mientras se escucha. Es PURAMENTE VISUAL y MUDO."
+    ),
+    direccion_arte=PERFIL_HISTORIA_VERTICAL.direccion_arte,
+    zonas_libres=(
+        "- **25% inferior**: ahí van los subtítulos karaoke. Nada importante "
+        "ni brillante en esa banda.\n"
+        "- **30% superior**: ahí va la tarjeta de título del hook."
     ),
     max_palabras_pantalla=0,
     loopable=True,
@@ -310,9 +346,57 @@ def comando_cli():
     return list(_cmd_cli)
 
 
+# ---------------------------------------------------------
+# DÓNDE PUEDE CORRER ESTO
+# ---------------------------------------------------------
+# Este motor es de PC, a propósito. El render arranca Chrome headless, y el
+# Chrome que descargan las herramientas de Node está compilado contra glibc;
+# Android usa bionic, así que el binario ni siquiera arranca. Encima harían
+# falta Node >= 22, unos cientos de MB de caché de npx y ~3x tiempo real de
+# CPU sostenida — en un teléfono eso es el proceso muriendo a media tarea.
+#
+# Detectarlo aquí y decirlo claro es mejor que dejar que lo descubra un
+# subprocess que falla a los diez minutos con un error de enlazado. Quien
+# quiera intentarlo igual (proot con glibc, por ejemplo) tiene la salida de
+# emergencia: HYPERFRAMES_FORZAR=1.
+_MARCAS_ANDROID = ("/data/data/com.termux", "/system/build.prop")
+
+
+def _es_android():
+    if os.environ.get("TERMUX_VERSION") or "com.termux" in (os.environ.get("PREFIX") or ""):
+        return True
+    if hasattr(sys, "getandroidapilevel"):
+        return True
+    if "android" in platform.platform().lower():
+        return True
+    return any(os.path.exists(m) for m in _MARCAS_ANDROID)
+
+
+def plataforma_apta():
+    """(apta, motivo). `motivo` solo tiene sentido cuando no es apta.
+
+    Se consulta antes de gastar una llamada a Gemini o un render: el llamador
+    decide si eso es un error del lote o simplemente caer al otro motor."""
+    if os.environ.get("HYPERFRAMES_FORZAR") == "1":
+        return True, ""
+    if _es_android():
+        return False, (
+            "El motor 'hyperframes' es solo para PC: el render necesita Chrome "
+            "headless (compilado contra glibc, no arranca en Android), Node >= 22 "
+            "y ~3x tiempo real de CPU. Desde el teléfono usa motor_fondo "
+            '"cortes", o genera los fondos en el runner con el workflow '
+            "'Fabricar fondos con IA' y bájalos. Para intentarlo igual: "
+            "HYPERFRAMES_FORZAR=1."
+        )
+    return True, ""
+
+
 def comprobar_dependencias():
     """Lanza si falta algo para renderizar. Conviene llamarlo antes del lote
     para fallar temprano en vez de a mitad del primer video."""
+    apta, motivo = plataforma_apta()
+    if not apta:
+        raise RuntimeError(motivo)
     if not (os.environ.get("HYPERFRAMES_BIN") or shutil.which("hyperframes") or shutil.which("npx")):
         raise RuntimeError(
             "El motor 'hyperframes' necesita Node.js >= 22 (para npx) o el CLI "
@@ -338,6 +422,66 @@ def _ruta_cache(prompt_visual, aspecto, duracion, perfil):
     ).hexdigest()[:24]
     os.makedirs(CARPETA_CACHE, exist_ok=True)
     return os.path.join(CARPETA_CACHE, f"hf_{clave}.mp4")
+
+
+def _ruta_parcial(ruta_final):
+    """Dónde escribe el render antes de que el clip cuente como bueno.
+
+    Oculto y con otra extensión a propósito: mientras se escribe no debe
+    parecerse a un clip de la caché, porque un render a medias tiene el
+    tamaño de un MP4 de verdad y nada lo distinguiría después."""
+    carpeta, nombre = os.path.split(ruta_final)
+    return os.path.join(carpeta, f".{nombre}.parcial")
+
+
+def limpiar_cache(max_mb=None):
+    """Deja la caché por debajo de `max_mb` borrando los clips menos usados.
+
+    La clave de caché lleva el prompt dentro, así que cada idea visual nueva
+    añade un archivo y ninguno se borra solo. Con el tope puesto, la carpeta
+    se estabiliza y lo único que se pierde es un render que se puede rehacer.
+
+    De paso se barren los `.parcial` que dejó un render muerto a mitad."""
+    tope_bytes = float(CACHE_MAX_MB if max_mb is None else max_mb) * 1024 * 1024
+    if not os.path.isdir(CARPETA_CACHE):
+        return 0
+
+    borrados = 0
+    clips = []
+    for nombre in os.listdir(CARPETA_CACHE):
+        ruta = os.path.join(CARPETA_CACHE, nombre)
+        try:
+            if nombre.endswith(".parcial"):
+                # Nadie lo va a terminar: el proceso que lo escribía ya no está.
+                os.remove(ruta)
+                borrados += 1
+                continue
+            if not nombre.startswith("hf_") or not os.path.isfile(ruta):
+                continue
+            st = os.stat(ruta)
+            clips.append((st.st_mtime, st.st_size, ruta))
+        except OSError:
+            continue
+
+    total = sum(c[1] for c in clips)
+    if total <= tope_bytes:
+        return borrados
+
+    # Del más viejo al más nuevo. `generar_clip_cacheado` toca el archivo en
+    # cada acierto, así que "viejo" aquí es "hace mucho que no se usa", no
+    # "se generó hace mucho".
+    for _, tam, ruta in sorted(clips):
+        if total <= tope_bytes:
+            break
+        try:
+            os.remove(ruta)
+        except OSError:
+            continue
+        total -= tam
+        borrados += 1
+    if borrados:
+        logger.info(f"Caché de HyperFrames podada: {borrados} archivo(s) fuera.")
+    return borrados
 
 
 def _limpiar_html(texto):
@@ -449,6 +593,22 @@ def _render(proyecto, ruta_salida):
         raise RuntimeError(f"hyperframes render falló (código {res.returncode}):\n{detalle}")
 
 
+def _duracion_real(ruta):
+    """Segundos que dice ffprobe, o None si no puede leer el archivo.
+
+    Un MP4 truncado no tiene el índice al final, así que aquí se cae — que es
+    justo lo que hace falta para no guardar medio render como si fuera bueno."""
+    try:
+        res = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", ruta],
+            capture_output=True, text=True, timeout=60,
+        )
+        return float((res.stdout or "").strip())
+    except Exception:
+        return None
+
+
 def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEFAULT,
                           reintentos=3, duracion_seg=None,
                           perfil=PERFIL_NARRACION_REFLEXIVA):
@@ -465,11 +625,36 @@ def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEF
     # la misma idea visual compartan clip en vez de renderizar dos veces.
     duracion = math.ceil(duracion * 2) / 2
 
+    apta, motivo = plataforma_apta()
+    if not apta:
+        # Ni llamada a Gemini ni render: el llamador cae a su otro motor.
+        logger.warning(motivo)
+        return None
+
     ruta_salida = _ruta_cache(prompt_visual, aspecto, duracion, perfil)
     if _archivo_valido(ruta_salida):
-        return ruta_salida
+        # Un clip que quedó truncado por el camino viejo (antes de que el
+        # render fuera atómico) sigue pesando más de cero y la caché lo
+        # serviría igual. Se comprueba de verdad una vez y, si está roto, se
+        # tira y se regenera. Solo si hay ffprobe: sin él, mejor servir el
+        # clip que negarlo por no poder mirarlo.
+        if shutil.which("ffprobe") and _duracion_real(ruta_salida) is None:
+            logger.warning("Clip cacheado ilegible, se regenera: "
+                           f"{os.path.basename(ruta_salida)}")
+            try:
+                os.remove(ruta_salida)
+            except OSError:
+                pass
+        else:
+            # Recién usado, que es lo que mira la poda de la caché.
+            try:
+                os.utime(ruta_salida, None)
+            except OSError:
+                pass
+            return ruta_salida
 
     w, h = RESOLUCIONES.get(aspecto, RESOLUCIONES["16:9"])
+    parcial = _ruta_parcial(ruta_salida)
     cliente = _obtener_cliente()
     correccion = None
 
@@ -487,15 +672,33 @@ def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEF
                 if errores:
                     raise RuntimeError(errores)
 
-                _render(tmp, ruta_salida)
+                # Se renderiza a un archivo aparte y solo al final se mueve al
+                # nombre de la caché, con os.replace, que es atómico. Si el
+                # proceso muere a media escritura —en un portátil que se
+                # suspende, en un runner que se queda sin tiempo— lo que queda
+                # es un .parcial que nadie lee, no un MP4 truncado que la
+                # caché daría por bueno para siempre.
+                _render(tmp, parcial)
+                dur_real = _duracion_real(parcial)
+                if dur_real is None or dur_real < duracion * 0.5:
+                    raise RuntimeError(
+                        "El render salió ilegible o demasiado corto "
+                        f"({'ilegible' if dur_real is None else f'{dur_real:.1f}s'} "
+                        f"de {duracion:.1f}s pedidos)."
+                    )
+                os.replace(parcial, ruta_salida)
 
             if _archivo_valido(ruta_salida):
+                limpiar_cache()
                 return ruta_salida
         except Exception as exc:
             logger.warning(f"HyperFrames intento {intento}/{reintentos} falló: {exc}")
             correccion = str(exc)[-1500:]
-            if _archivo_valido(ruta_salida):
-                # Un render a medias deja un archivo inservible en la caché.
-                os.remove(ruta_salida)
+        finally:
+            if os.path.exists(parcial):
+                try:
+                    os.remove(parcial)
+                except OSError:
+                    pass
 
     return None
