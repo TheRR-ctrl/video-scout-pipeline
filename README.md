@@ -145,10 +145,24 @@ environment variable — used by `script_writer.py` and `publisher.py`.
   Compositions are cached in `pipeline_state/hyperframes_cache/`.
 
   Rendering runs at roughly 3x real time, so a full 3-minute story would be
-  slow. Instead a composition of `duracion_max_composicion_seg` (default 45 s)
-  is generated and looped to cover the story — the visual profile asks for a
+  slow. Instead a composition of `duracion_composicion_seg` (default 20 s) is
+  generated and looped to cover the story — the visual profile asks for a
   cyclic animation whose last frame matches its first, so the loop seam
-  doesn't show.
+  doesn't show. Because that length is the same for every story, and the
+  composition is asked for by tone and aspect ratio only (never by story
+  title — the background is forbidden from illustrating the story anyway),
+  the cache is a closed set of a few clips that get reused instead of one
+  fresh multi-minute render per video. The cache is capped at
+  `CACHE_MAX_MB` (600 MB); past that the least recently used clips are
+  dropped.
+
+  **PC only.** Rendering drives headless Chrome, which ships linked against
+  glibc and will not start on Android's bionic — and would want Node ≥ 22
+  plus sustained CPU besides. On Termux the engine declines up front and the
+  run falls back to `"cortes"` with a warning; it never aborts the batch. Set
+  `HYPERFRAMES_FORZAR=1` to try anyway (e.g. under a glibc proot). To use
+  generated backgrounds from the phone, run the *Fabricar fondos con IA*
+  workflow on a GitHub runner and download the result as ordinary footage.
 
   Requires **Node.js ≥ 22** on the PATH (the CLI downloads itself via `npx` on
   first use), `GEMINI_API_KEY`, and outbound internet during the render
@@ -164,6 +178,7 @@ The only thing that differs between pipelines is the `PerfilVisual` — what is
 being illustrated, what gets overlaid on top, and which parts of the frame
 must stay clear. See `.claude/skills/hyperframes-broll/SKILL.md` for the
 composition contract and how to debug a failed render.
+
 ## Subtitle style and fonts
 
 Subtitles are configured under `subtitulos` in `config.json` — nothing else

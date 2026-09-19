@@ -153,8 +153,11 @@ def main(argv=None):
             logger.info(f"{nombre}: componiendo {SEGUNDOS:.0f}s ({aspecto})...")
             clip = motor.generar_clip_cacheado(
                 idea, aspecto=aspecto, duracion_seg=SEGUNDOS,
+                # El horizontal, no el reflexivo: estos fondos se loopean y
+                # se cortan como metraje de archivo, así que la composición
+                # tiene que cerrar el bucle. El reflexivo no lo cierra.
                 perfil=motor.PERFIL_HISTORIA_VERTICAL if vertical
-                else motor.PERFIL_NARRACION_REFLEXIVA,
+                else motor.PERFIL_HISTORIA_HORIZONTAL,
             )
             if not clip:
                 logger.warning(f"  ⚠️ {nombre}: el motor no devolvió nada, se salta.")
