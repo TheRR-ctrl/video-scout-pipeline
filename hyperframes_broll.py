@@ -21,13 +21,22 @@ Frente a los otros motores de video de apoyo de estos pipelines:
 | Estilo | fotorrealista | vectorial matemático | tipografía/diseño web |
 | Assets propios | no hace falta | no hace falta | no hace falta |
 
-## Módulo portable
+## Qué hay aquí y qué hay en el núcleo
 
-Este archivo no depende de ningún otro del repo: se copia tal cual entre
-proyectos. Lo único que cambia entre pipelines es el `PerfilVisual` — qué se
-está ilustrando, qué se superpone encima y qué zonas del cuadro hay que dejar
-libres. Hay dos perfiles listos abajo; añadir uno nuevo es rellenar un
-dataclass, no tocar el motor.
+Lo que no depende de *qué* se dibuja vive en `hyperframes_nucleo.py`, que es
+byte a byte idéntico al del repo hermano `video_generation`: invocar el CLI,
+pasar el linter, la puerta de plataforma y la caché en disco. Ese archivo se
+copia tal cual entre los dos proyectos.
+
+Aquí queda lo propio de este pipeline: componer **un fondo por historia** y
+loopearlo para cubrir la narración. Lo que cambia entre usos es el
+`PerfilVisual` — qué se está ilustrando, qué se superpone encima y qué zonas
+del cuadro hay que dejar libres. Hay tres perfiles listos abajo; añadir uno
+nuevo es rellenar un dataclass, no tocar el motor.
+
+El repo hermano compone por escenas y en lotes, así que su
+`hyperframes_broll.py` es distinto a propósito; el núcleo es lo único
+compartido.
 
 Requiere: Node.js >= 22 (para `npx`), ffmpeg/ffprobe en el PATH.
 Credenciales: GEMINI_API_KEY. El render de HyperFrames es local: no consume
@@ -35,24 +44,31 @@ créditos de HeyGen ni pide cuenta.
 """
 import os
 import re
-import sys
 import time
-import json
 import math
 import shutil
 import hashlib
 import logging
 import tempfile
-import platform
 import subprocess
 from dataclasses import dataclass
 
 from google import genai
 from google.genai import errors as genai_errors
 
-# Versión fijada del CLI: HyperFrames se mueve rápido y una corrida desatendida
-# no debería cambiar de motor de render sin que lo decidas. Súbela a mano.
-VERSION_CLI = "0.8.29"
+import hyperframes_nucleo as nucleo
+
+# Reexportados porque son interfaz de este módulo: el pipeline y los scripts de
+# fondos llaman a hyperframes_broll.plataforma_apta() sin tener que saber que
+# el que la implementa es el núcleo. Se asignan en vez de importarse para que
+# pyflakes no los dé por imports sin usar.
+VERSION_CLI = nucleo.VERSION_CLI
+RESOLUCIONES = nucleo.RESOLUCIONES
+CACHE_MAX_MB = nucleo.CACHE_MAX_MB
+TIMEOUT_RENDER_SEG = nucleo.TIMEOUT_RENDER_SEG
+TIMEOUT_LINT_SEG = nucleo.TIMEOUT_LINT_SEG
+comando_cli = nucleo.comando_cli
+entorno_cli = nucleo.entorno_cli
 
 MODELO_TEXTO_DEFAULT = "gemini-3.6-flash"
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -60,8 +76,6 @@ CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
 CARPETA_CACHE = os.path.join(CARPETA_ESTADO, "hyperframes_cache")
 
 FPS = 30
-TIMEOUT_RENDER_SEG = 900
-TIMEOUT_LINT_SEG = 120
 DURACION_DEFAULT_SEG = 8.0
 # Se renderiza un poco más largo de lo pedido: quien consume el clip lo recorta
 # con ffmpeg, y así un desfase de décimas nunca deja el final en negro.
@@ -70,27 +84,9 @@ MARGEN_DURACION_SEG = 0.6
 # lote. Por encima de esto, el llamador debe loopear un clip más corto.
 DURACION_MAX_SEG = 120.0
 
-# Tope de la caché de clips. Cada MP4 de 1080p ronda los 2-6 MB y la clave
-# incluye el prompt, así que sin poda la carpeta crece sin fin — y en un
-# teléfono el disco se acaba mucho antes que las ganas de generar fondos.
-# Cuando se pasa, se borran los menos usados recientemente hasta volver bajo
-# el tope (a un clip borrado le cuesta un render volver, no es una pérdida).
-CACHE_MAX_MB = 600.0
-
-# Cambiar la plantilla del prompt cambia el resultado para el mismo
-# prompt_visual, así que la versión entra en la clave de caché.
 VERSION_PROMPT = 2
 
-RESOLUCIONES = {
-    "16:9": (1920, 1080),
-    "9:16": (1080, 1920),
-    "1:1": (1080, 1080),
-}
 
-
-# ---------------------------------------------------------
-# PERFILES VISUALES (lo único específico de cada pipeline)
-# ---------------------------------------------------------
 @dataclass(frozen=True)
 class PerfilVisual:
     """Describe qué tipo de video de apoyo se quiere y qué se le superpone.
@@ -282,7 +278,6 @@ _REGLA_BUCLE_ABIERTO = (
 logger = logging.getLogger("hyperframes_broll")
 
 _client = None
-_cmd_cli = None
 
 
 # ---------------------------------------------------------
@@ -320,75 +315,24 @@ def _obtener_cliente():
 
 
 # ---------------------------------------------------------
-# CLI DE HYPERFRAMES
-# ---------------------------------------------------------
-def _entorno_cli():
-    """Entorno para el CLI: sin telemetría ni chequeo de actualizaciones, que
-    en una corrida desatendida solo añaden latencia y llamadas de red."""
-    env = dict(os.environ)
-    env["HYPERFRAMES_NO_TELEMETRY"] = "1"
-    env["DO_NOT_TRACK"] = "1"
-    env["HYPERFRAMES_NO_UPDATE_CHECK"] = "1"
-    env["HYPERFRAMES_SKIP_SKILLS"] = "1"
-    env["CI"] = env.get("CI", "1")
-    return env
-
-
-def comando_cli():
-    """Prefijo de comando del CLI de HyperFrames.
-
-    Si hay un binario instalado (`npm i -g hyperframes`) se usa ese; si no, se
-    cae a `npx`, que descarga el paquete la primera vez y luego lo cachea."""
-    global _cmd_cli
-    if _cmd_cli is None:
-        binario = os.environ.get("HYPERFRAMES_BIN") or shutil.which("hyperframes")
-        _cmd_cli = [binario] if binario else ["npx", "-y", f"hyperframes@{VERSION_CLI}"]
-    return list(_cmd_cli)
-
-
-# ---------------------------------------------------------
 # DÓNDE PUEDE CORRER ESTO
 # ---------------------------------------------------------
-# Este motor es de PC, a propósito. El render arranca Chrome headless, y el
-# Chrome que descargan las herramientas de Node está compilado contra glibc;
-# Android usa bionic, así que el binario ni siquiera arranca. Encima harían
-# falta Node >= 22, unos cientos de MB de caché de npx y ~3x tiempo real de
-# CPU sostenida — en un teléfono eso es el proceso muriendo a media tarea.
-#
-# Detectarlo aquí y decirlo claro es mejor que dejar que lo descubra un
-# subprocess que falla a los diez minutos con un error de enlazado. Quien
-# quiera intentarlo igual (proot con glibc, por ejemplo) tiene la salida de
-# emergencia: HYPERFRAMES_FORZAR=1.
-_MARCAS_ANDROID = ("/data/data/com.termux", "/system/build.prop")
-
-
-def _es_android():
-    if os.environ.get("TERMUX_VERSION") or "com.termux" in (os.environ.get("PREFIX") or ""):
-        return True
-    if hasattr(sys, "getandroidapilevel"):
-        return True
-    if "android" in platform.platform().lower():
-        return True
-    return any(os.path.exists(m) for m in _MARCAS_ANDROID)
+# La decisión la toma el núcleo (resumen: el render arranca Chrome headless,
+# que está compilado contra glibc y en Android ni siquiera enlaza). Lo que se
+# añade aquí es la salida concreta de ESTE pipeline, que es lo que de verdad
+# necesita quien lee el aviso desde el teléfono.
+_SALIDA_EN_ESTE_REPO = (
+    ' En este pipeline: pon motor_fondo "cortes", o fabrica los fondos en el '
+    "runner con el workflow 'Fabricar fondos con IA' y bájalos."
+)
 
 
 def plataforma_apta():
-    """(apta, motivo). `motivo` solo tiene sentido cuando no es apta.
-
-    Se consulta antes de gastar una llamada a Gemini o un render: el llamador
-    decide si eso es un error del lote o simplemente caer al otro motor."""
-    if os.environ.get("HYPERFRAMES_FORZAR") == "1":
+    """(apta, motivo), con el consejo propio de este repo pegado al motivo."""
+    apta, motivo = nucleo.plataforma_apta()
+    if apta:
         return True, ""
-    if _es_android():
-        return False, (
-            "El motor 'hyperframes' es solo para PC: el render necesita Chrome "
-            "headless (compilado contra glibc, no arranca en Android), Node >= 22 "
-            "y ~3x tiempo real de CPU. Desde el teléfono usa motor_fondo "
-            '"cortes", o genera los fondos en el runner con el workflow '
-            "'Fabricar fondos con IA' y bájalos. Para intentarlo igual: "
-            "HYPERFRAMES_FORZAR=1."
-        )
-    return True, ""
+    return False, motivo + _SALIDA_EN_ESTE_REPO
 
 
 def comprobar_dependencias():
@@ -397,25 +341,12 @@ def comprobar_dependencias():
     apta, motivo = plataforma_apta()
     if not apta:
         raise RuntimeError(motivo)
-    if not (os.environ.get("HYPERFRAMES_BIN") or shutil.which("hyperframes") or shutil.which("npx")):
-        raise RuntimeError(
-            "El motor 'hyperframes' necesita Node.js >= 22 (para npx) o el CLI "
-            "instalado. Ver README, sección del motor de video de apoyo."
-        )
-    faltantes = [exe for exe in ("ffmpeg", "ffprobe") if shutil.which(exe) is None]
-    if faltantes:
-        raise RuntimeError(
-            "El motor 'hyperframes' necesita " + ", ".join(faltantes) + " en el PATH."
-        )
+    nucleo.comprobar_dependencias()
 
 
 # ---------------------------------------------------------
 # GENERACIÓN Y RENDER
 # ---------------------------------------------------------
-def _archivo_valido(ruta):
-    return bool(ruta) and os.path.isfile(ruta) and os.path.getsize(ruta) > 0
-
-
 def _ruta_cache(prompt_visual, aspecto, duracion, perfil):
     clave = hashlib.sha256(
         f"v{VERSION_PROMPT}|{perfil.nombre}|{aspecto}|{duracion:.1f}|{prompt_visual}".encode("utf-8")
@@ -424,72 +355,10 @@ def _ruta_cache(prompt_visual, aspecto, duracion, perfil):
     return os.path.join(CARPETA_CACHE, f"hf_{clave}.mp4")
 
 
-def _ruta_parcial(ruta_final):
-    """Dónde escribe el render antes de que el clip cuente como bueno.
-
-    Oculto y con otra extensión a propósito: mientras se escribe no debe
-    parecerse a un clip de la caché, porque un render a medias tiene el
-    tamaño de un MP4 de verdad y nada lo distinguiría después."""
-    carpeta, nombre = os.path.split(ruta_final)
-    return os.path.join(carpeta, f".{nombre}.parcial")
-
-
 def limpiar_cache(max_mb=None):
-    """Deja la caché por debajo de `max_mb` borrando los clips menos usados.
-
-    La clave de caché lleva el prompt dentro, así que cada idea visual nueva
-    añade un archivo y ninguno se borra solo. Con el tope puesto, la carpeta
-    se estabiliza y lo único que se pierde es un render que se puede rehacer.
-
-    De paso se barren los `.parcial` que dejó un render muerto a mitad."""
-    tope_bytes = float(CACHE_MAX_MB if max_mb is None else max_mb) * 1024 * 1024
-    if not os.path.isdir(CARPETA_CACHE):
-        return 0
-
-    borrados = 0
-    clips = []
-    for nombre in os.listdir(CARPETA_CACHE):
-        ruta = os.path.join(CARPETA_CACHE, nombre)
-        try:
-            if nombre.endswith(".parcial"):
-                # Nadie lo va a terminar: el proceso que lo escribía ya no está.
-                os.remove(ruta)
-                borrados += 1
-                continue
-            if not nombre.startswith("hf_") or not os.path.isfile(ruta):
-                continue
-            st = os.stat(ruta)
-            clips.append((st.st_mtime, st.st_size, ruta))
-        except OSError:
-            continue
-
-    total = sum(c[1] for c in clips)
-    if total <= tope_bytes:
-        return borrados
-
-    # Del más viejo al más nuevo. `generar_clip_cacheado` toca el archivo en
-    # cada acierto, así que "viejo" aquí es "hace mucho que no se usa", no
-    # "se generó hace mucho".
-    for _, tam, ruta in sorted(clips):
-        if total <= tope_bytes:
-            break
-        try:
-            os.remove(ruta)
-        except OSError:
-            continue
-        total -= tam
-        borrados += 1
-    if borrados:
-        logger.info(f"Caché de HyperFrames podada: {borrados} archivo(s) fuera.")
-    return borrados
-
-
-def _limpiar_html(texto):
-    """Quita las vallas de markdown que el modelo a veces añade pese al prompt."""
-    texto = (texto or "").strip()
-    texto = re.sub(r'^```(?:html)?\s*', '', texto)
-    texto = re.sub(r'\s*```$', '', texto)
-    return texto.strip()
+    """Poda la caché de este pipeline. El trabajo lo hace el núcleo; aquí solo
+    se fija de qué carpeta se trata."""
+    return nucleo.limpiar_cache(CARPETA_CACHE, max_mb)
 
 
 def _construir_prompt_sistema(perfil, duracion, w, h):
@@ -535,45 +404,10 @@ def _generar_html(cliente, prompt_visual, modelo, duracion, w, h, perfil, correc
         model=modelo,
         contents="\n".join(partes),
     )
-    html = _limpiar_html(respuesta.text or "")
+    html = nucleo.limpiar_html(respuesta.text or "")
     if "data-composition-id" not in html or "__timelines" not in html:
         raise ValueError("La respuesta de Gemini no es una composición de HyperFrames válida.")
     return html
-
-
-def _lint(proyecto):
-    """Corre el linter del CLI (sin navegador, ~1 s) y devuelve el texto de los
-    errores, o None si la composición está limpia. Atrapa fallos estructurales
-    antes de pagar los segundos de un render que iba a fallar igual."""
-    try:
-        res = subprocess.run(
-            comando_cli() + ["lint", proyecto, "--json"],
-            capture_output=True, text=True, encoding="utf-8", errors="replace",
-            timeout=TIMEOUT_LINT_SEG, env=_entorno_cli(),
-        )
-        salida = res.stdout or ""
-        inicio = salida.find("{")
-        if inicio < 0:
-            return None  # sin JSON parseable: que decida el render
-        datos = json.loads(salida[inicio:])
-    except Exception as exc:
-        logger.debug(f"lint no utilizable, se sigue al render: {exc}")
-        return None
-
-    if not datos.get("errorCount"):
-        return None
-
-    errores = []
-    for f in datos.get("findings", []):
-        if f.get("severity") != "error":
-            continue
-        linea = f"- {f.get('code', 'error')}: {f.get('message', '')}"
-        # El linter trae la corrección concreta; se la pasamos tal cual al
-        # modelo, que acierta mucho más que con solo el mensaje de error.
-        if f.get("fixHint"):
-            linea += f"\n  Cómo se arregla: {f['fixHint']}"
-        errores.append(linea)
-    return "El linter de HyperFrames reportó errores:\n" + "\n".join(errores[:10])
 
 
 def _render(proyecto, ruta_salida):
@@ -586,27 +420,11 @@ def _render(proyecto, ruta_salida):
             "--quiet",
         ],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=TIMEOUT_RENDER_SEG, env=_entorno_cli(),
+        timeout=TIMEOUT_RENDER_SEG, env=nucleo.entorno_cli(),
     )
-    if res.returncode != 0 or not _archivo_valido(ruta_salida):
+    if res.returncode != 0 or not nucleo.archivo_valido(ruta_salida):
         detalle = (res.stderr or res.stdout or "").strip()[-2000:]
         raise RuntimeError(f"hyperframes render falló (código {res.returncode}):\n{detalle}")
-
-
-def _duracion_real(ruta):
-    """Segundos que dice ffprobe, o None si no puede leer el archivo.
-
-    Un MP4 truncado no tiene el índice al final, así que aquí se cae — que es
-    justo lo que hace falta para no guardar medio render como si fuera bueno."""
-    try:
-        res = subprocess.run(
-            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
-             "-of", "default=noprint_wrappers=1:nokey=1", ruta],
-            capture_output=True, text=True, timeout=60,
-        )
-        return float((res.stdout or "").strip())
-    except Exception:
-        return None
 
 
 def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEFAULT,
@@ -632,13 +450,13 @@ def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEF
         return None
 
     ruta_salida = _ruta_cache(prompt_visual, aspecto, duracion, perfil)
-    if _archivo_valido(ruta_salida):
+    if nucleo.archivo_valido(ruta_salida):
         # Un clip que quedó truncado por el camino viejo (antes de que el
         # render fuera atómico) sigue pesando más de cero y la caché lo
         # serviría igual. Se comprueba de verdad una vez y, si está roto, se
         # tira y se regenera. Solo si hay ffprobe: sin él, mejor servir el
         # clip que negarlo por no poder mirarlo.
-        if shutil.which("ffprobe") and _duracion_real(ruta_salida) is None:
+        if shutil.which("ffprobe") and nucleo.duracion_real(ruta_salida) is None:
             logger.warning("Clip cacheado ilegible, se regenera: "
                            f"{os.path.basename(ruta_salida)}")
             try:
@@ -646,15 +464,10 @@ def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEF
             except OSError:
                 pass
         else:
-            # Recién usado, que es lo que mira la poda de la caché.
-            try:
-                os.utime(ruta_salida, None)
-            except OSError:
-                pass
+            nucleo.marcar_usado(ruta_salida)
             return ruta_salida
 
     w, h = RESOLUCIONES.get(aspecto, RESOLUCIONES["16:9"])
-    parcial = _ruta_parcial(ruta_salida)
     cliente = _obtener_cliente()
     correccion = None
 
@@ -668,37 +481,27 @@ def generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=MODELO_TEXTO_DEF
 
                 # El linter es barato; si encuentra errores, se los devolvemos
                 # al modelo en el siguiente intento en vez de gastar un render.
-                errores = _lint(tmp)
+                errores = nucleo.lint(tmp)
                 if errores:
                     raise RuntimeError(errores)
 
-                # Se renderiza a un archivo aparte y solo al final se mueve al
-                # nombre de la caché, con os.replace, que es atómico. Si el
-                # proceso muere a media escritura —en un portátil que se
-                # suspende, en un runner que se queda sin tiempo— lo que queda
-                # es un .parcial que nadie lee, no un MP4 truncado que la
-                # caché daría por bueno para siempre.
-                _render(tmp, parcial)
-                dur_real = _duracion_real(parcial)
-                if dur_real is None or dur_real < duracion * 0.5:
-                    raise RuntimeError(
-                        "El render salió ilegible o demasiado corto "
-                        f"({'ilegible' if dur_real is None else f'{dur_real:.1f}s'} "
-                        f"de {duracion:.1f}s pedidos)."
-                    )
-                os.replace(parcial, ruta_salida)
+                # Se renderiza aparte y el nombre de la caché solo aparece
+                # cuando el clip está entero (ver nucleo.escritura_atomica).
+                with nucleo.escritura_atomica(ruta_salida) as parcial:
+                    _render(tmp, parcial)
+                    dur_real = nucleo.duracion_real(parcial)
+                    if dur_real is None or dur_real < duracion * 0.5:
+                        raise RuntimeError(
+                            "El render salió ilegible o demasiado corto "
+                            f"({'ilegible' if dur_real is None else f'{dur_real:.1f}s'} "
+                            f"de {duracion:.1f}s pedidos)."
+                        )
 
-            if _archivo_valido(ruta_salida):
+            if nucleo.archivo_valido(ruta_salida):
                 limpiar_cache()
                 return ruta_salida
         except Exception as exc:
             logger.warning(f"HyperFrames intento {intento}/{reintentos} falló: {exc}")
             correccion = str(exc)[-1500:]
-        finally:
-            if os.path.exists(parcial):
-                try:
-                    os.remove(parcial)
-                except OSError:
-                    pass
 
     return None

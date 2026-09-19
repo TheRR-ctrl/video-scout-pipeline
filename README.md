@@ -172,11 +172,17 @@ If the generated background fails for any reason, the pipeline falls back to
 `"cortes"` and then to a single background file, so switching engines can't
 break a run.
 
-`hyperframes_broll.py` is a drop-in module shared verbatim with the sibling
-repo [`video_generation`](https://github.com/TheRR-ctrl/Video_Generation).
-The only thing that differs between pipelines is the `PerfilVisual` — what is
-being illustrated, what gets overlaid on top, and which parts of the frame
-must stay clear. See `.claude/skills/hyperframes-broll/SKILL.md` for the
+The engine is split in two. `hyperframes_nucleo.py` is shared **verbatim**
+with the sibling repo
+[`video_generation`](https://github.com/TheRR-ctrl/Video_Generation) — edit it
+in one, copy it to the other. It holds everything that does not depend on
+*what* is being drawn: the PC-only platform gate, the CLI invocation, the
+linter, and the on-disk cache (atomic writes, LRU pruning).
+`hyperframes_broll.py` sits on top and is deliberately different in each repo:
+this one composes **one background per story** and loops it, the sibling
+composes **per scene, in batches**. What varies between uses here is the
+`PerfilVisual` — what is being illustrated, what gets overlaid on top, and
+which parts of the frame must stay clear. See `.claude/skills/hyperframes-broll/SKILL.md` for the
 composition contract and how to debug a failed render.
 
 ## Subtitle style and fonts

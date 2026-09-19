@@ -24,7 +24,8 @@ un catálogo cerrado, así que el material se genera una vez y se reutiliza,
 igual que el gameplay de la SD.
 
 Requiere: Node.js >= 22, ffmpeg/ffprobe, GEMINI_API_KEY, y que
-hyperframes_broll.py esté en el repo (llega con el PR del motor de fondo).
+hyperframes_broll.py (y su hyperframes_nucleo.py) estén en el repo;
+llegan con el PR del motor de fondo.
 
 Uso:
   python generar_fondos_ia.py                    # 1 clip de cada emoción
@@ -88,9 +89,10 @@ def cargar_motor():
         import hyperframes_broll
     except ImportError:
         raise SystemExit(
-            "Falta hyperframes_broll.py. Llega con el PR del motor de fondo "
-            "con HyperFrames; hasta que esté fusionado, este script no tiene "
-            "motor que usar."
+            "Falta el motor: hacen falta hyperframes_broll.py y su "
+            "hyperframes_nucleo.py. Llegan con el PR del motor de fondo con "
+            "HyperFrames; hasta que esté fusionado, este script no tiene motor "
+            "que usar."
         )
     return hyperframes_broll
 
