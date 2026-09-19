@@ -82,6 +82,17 @@ cargar_json = almacen.cargar
 guardar_json = almacen.guardar
 
 
+class DemasiadoGrande(Exception):
+    """El clip se pasa del tope de MB. Es una propiedad del clip, no del
+    momento: se apunta en el historial para no volver a encontrarlo mañana."""
+
+
+def usuario_de(video):
+    """El bloque `user` de Pexels, que a veces viene como null en vez de como
+    objeto. Con .get("user", {}) eso devolvería None y reventaría al encadenar."""
+    return video.get("user") or {}
+
+
 class ClaveRechazada(Exception):
     """Pexels dijo que no a la credencial, no al contenido.
 
@@ -177,7 +188,12 @@ def descargar(url, destino):
     """
     tope = MB_MAXIMO * 1024 * 1024
     escritos = 0
-    parcial = destino + ".parcial"
+    # El temporal va oculto y SIN el prefijo fondo_: si Android mata el
+    # proceso aquí, lo que quede no debe parecerse a un fondo de verdad. El
+    # panel y estado.py cuentan los fondos con glob("fondo_vertical*") sin
+    # mirar la extensión, y un "fondo_vertical_x.mp4.parcial" se colaba.
+    parcial = os.path.join(os.path.dirname(destino),
+                           "." + os.path.basename(destino) + ".parcial")
     try:
         with requests.get(url, stream=True, timeout=90) as resp:
             resp.raise_for_status()
@@ -187,7 +203,7 @@ def descargar(url, destino):
                         continue
                     escritos += len(trozo)
                     if escritos > tope:
-                        raise ValueError(f"pasa de {MB_MAXIMO} MB")
+                        raise DemasiadoGrande(f"pasa de {MB_MAXIMO} MB")
                     f.write(trozo)
         os.replace(parcial, destino)
         return escritos
@@ -202,6 +218,28 @@ def ya_hay(prefijo, tema):
             if f.startswith(f"{prefijo}_{tema}_") and f.endswith(".mp4")]
 
 
+def fusionar_atribucion(ruta):
+    """Mezcla la atribución de una tanda ajena en la del teléfono.
+
+    El artefacto de Actions trae el registro del runner, que arranca en
+    blanco. Descomprimirlo encima borraría la atribución acumulada aquí, así
+    que llega con otro nombre y se funde con esto en vez de pisarla."""
+    try:
+        nueva = cargar_json(ruta, None)
+    except (OSError, ValueError) as exc:
+        raise SystemExit(f"El archivo de atribución está ilegible ({ruta}): {exc}")
+    if not isinstance(nueva, dict):
+        raise SystemExit(f"No se pudo leer un registro de atribución en: {ruta}")
+
+    actual = cargar_json(RUTA_ATRIBUCION, {})
+    antes = len(actual)
+    actual.update(nueva)
+    guardar_json(RUTA_ATRIBUCION, actual)
+    logger.info(f"Atribución: {len(actual) - antes} clip(s) nuevo(s), "
+                f"{len(actual)} en total.")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(description="Bajar videos de fondo desde Pexels.")
     p.add_argument("--tema", help="solo este tema (" + ", ".join(TEMAS) + ")")
@@ -210,7 +248,13 @@ def main(argv=None):
     p.add_argument("--horizontal", action="store_true",
                    help="material apaisado para los videos largos")
     p.add_argument("--ver", action="store_true", help="enseñar qué bajaría, sin bajar nada")
+    p.add_argument("--fusionar", metavar="ARCHIVO",
+                   help="añadir la atribución de una tanda bajada en otro sitio "
+                        "(el .json que trae el artefacto de Actions) y salir")
     args = p.parse_args(argv)
+
+    if args.fusionar:
+        return fusionar_atribucion(args.fusionar)
 
     if requests is None:
         raise SystemExit("Falta el paquete 'requests'. Instálalo con: pip install requests")
@@ -258,7 +302,7 @@ def main(argv=None):
             continue
 
         for video, archivo in encontrados:
-            autor = limpiar_nombre(video.get("user", {}).get("name"))
+            autor = limpiar_nombre(usuario_de(video).get("name"))
             nombre = f"{prefijo}_{tema}_{autor}_{video['id']}.mp4"
             destino = os.path.join(BASE_DIR, nombre)
             etiqueta = (f"{nombre} ({archivo['width']}x{archivo['height']}, "
@@ -271,13 +315,26 @@ def main(argv=None):
                 logger.info(f"  ✅ {etiqueta} — {bytes_/1024/1024:.1f} MB")
                 ya_bajados.add(str(video["id"]))
                 atribucion[nombre] = {
-                    "autor": video.get("user", {}).get("name"),
-                    "perfil": video.get("user", {}).get("url"),
+                    "autor": usuario_de(video).get("name"),
+                    "perfil": usuario_de(video).get("url"),
                     "pagina_pexels": video.get("url"),
                     "licencia": "Pexels License (https://www.pexels.com/license/)",
                 }
+            except DemasiadoGrande as exc:
+                # Se apunta igual: el clip pesa lo que pesa, y sin esto se
+                # vuelve a encontrar y a bajar (hasta 60 MB de datos) en cada
+                # corrida futura hasta que se corte sola otra vez.
+                logger.warning(f"  ⚠️ {nombre}: {exc} — descartado para siempre")
+                ya_bajados.add(str(video["id"]))
             except Exception as exc:
                 logger.warning(f"  ⚠️ {nombre}: {exc}")
+
+        # Al terminar cada tema y no solo al final de todo: si Android mata el
+        # proceso a mitad del siguiente tema, lo que ya está en disco conserva
+        # su registro y su atribución.
+        if not args.ver:
+            guardar_json(RUTA_HISTORIAL, sorted(ya_bajados))
+            guardar_json(RUTA_ATRIBUCION, atribucion)
 
     if not args.ver:
         guardar_json(RUTA_HISTORIAL, sorted(ya_bajados))

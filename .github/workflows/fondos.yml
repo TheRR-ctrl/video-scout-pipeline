@@ -28,8 +28,10 @@ name: Bajar fondos de Pexels
 # Qué hacer con el artefacto: descomprimirlo en la carpeta del repo en el
 # teléfono (~/video-scout-pipeline). Los archivos ya vienen con el prefijo
 # fondo_vertical_ / fondo_horizontal_, que es lo que mira la FASE 2 de
-# generar_video_maestro.py al elegir fondo. No hay que enlazar ni registrar
-# nada más.
+# generar_video_maestro.py al elegir fondo. Y para apuntar quién grabó los
+# clips nuevos sin perder los que ya tenías apuntados:
+#
+#   python descargar_fondos.py --fusionar fondos_atribucion_tanda.json
 
 on:
   workflow_dispatch:
@@ -113,12 +115,30 @@ jobs:
             fi
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # El artefacto se arma en una carpeta aparte, y la atribución entra con
+      # OTRO nombre y fuera de pipeline_state/. Si fuera como
+      # pipeline_state/fondos_atribucion.json, descomprimir el zip sobre la
+      # carpeta del teléfono pisaría el registro acumulado allí con el del
+      # runner, que arranca en blanco. Se funde a mano con:
+      #   python descargar_fondos.py --fusionar fondos_atribucion_tanda.json
+      - name: Preparar paquete
+        run: |
+          mkdir -p paquete
+          if ls fondo_*.mp4 >/dev/null 2>&1; then
+            mv fondo_*.mp4 paquete/
+            if [ -f pipeline_state/fondos_atribucion.json ]; then
+              cp pipeline_state/fondos_atribucion.json paquete/fondos_atribucion_tanda.json
+            fi
+          else
+            # Sin clips no se copia nada, para que el paso de abajo falle en
+            # vez de dejar un artefacto que solo trae un .json y parece bueno.
+            echo "::warning::No se bajó ningún clip."
+          fi
+
       - name: Empaquetar
         uses: actions/upload-artifact@v4
         with:
           name: fondos-${{ inputs.tema }}-${{ inputs.orientacion }}
-          path: |
-            fondo_*.mp4
-            pipeline_state/fondos_atribucion.json
+          path: paquete/
           if-no-files-found: error
           retention-days: 5

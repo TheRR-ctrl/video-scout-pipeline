@@ -213,7 +213,13 @@ sitios distintos y ninguno ve al otro.
 
 Al terminar, descarga el artefacto y descomprímelo dentro de
 `~/video-scout-pipeline`. Los archivos ya vienen con el prefijo que el render
-busca, así que no hay que enlazar ni registrar nada.
+busca, así que no hay que enlazar ni registrar nada. El paquete trae además
+un `fondos_atribucion_tanda.json` con quién grabó los clips nuevos; para
+sumarlo a lo que ya tenías anotado, sin pisarlo:
+
+```bash
+python descargar_fondos.py --fusionar fondos_atribucion_tanda.json
+```
 
 Dos avisos. El servidor arranca sin `fondos_historial.json` (está en
 `.gitignore`), así que puede volver a bajar un clip que ya tengas — no
