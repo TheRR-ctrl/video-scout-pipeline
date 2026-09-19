@@ -200,6 +200,27 @@ mitad de la descarga si se pasa, y no deja el archivo a medias), y se baja la
 versión más cercana a 1080×1920 sin pasarse, porque el render escala y recorta
 de todos modos y un 4K solo gastaría datos para tirar píxeles.
 
+#### Bajarlos sin gastar datos del móvil
+
+Si prefieres no gastar datos, hay un workflow que los baja en los servidores
+de GitHub y te los deja empaquetados: pestaña **Actions** → *Bajar fondos de
+Pexels* → **Run workflow**. Eliges tema, cuántos y formato.
+
+Necesita la misma clave, pero puesta **también** como secret del repo
+(*Settings → Secrets and variables → Actions → New repository secret*,
+nombre `PEXELS_API_KEY`). Tenerla en `secretos.env` no la pone ahí: son dos
+sitios distintos y ninguno ve al otro.
+
+Al terminar, descarga el artefacto y descomprímelo dentro de
+`~/video-scout-pipeline`. Los archivos ya vienen con el prefijo que el render
+busca, así que no hay que enlazar ni registrar nada.
+
+Dos avisos. El servidor arranca sin `fondos_historial.json` (está en
+`.gitignore`), así que puede volver a bajar un clip que ya tengas — no
+acumula copias, porque el nombre lleva el id de Pexels y se pisa a sí mismo,
+pero por eso conviene pedir un tema concreto en vez de «todos» cada vez. Y el
+paquete puede pesar: son hasta 60 MB por clip.
+
 Los clips nuevos no sustituyen al gameplay: el render elige entre **todos** los
 `fondo_vertical*` que encuentre, así que esto solo añade variedad a la baraja.
 Quién grabó cada uno queda anotado en

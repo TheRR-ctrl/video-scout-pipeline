@@ -1,0 +1,124 @@
+name: Bajar fondos de Pexels
+
+# Baja videos de fondo en el runner y te los deja como artefacto, para
+# descargarlos por wifi desde el teléfono sin gastar datos móviles y sin que
+# el móvil haga el trabajo.
+#
+# A mano y nada más: no tiene sentido en un cron. Los fondos no caducan, y
+# cada corrida gasta minutos de runner para traer material que a lo mejor ya
+# tienes.
+#
+# Lo que hay que saber antes de usarlo:
+#
+#   1. Hace falta el secret PEXELS_API_KEY (Settings -> Secrets and variables
+#      -> Actions). Es la misma clave que va en secretos.env del teléfono;
+#      tenerla en un sitio no la pone en el otro.
+#
+#   2. El runner arranca en blanco. pipeline_state/ está en .gitignore, así
+#      que aquí no existe fondos_historial.json y esto puede volver a bajar
+#      un clip que ya tengas. No es grave —el nombre del archivo lleva el id
+#      de Pexels, así que al descomprimirlo sobre la carpeta del teléfono se
+#      pisa a sí mismo en vez de acumular copias—, pero por eso conviene
+#      pedir un tema concreto y no "todos" cada vez.
+#
+#   3. El artefacto puede pesar. Son hasta 60 MB por clip: con 5 temas y 3
+#      clips cada uno te puedes plantar en cerca de 900 MB. Por eso el valor
+#      por defecto es un tema y 2 clips.
+#
+# Qué hacer con el artefacto: descomprimirlo en la carpeta del repo en el
+# teléfono (~/video-scout-pipeline). Los archivos ya vienen con el prefijo
+# fondo_vertical_ / fondo_horizontal_, que es lo que mira la FASE 2 de
+# generar_video_maestro.py al elegir fondo. No hay que enlazar ni registrar
+# nada más.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tema:
+        description: "Qué buscar"
+        type: choice
+        default: lluvia
+        options: [lluvia, ciudad, carretera, abstracto, naturaleza, todos]
+      cuantos:
+        description: "Cuántos clips por tema"
+        type: choice
+        default: "2"
+        options: ["1", "2", "3", "4", "5"]
+      orientacion:
+        description: "Formato"
+        type: choice
+        default: vertical
+        options: [vertical, horizontal]
+
+jobs:
+  fondos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Solo requests: descargar_fondos.py no necesita nada más, y el
+      # requirements.txt completo trae edge-tts, pillow y los clientes de
+      # Google para no usarlos aquí.
+      - name: Instalar dependencias
+        run: pip install requests
+
+      # Las entradas van por el entorno y entrecomilladas, no interpoladas
+      # dentro del script: lo que escribe quien lanza el workflow no debe
+      # poder convertirse en parte del comando.
+      - name: Bajar fondos
+        env:
+          PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          TEMA: ${{ inputs.tema }}
+          CUANTOS: ${{ inputs.cuantos }}
+          ORIENTACION: ${{ inputs.orientacion }}
+        run: |
+          if [ -z "$PEXELS_API_KEY" ]; then
+            echo "::error::Falta el secret PEXELS_API_KEY. Settings -> Secrets and variables -> Actions -> New repository secret. La clave es gratis en https://www.pexels.com/api/"
+            exit 1
+          fi
+          args=(--cuantos "$CUANTOS")
+          if [ "$TEMA" != "todos" ]; then
+            args+=(--tema "$TEMA")
+          fi
+          if [ "$ORIENTACION" = "horizontal" ]; then
+            args+=(--horizontal)
+          fi
+          python descargar_fondos.py "${args[@]}"
+
+      # Resumen legible desde el móvil: la pestaña Actions en una pantalla
+      # pequeña es incómoda de leer, y esto sale arriba del todo.
+      - name: Resumen
+        if: always()
+        run: |
+          {
+            echo "### Fondos bajados"
+            echo ""
+            if ls fondo_*.mp4 >/dev/null 2>&1; then
+              echo "| archivo | tamaño |"
+              echo "| --- | --- |"
+              for f in fondo_*.mp4; do
+                echo "| \`$f\` | $(du -h "$f" | cut -f1) |"
+              done
+              echo ""
+              echo "Total: **$(du -ch fondo_*.mp4 | tail -1 | cut -f1)**"
+            else
+              echo "No se bajó ningún archivo."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Empaquetar
+        uses: actions/upload-artifact@v4
+        with:
+          name: fondos-${{ inputs.tema }}-${{ inputs.orientacion }}
+          path: |
+            fondo_*.mp4
+            pipeline_state/fondos_atribucion.json
+          if-no-files-found: error
+          retention-days: 5
