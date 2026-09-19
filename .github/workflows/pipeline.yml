@@ -16,10 +16,18 @@ name: Pipeline diario
 #      hacen falta con motor_fondo=cortes; con motor_fondo=hyperframes el
 #      fondo se genera y no se necesita ningún video propio.
 
+# A mano y nada más. El disparador diario estaba puesto y es peligroso aquí:
+# pipeline_state/ está en .gitignore, así que el runner arranca cada día con
+# el registro en blanco — sin publicados.json, sin historial de vistos y sin
+# las huellas de texto que evitan contar dos veces la misma historia. Con eso,
+# la única defensa contra subir un refrito es que el título coincida letra por
+# letra con uno del canal, y Gemini nunca escribe dos veces el mismo título.
+#
+# Además chocaría con el cron del teléfono (instalar_cron.sh), que es el que
+# sí lleva el registro. Si algún día quieres la versión en la nube, primero
+# hay que restaurar pipeline_state/ al empezar y guardarlo al terminar.
 on:
-  schedule:
-    - cron: "0 14 * * *"  # todos los días 14:00 UTC — ajusta a tu franja horaria
-  workflow_dispatch:       # permite lanzarlo manualmente desde la pestaña Actions
+    workflow_dispatch: # permite lanzarlo manualmente desde la pestaña Actions
     inputs:
       motor_fondo:
         description: "Motor de fondo (cortes = recorta tus videos propios; hyperframes = lo genera con IA, sin videos propios)"

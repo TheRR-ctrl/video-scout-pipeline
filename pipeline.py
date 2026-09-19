@@ -38,7 +38,7 @@ import traceback
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("pipeline")
 
-ETAPAS = ["candidatos", "guion", "video", "publicar"]
+ETAPAS = ["candidatos", "guion", "video", "publicar", "tiktok"]
 UMBRAL_BACKLOG_VIDEOS = 10
 
 
@@ -60,6 +60,53 @@ def videos_pendientes_de_publicar():
     except Exception as exc:
         logger.warning(f"No se pudo calcular el colchón pendiente ({exc}); no se frena la generación.")
         return 0
+
+
+def revisar_lo_renderizado():
+    """Mide lo que acaba de salir del render, antes de que se publique.
+
+    NO frena la publicación, a propósito. Un umbral mal puesto dejaría el
+    canal parado sin que nadie se entere, y estas corridas no las mira nadie.
+    Lo que hace es dejarlo medido —sale en el panel, junto al video— y
+    escribir en el log los que tienen algo roto, que es donde se mira cuando
+    un video sale mal.
+    """
+    import calidad
+    nuevas = calidad.revisar_pendientes()
+    if not nuevas:
+        logger.info("Calidad: nada nuevo que medir.")
+        return
+
+    rotos = [e for e in nuevas if e["fallos"]]
+    logger.info(f"Calidad: {len(nuevas)} revisado(s), {len(rotos)} con algo que arreglar.")
+    for e in rotos:
+        for h in e["hallazgos"]:
+            if h["nivel"] == "fallo":
+                logger.warning(f"  {e['titulo'][:40]}: {h['que']}")
+
+
+def preguntarle_a_gemini():
+    """Le enseña UN video a Gemini, el más reciente que no haya mirado.
+
+    Aquí ya no hay números, hay una opinión: cuesta cuota y datos, así que va
+    sobre una muestra y no sobre todo lo renderizado. Sin wifi o sin clave se
+    salta sola, y no se cuenta como fallo de la corrida: quedarse sin la
+    opinión de un video no es motivo para que cron marque el día en rojo.
+    """
+    import publisher
+    if not publisher.cargar_config().get("calidad_ia_automatica", True):
+        logger.info("Calidad IA: apagada en config.json.")
+        return
+    if not publisher.conectado_a_wifi():
+        logger.info("Calidad IA: sin wifi, se deja para la próxima corrida.")
+        return
+
+    import calidad_ia
+    try:
+        calidad_ia.main([])
+    except SystemExit as exc:
+        # main() sale así cuando no hay nada que analizar o falta la clave.
+        logger.info(f"Calidad IA: {exc}")
 
 
 def correr_etapa(nombre, fn):
@@ -107,6 +154,17 @@ def main():
         import trend_scout
         resultados["candidatos"] = correr_etapa("candidatos (trend_scout)", trend_scout.main)
 
+        # YouTube es una segunda fuente para la MISMA cola, no una etapa
+        # aparte: si Reddit está bloqueado o ya se agotó el /top/ del día, de
+        # aquí siguen saliendo historias. Va después a propósito, para que un
+        # fallo suyo (falta youtube-transcript-api, canal caído) no impida que
+        # los candidatos de Reddit lleguen al escritor de guiones.
+        import youtube_scout
+        if youtube_scout.cargar_config().get("youtube_activo", True):
+            resultados["candidatos_youtube"] = correr_etapa(
+                "candidatos (youtube_scout)", youtube_scout.main
+            )
+
     if not frena_generacion and i_desde <= ETAPAS.index("guion") <= i_hasta:
         import script_writer
         resultados["guion"] = correr_etapa("guion (script_writer)", script_writer.main)
@@ -115,9 +173,24 @@ def main():
         import generar_video_maestro
         resultados["video"] = correr_etapa("video (generar_video_maestro)", generar_video_maestro.renderizar_lote_historias)
 
+        # Va pegada al render y no como etapa aparte: lo que mide es
+        # justamente lo que se acaba de renderizar, y añadirla a ETAPAS
+        # cambiaría lo que aceptan --desde y --hasta. Para medir sin
+        # renderizar está python calidad.py.
+        resultados["calidad"] = correr_etapa("calidad (calidad)", revisar_lo_renderizado)
+        resultados["calidad_ia"] = correr_etapa("calidad IA (calidad_ia)", preguntarle_a_gemini)
+
     if i_desde <= ETAPAS.index("publicar") <= i_hasta:
         import publisher
         resultados["publicar"] = correr_etapa("publicar (publisher)", publisher.main)
+
+    # TikTok va detrás de YouTube a propósito: reutiliza el veredicto de
+    # calidad que dejó el publisher en metadata.json en vez de volver a
+    # juzgar el mismo video. Si está apagado en config.json, la etapa
+    # termina sola sin hacer nada, así que no estorba a quien no la use.
+    if i_desde <= ETAPAS.index("tiktok") <= i_hasta:
+        import tiktok_publisher
+        resultados["tiktok"] = correr_etapa("tiktok (tiktok_publisher)", tiktok_publisher.main)
 
     logger.info("===== Resumen =====")
     for nombre, ok in resultados.items():
