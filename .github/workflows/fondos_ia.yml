@@ -15,7 +15,8 @@ name: Fabricar fondos con IA
 #      -> Actions). Es la misma clave que va en secretos.env del teléfono;
 #      tenerla en un sitio no la pone en el otro.
 #
-#   2. Hace falta hyperframes_broll.py en el repo. Llega con el PR del motor
+#   2. Hacen falta hyperframes_broll.py y hyperframes_nucleo.py en el repo.
+#      Llegan con el PR del motor
 #      de fondo; hasta que esté fusionado, esto se para con un error claro en
 #      vez de gastar minutos de runner.
 #
@@ -57,10 +58,12 @@ jobs:
       # que hacer aquí y más vale decirlo en diez segundos.
       - name: Comprobar que el motor está en el repo
         run: |
-          if [ ! -f hyperframes_broll.py ]; then
-            echo "::error::Falta hyperframes_broll.py. Llega con el PR del motor de fondo con HyperFrames; fusiónalo antes de lanzar esto."
-            exit 1
-          fi
+          for f in hyperframes_broll.py hyperframes_nucleo.py; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Falta $f. Llega con el PR del motor de fondo con HyperFrames; fusiónalo antes de lanzar esto."
+              exit 1
+            fi
+          done
 
       - name: Instalar ffmpeg
         run: sudo apt-get update && sudo apt-get install -y ffmpeg
