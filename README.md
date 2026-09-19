@@ -119,7 +119,7 @@ On a PC:
 pip install -r requirements.txt
 ```
 
-Copy `config_trends.example.json` to `config_trends.json` if you want to
+Copy `config_trends.ejemplo.json` to `config_trends.json` if you want to
 customize the subreddit list or thresholds (optional — sane defaults are
 built in). Never commit `config_trends.json`, `config.json`,
 `client_secret.json`, or `youtube_token.json` — see `.gitignore`.

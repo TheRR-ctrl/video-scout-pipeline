@@ -8,15 +8,13 @@ import shutil
 import random
 import asyncio
 import logging
-import hashlib
 import threading
 import subprocess
 import textwrap
 import tempfile
 import collections
-import unicodedata
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFont
 
 import narrador   # género de quien narra: decide la voz del video

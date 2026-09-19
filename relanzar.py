@@ -36,16 +36,13 @@ La revisión quincenal del cron (instalar_cron.sh, días 1 y 15) es esto mismo
 con los valores por omisión, así que lo que borra automáticamente es lo que
 verías corriéndolo a mano.
 """
-import io
 import os
-import re
 import sys
 import json
 import time
 import glob
 import logging
 import argparse
-import contextlib
 from datetime import datetime, timezone
 
 import cola

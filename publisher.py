@@ -20,18 +20,17 @@ Credenciales:
 import os
 import re
 import json
-import time
 import logging
 import subprocess
 from datetime import datetime, timedelta, timezone
 
+import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE
 
 from google import genai
 from google.genai import types as genai_types
-from google.genai import errors as genai_errors
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -130,17 +129,10 @@ def cargar_config(ruta=os.path.join(BASE_DIR, "config.json")):
     return cfg
 
 
-def cargar_json(ruta, default):
-    if os.path.exists(ruta):
-        with open(ruta, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return default
-
-
-def guardar_json(ruta, data):
-    os.makedirs(os.path.dirname(ruta), exist_ok=True)
-    with open(ruta, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+# Los otros scripts llaman a publisher.cargar_json / publisher.guardar_json
+# desde antes de que existiera almacen.py; se quedan como el nombre de aquí.
+cargar_json = almacen.cargar
+guardar_json = almacen.guardar
 
 
 # ---------------------------------------------------------
@@ -496,13 +488,13 @@ def avisar_si_no_quedo_programado(real, pedido_iso, video_id):
     logger.error("  ⚠️  YouTube NO aplicó la programación de este video.")
     logger.error(f"     Se pidió: privado hasta {pedido_iso}")
     logger.error(f"     Quedó:    {real.get('privacidad')}"
-                 + (f", sin fecha programada" if not real.get("publish_at") else ""))
+                 + (", sin fecha programada" if not real.get("publish_at") else ""))
     if real.get("privacidad") == "public":
         logger.error("     El video YA ESTÁ PÚBLICO. No hubo ventana de revisión.")
     logger.error("     Causa habitual: el canal no está verificado por teléfono,")
     logger.error("     y sin verificar YouTube no deja programar publicaciones.")
     logger.error("     Verifícalo en https://www.youtube.com/verify y vuelve a probar.")
-    logger.error(f"     Mientras tanto, ponlo privado a mano:")
+    logger.error("     Mientras tanto, ponlo privado a mano:")
     logger.error(f"     https://studio.youtube.com/video/{video_id}/edit")
     logger.error("=" * 62)
     return False

@@ -40,6 +40,7 @@ import argparse
 from xml.etree import ElementTree as ET
 
 import cola  # cola de candidatos e historial compartidos con script_writer.py
+import formato  # si ahora mismo tiene sentido buscar historias largas
 
 try:
     import requests
@@ -237,8 +238,13 @@ def escanear(cfg, contar=None):
 
     # Reserva algunos cupos para historias largas (para que también salgan
     # videos de varios minutos), aunque no sean las mejor rankeadas.
+    #
+    # Mientras los largos estén bloqueados esa reserva es contraproducente:
+    # generar_video_maestro aplaza la historia después de escribir el guion y
+    # narrarla, así que cada cupo largo es una llamada a Gemini y un TTS que
+    # acaban en la nevera, quitándole el sitio a un short que sí se publica.
     umbral = cfg["umbral_palabras_historia_larga"]
-    cupos_largos = cfg["min_candidatos_largos"]
+    cupos_largos = cfg["min_candidatos_largos"] if formato.politica()["permite_largos"] else 0
     largas = [c for c in candidatos if len(c["texto_original"].split()) >= umbral]
 
     seleccionados = largas[:cupos_largos]

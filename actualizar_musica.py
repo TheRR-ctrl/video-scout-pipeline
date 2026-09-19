@@ -18,9 +18,9 @@ del video si la licencia lo exige (CC-BY).
 """
 import os
 import re
-import json
 import logging
 
+import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 
 try:
@@ -55,17 +55,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("actualizar_musica")
 
 
-def cargar_json(ruta, default):
-    if os.path.exists(ruta):
-        with open(ruta, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return default
-
-
-def guardar_json(ruta, data):
-    os.makedirs(os.path.dirname(ruta), exist_ok=True)
-    with open(ruta, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+cargar_json = almacen.cargar
+guardar_json = almacen.guardar
 
 
 def buscar_pistas(client_id, tags, cantidad, ya_descargadas):

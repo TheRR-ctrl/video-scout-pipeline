@@ -19,7 +19,6 @@ Uso:
 """
 import os
 import re
-import sys
 import json
 import argparse
 from datetime import datetime
@@ -112,7 +111,7 @@ def main():
             dudosas.append(i)
         print(f"  {existe} {i:2d}. [{genero[:3]}] {v.get('titulo', '?')[:52]}{marca}")
 
-    print(f"\n  ● = el .mp4 todavía existe   ○ = solo queda el texto")
+    print("\n  ● = el .mp4 todavía existe   ○ = solo queda el texto")
 
     if args.ver:
         print("\n(--ver: no se escribió nada)")

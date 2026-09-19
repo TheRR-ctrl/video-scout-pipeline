@@ -21,7 +21,6 @@ nada: lo que ya apunta a la carpeta nueva se deja como está.
 """
 import os
 import sys
-import json
 import glob
 import shutil
 import argparse

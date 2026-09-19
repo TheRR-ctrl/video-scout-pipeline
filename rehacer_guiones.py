@@ -34,7 +34,6 @@ vuelve a correrlo con --desde N para continuar.
 """
 import os
 import re
-import sys
 import json
 import time
 import shutil

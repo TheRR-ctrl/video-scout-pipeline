@@ -18,7 +18,6 @@ Uso:
 Salida: en la carpeta de videos, subcarpeta "previsualizacion_estilos".
 """
 import os
-import sys
 import glob
 import shutil
 import argparse

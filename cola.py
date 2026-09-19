@@ -20,8 +20,9 @@ el que se veía desde fuera: el script deja de generar historias nuevas.
 """
 import os
 import re
-import json
 import unicodedata
+
+import almacen   # leer y escribir los .json de estado
 
 CARPETA_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline_state")
 RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
@@ -128,24 +129,8 @@ def ya_contada(texto, huellas=None):
     return peor if peor >= PARECIDO_MINIMO else 0.0
 
 
-def _leer_json(ruta, por_defecto):
-    if not os.path.exists(ruta):
-        return por_defecto
-    try:
-        with open(ruta, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return por_defecto
-
-
-def _escribir_json(ruta, datos):
-    """Escritura atómica: el panel y los otros scripts leen estos archivos en
-    cualquier momento, y un archivo a medio escribir se lee como corrupto."""
-    os.makedirs(CARPETA_ESTADO, exist_ok=True)
-    tmp = ruta + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, ruta)
+_leer_json = almacen.leer
+_escribir_json = almacen.guardar
 
 
 def cargar_pendientes():

@@ -21,7 +21,6 @@ comprimido apenas quita peso y sí quita calidad. El umbral por defecto de
 """
 import os
 import sys
-import json
 import glob
 import shutil
 import argparse

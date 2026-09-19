@@ -20,11 +20,10 @@ Requiere GEMINI_API_KEY (ver secretos.py). Sin ella cae a la metadata de
 respaldo, que es genérica pero funcional.
 """
 import os
-import sys
-import json
 import logging
 import argparse
 
+import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -38,18 +37,8 @@ ruido.callar_sdk_google()   # los avisos de AFC del SDK, que aqui no aplican
 logger = logging.getLogger("preparar_metadata")
 
 
-def cargar_json(ruta, default):
-    try:
-        with open(ruta, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
-
-
-def guardar_json(ruta, datos):
-    os.makedirs(os.path.dirname(ruta), exist_ok=True)
-    with open(ruta, "w", encoding="utf-8") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
+cargar_json = almacen.leer
+guardar_json = almacen.guardar
 
 
 def videos_renderizados():

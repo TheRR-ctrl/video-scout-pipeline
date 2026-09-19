@@ -37,6 +37,7 @@ except ImportError:
         "Instálalo con:\n\n    pip install flask\n"
     )
 
+import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
 
@@ -154,12 +155,8 @@ def lanzar(nombre, cmd):
 # =========================================================
 # LECTURA DE ESTADO
 # =========================================================
-def leer_json(ruta, default):
-    try:
-        with open(ruta, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
+# El panel solo enseña: un json ilegible es una tarjeta vacía, no un error.
+leer_json = almacen.leer
 
 
 def cfg_actual():
@@ -1234,7 +1231,7 @@ def main():
     if not args.no_apagar:
         ULTIMO_LATIDO["t"] = time.time()
         threading.Thread(target=vigilante, args=(MARGEN_SIN_LATIDO,), daemon=True).start()
-        print(f"  Se apaga solo si cierras el panel (y no hay nada corriendo).")
+        print("  Se apaga solo si cierras el panel (y no hay nada corriendo).")
 
     if args.abrir and shutil.which("termux-open-url"):
         # Un momento para que Flask levante antes de que el navegador pida.

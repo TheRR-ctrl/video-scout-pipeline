@@ -10,10 +10,10 @@ Uso:
 """
 import os
 import sys
-import re
-import json
 import glob
 from datetime import datetime, timezone
+
+import almacen   # leer y escribir los .json de estado
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 CARPETA_ESTADO = os.path.join(BASE_DIR, "pipeline_state")
@@ -22,12 +22,8 @@ RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
 V, R, A, G, C, N = "\033[92m", "\033[91m", "\033[93m", "\033[90m", "\033[96m", "\033[0m"
 
 
-def leer_json(ruta, default):
-    try:
-        with open(ruta, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return default
+# El panel solo enseña: un json ilegible es una tarjeta vacía, no un error.
+leer_json = almacen.leer
 
 
 def titulo(t):
@@ -45,10 +41,6 @@ def contar_historias_guion():
     with open(RUTA_GUION, "r", encoding="utf-8") as f:
         contenido = f.read()
     bloques = [b for b in contenido.split("===NUEVA_HISTORIA===") if b.strip()]
-    palabras = sum(
-        len([l for l in b.splitlines() if l.strip() and not l.strip().startswith("#")])
-        for b in bloques
-    )
     con_cierre = sum(1 for b in bloques if len(b.strip().split("\n\n")) > 1)
     return len(bloques), len(contenido.split()), con_cierre
 

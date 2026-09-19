@@ -31,7 +31,6 @@ Uso:
   python vincular_fondos.py --copiar              # copiar en vez de enlazar
 """
 import os
-import sys
 import glob
 import json
 import shutil
@@ -114,7 +113,7 @@ def vincular_otros_assets(carpeta, copiar=False):
                     os.symlink(origen, destino)
                 hechos += 1
                 print(f"  {'copiado' if copiar else 'enlazado'}: {os.path.basename(origen)}")
-            except OSError as exc:
+            except OSError:
                 try:
                     shutil.copy2(origen, destino)
                     hechos += 1
