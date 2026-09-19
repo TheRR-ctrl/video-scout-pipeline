@@ -85,6 +85,30 @@ def revisar_lo_renderizado():
                 logger.warning(f"  {e['titulo'][:40]}: {h['que']}")
 
 
+def preguntarle_a_gemini():
+    """Le enseña UN video a Gemini, el más reciente que no haya mirado.
+
+    Aquí ya no hay números, hay una opinión: cuesta cuota y datos, así que va
+    sobre una muestra y no sobre todo lo renderizado. Sin wifi o sin clave se
+    salta sola, y no se cuenta como fallo de la corrida: quedarse sin la
+    opinión de un video no es motivo para que cron marque el día en rojo.
+    """
+    import publisher
+    if not publisher.cargar_config().get("calidad_ia_automatica", True):
+        logger.info("Calidad IA: apagada en config.json.")
+        return
+    if not publisher.conectado_a_wifi():
+        logger.info("Calidad IA: sin wifi, se deja para la próxima corrida.")
+        return
+
+    import calidad_ia
+    try:
+        calidad_ia.main([])
+    except SystemExit as exc:
+        # main() sale así cuando no hay nada que analizar o falta la clave.
+        logger.info(f"Calidad IA: {exc}")
+
+
 def correr_etapa(nombre, fn):
     logger.info(f"===== Etapa: {nombre} =====")
     try:
@@ -154,6 +178,7 @@ def main():
         # cambiaría lo que aceptan --desde y --hasta. Para medir sin
         # renderizar está python calidad.py.
         resultados["calidad"] = correr_etapa("calidad (calidad)", revisar_lo_renderizado)
+        resultados["calidad_ia"] = correr_etapa("calidad IA (calidad_ia)", preguntarle_a_gemini)
 
     if i_desde <= ETAPAS.index("publicar") <= i_hasta:
         import publisher

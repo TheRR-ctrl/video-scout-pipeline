@@ -94,6 +94,11 @@ CONFIG_DEFAULT = {
     # en el futuro quieres volver a un ritmo de 1 video/día en vez de
     # drenar el colchón lo más rápido posible.
     "max_subidas_por_corrida": None,
+    # Cada corrida del pipeline le enseña UN video a Gemini para que diga qué
+    # falla (calidad_ia.py). Va por fotogramas, así que son unos pocos miles
+    # de tokens y menos de un megabyte; aun así, se salta sin wifi. Ponlo en
+    # false para que solo pase cuando lo pidas tú desde el panel.
+    "calidad_ia_automatica": True,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
     "categoria_youtube": "24",  # Entertainment

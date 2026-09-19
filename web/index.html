@@ -703,23 +703,50 @@ function bloqueCalidad(a){
   const datos = [`${Math.round(m.duracion||0)}s`, `${m.ancho}x${m.alto}`, `${m.tamano_mb} MB`];
   if(m.lufs != null) datos.push(`${m.lufs.toFixed(1)} LUFS`);
 
-  if(!c.hallazgos.length) return caja(`
-    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
-      <span class="pill ok">sin defectos</span>
-      <span class="m">${datos.join('\u00a0· ')}</span>
-    </div>`);
+  const resumen = c.hallazgos.length
+    ? `${c.fallos ? `<span class="pill crit">${c.fallos} para arreglar</span>` : ''}
+       ${c.avisos ? `<span class="pill warn">${c.avisos} aviso${c.avisos>1?'s':''}</span>` : ''}`
+    : '<span class="pill ok">sin defectos</span>';
 
   return caja(`
-    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
-      ${c.fallos ? `<span class="pill crit">${c.fallos} para arreglar</span>` : ''}
-      ${c.avisos ? `<span class="pill warn">${c.avisos} aviso${c.avisos>1?'s':''}</span>` : ''}
-      <span class="m">${datos.join('\u00a0· ')}</span>
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:${
+      c.hallazgos.length?'10px':'0'}">
+      ${resumen}<span class="m">${datos.join('\u00a0· ')}</span>
     </div>
     ${c.hallazgos.map(h=>`<div style="margin-bottom:9px">
       <div style="font-size:13px"><b style="color:var(--${h.nivel==='fallo'?'crit':'warn'})">${
         h.nivel==='fallo'?'❌':'⚠️'}</b> ${esc(h.que)}</div>
       <div class="muted" style="margin-left:19px">${esc(h.arreglo)}</div>
-    </div>`).join('')}`);
+    </div>`).join('')}
+    ${bloqueIA(c.ia)}`);
+}
+
+/* La opinión de Gemini va aparte y debajo, con su etiqueta: lo de arriba son
+   números que no se discuten y esto es un parecer. Mezclarlos haría que uno
+   se leyera con la autoridad del otro. */
+function bloqueIA(ia){
+  const borde = 'margin-top:12px;padding-top:11px;border-top:1px solid var(--line-soft)';
+  if(!ia) return `<div style="${borde};display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="muted" style="flex-grow:1">Gemini todavía no lo ha mirado.</span>
+    <button class="btn sm" onclick="ejecutar('calidad_ia')">Que lo mire</button></div>`;
+
+  const nota = n => `<b style="color:var(--${n>=4?'ok':(n>=3?'warn':'crit')})">${n}/5</b>`;
+  return `<div style="${borde}">
+    <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+       color:var(--ink-faint);display:block;margin-bottom:8px">Lo que opina Gemini</b>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:13px;margin-bottom:9px">
+      <span>Gancho ${nota(ia.gancho)}</span>
+      <span>Se lee ${nota(ia.legibilidad)}</span>
+      <span>Título ${ia.titulo_cumple ? '<b style="color:var(--ok)">cumple</b>'
+                                      : '<b style="color:var(--crit)">no cumple</b>'}</span>
+    </div>
+    <div class="muted" style="margin-bottom:6px">${esc(ia.gancho_por_que)}</div>
+    <div class="muted" style="margin-bottom:6px">${esc(ia.legibilidad_por_que)}</div>
+    ${ia.titulo_cumple ? '' : `<div class="muted" style="margin-bottom:6px">${esc(ia.titulo_por_que)}</div>`}
+    ${(ia.defectos||[]).map(d=>`<div class="muted">· ${esc(d)}</div>`).join('')}
+    <div style="font-size:13px;margin-top:9px"><b>Si cambiara una cosa:</b> ${esc(ia.lo_peor)}</div>
+    <div class="m" style="margin-top:7px">${esc(ia.como||'')} · ${haceCuanto(ia.cuando)||''}</div>
+  </div>`;
 }
 
 /* ---------- cómo se va a publicar ----------
@@ -1593,6 +1620,8 @@ const MANTENIMIENTO = [
    nota:'Audio cortado, volumen, negros, imagen parada.', boton:'Medir'},
   {accion:'calidad_todos', que:'Volver a medirlos todos', cmd:'calidad.py --todos',
    nota:'Repite la medición de los que ya están revisados.', boton:'Medir'},
+  {accion:'calidad_ia', que:'Que Gemini mire un video', cmd:'calidad_ia.py',
+   nota:'El más reciente sin analizar. Gancho, legibilidad, título.', boton:'Preguntar'},
   {accion:'formato', que:'¿Toca hacer videos largos?', cmd:'formato.py',
    nota:'Están bloqueados hasta los 500 suscriptores.', boton:'Ver'},
   {accion:'ver_relanzar', que:'Vistas de lo subido', cmd:'relanzar.py',

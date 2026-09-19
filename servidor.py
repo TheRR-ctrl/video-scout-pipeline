@@ -760,6 +760,8 @@ ACCIONES = {
     "metadata":   ("Preparando títulos y hashtags", [sys.executable, "preparar_metadata.py"]),
     "calidad":    ("Revisando los videos renderizados", [sys.executable, "calidad.py"]),
     "calidad_todos": ("Revisando otra vez todos los videos", [sys.executable, "calidad.py", "--todos"]),
+    "calidad_ia": ("Preguntándole a Gemini qué falla", [sys.executable, "calidad_ia.py"]),
+    "calidad_ia_video": ("Gemini, subiendo el video entero", [sys.executable, "calidad_ia.py", "--video-entero"]),
     "tiktok":     ("Subiendo a TikTok", [sys.executable, "tiktok_publisher.py"]),
     "tiktok_datos": ("Subiendo a TikTok (datos móviles)", [sys.executable, "tiktok_publisher.py", "--con-datos"]),
     "tiktok_revisar": ("Consultando estados en TikTok", [sys.executable, "tiktok_publisher.py", "--revisar"]),

@@ -208,6 +208,44 @@ parado sin que nadie se entere. Deja el defecto anotado y lo escribe en el log.
 Y lo que esto **no** hace: predecir si un video va a funcionar. Que no tenga
 defectos no hace que el feed lo reparta. Sirve para no subir algo roto.
 
+### Que Gemini mire un video de vez en cuando
+
+Lo de arriba son números. Esto es una opinión, cuesta cuota y datos, y por eso
+va sobre una muestra: **un video por corrida del pipeline**, el más reciente
+que Gemini no haya mirado (que es el que todavía puedes rehacer sin que se
+note).
+
+```bash
+python calidad_ia.py                  # el más reciente sin analizar
+python calidad_ia.py --cuantos 3      # los tres más recientes
+python calidad_ia.py --solo 4         # esa historia
+python calidad_ia.py --video-entero   # subiendo el mp4, no fotogramas
+python calidad_ia.py --con-datos      # sin esperar al wifi
+```
+
+Contesta cuatro cosas: si los tres primeros segundos dan alguna razón para
+quedarse, si los subtítulos se leen sobre ese fondo en un teléfono, si la
+historia cumple lo que el título promete, y —lo más útil— qué cambiaría si
+solo pudiera cambiar una cosa. Sale en **Revisar**, debajo de las medidas y
+separado de ellas a propósito: mezclarlas haría que la opinión se leyera con
+la autoridad del número.
+
+Normalmente va **por fotogramas**: siete imágenes, cuatro de ellas en los tres
+primeros segundos, más el guion y lo que ya midió `calidad.py`. Son unos pocos
+miles de tokens y menos de un megabyte. Con `--video-entero` se sube el mp4:
+ve el ritmo y oye el audio, pero un video de 60 s son unos 16.000 tokens y
+15-30 MB de subida.
+
+Se salta sola sin wifi o sin `GEMINI_API_KEY`, y no cuenta como fallo de la
+corrida. Para apagar el automático y dejar solo el botón del panel:
+
+```json
+"calidad_ia_automatica": false
+```
+
+**El límite, otra vez:** que a Gemini le guste un video no predice que el feed
+lo reparta. Lo que sí puede ver es lo que tú ya no ves de tanto mirarlo.
+
 ### Borrar de YouTube lo que no arrancó y volver a grabarlo
 
 De los 48 shorts, 18 se quedaron por debajo de 300 vistas y la mitad de esos
