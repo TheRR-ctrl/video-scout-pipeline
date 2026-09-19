@@ -27,9 +27,9 @@ name: Pipeline diario
 # sí lleva el registro. Si algún día quieres la versión en la nube, primero
 # hay que restaurar pipeline_state/ al empezar y guardarlo al terminar.
 on:
-    workflow_dispatch: # permite lanzarlo manualmente desde la pestaña Actions
-      inputs:
-        motor_fondo:
+  workflow_dispatch: # permite lanzarlo manualmente desde la pestaña Actions
+    inputs:
+      motor_fondo:
         description: "Motor de fondo (cortes = recorta tus videos propios; hyperframes = lo genera con IA, sin videos propios)"
         required: false
         default: "cortes"
