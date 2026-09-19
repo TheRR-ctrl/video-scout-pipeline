@@ -213,6 +213,9 @@ def videos_renderizados():
     subidas = {p.get("ruta") for p in publicados}
     vistas = subidas | {r.get("ruta") for r in rechazados}
     metadatos = leer_json(RUTA_METADATA, {})
+    # La revisión de calidad se lee, no se calcula aquí: medirla es
+    # descodificar el video entero y el panel repinta cada segundo y medio.
+    revisiones = leer_json(os.path.join(CARPETA_ESTADO, "calidad.json"), {})
 
     out = []
     for v in completados:
@@ -243,6 +246,9 @@ def videos_renderizados():
             # preparado: el panel distingue "todavía no existe" de "existe y
             # dice esto", que no es lo mismo para quien va a aprobarlo.
             "meta": metadatos.get(os.path.basename(ruta)),
+            # None = no se ha revisado nunca, que no es lo mismo que
+            # revisado y sin defectos.
+            "calidad": revisiones.get(os.path.basename(ruta)),
         })
     return out
 
@@ -752,6 +758,8 @@ ACCIONES = {
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),
     "previsualizar": ("Generando comparación de estilos", [sys.executable, "previsualizar_estilos.py"]),
     "metadata":   ("Preparando títulos y hashtags", [sys.executable, "preparar_metadata.py"]),
+    "calidad":    ("Revisando los videos renderizados", [sys.executable, "calidad.py"]),
+    "calidad_todos": ("Revisando otra vez todos los videos", [sys.executable, "calidad.py", "--todos"]),
     "tiktok":     ("Subiendo a TikTok", [sys.executable, "tiktok_publisher.py"]),
     "tiktok_datos": ("Subiendo a TikTok (datos móviles)", [sys.executable, "tiktok_publisher.py", "--con-datos"]),
     "tiktok_revisar": ("Consultando estados en TikTok", [sys.executable, "tiktok_publisher.py", "--revisar"]),

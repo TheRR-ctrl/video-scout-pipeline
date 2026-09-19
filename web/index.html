@@ -434,7 +434,7 @@ function firmaRevisar(){
   // lo veías. La tira se actualiza aparte, en pintaTira().
   const a = v[Math.min(elegido, v.length - 1)];
   return ['hay', elegido, a.archivo, a.mtime, a.publicado, a.subido, JSON.stringify(a.meta),
-          abiertoRehacer, JSON.stringify(finos)].join('~');
+          JSON.stringify(a.calidad), abiertoRehacer, JSON.stringify(finos)].join('~');
 }
 
 // La tira de miniaturas, aparte de la ficha y con su propia firma: puede
@@ -526,6 +526,7 @@ function pintaRevisar(){
                              : '<span class="pill idle">sin subir</span>')}
           </div>
         </div>
+        ${bloqueCalidad(a)}
         <div class="script"><b style="color:var(--ink-faint);font:10px var(--mono);
           text-transform:uppercase;letter-spacing:.09em;display:block;margin-bottom:5px">Narración</b>${esc(a.cuerpo).slice(0,700)}${a.cuerpo.length>700?'…':''}</div>
         ${bloqueMeta(a)}
@@ -678,6 +679,49 @@ function pintaRevisar(){
     abiertoRehacer = false;
   };
 }
+/* ---------- lo que se puede medir del archivo ----------
+   Los defectos que no se ven mirando el video por encima: el audio que se
+   corta a mitad de frase, el volumen doce decibelios por debajo de lo normal,
+   el medio segundo en negro del principio —que además es el fotograma que
+   YouTube ofrece como miniatura—. Los mide calidad.py con ffmpeg y aquí solo
+   se leen: medirlos es descodificar el video entero y esta ficha se repinta
+   sola cada segundo y medio. */
+function bloqueCalidad(a){
+  const c = a.calidad;
+  const caja = (dentro) => `<div class="card" style="background:var(--surface-2);padding:13px">
+    <b style="font:10px var(--mono);text-transform:uppercase;letter-spacing:.09em;
+       color:var(--ink-faint);display:block;margin-bottom:8px">Cómo salió el archivo</b>
+    ${dentro}</div>`;
+
+  // Sin revisar no es lo mismo que revisado y limpio, así que no se pinta
+  // un ✓ que nadie ha comprobado.
+  if(!c) return caja(`
+    <div class="muted" style="margin-bottom:9px">Todavía no se ha medido.</div>
+    <button class="btn sm" onclick="ejecutar('calidad')">Revisar los renderizados</button>`);
+
+  const m = c.medidas || {};
+  const datos = [`${Math.round(m.duracion||0)}s`, `${m.ancho}x${m.alto}`, `${m.tamano_mb} MB`];
+  if(m.lufs != null) datos.push(`${m.lufs.toFixed(1)} LUFS`);
+
+  if(!c.hallazgos.length) return caja(`
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap">
+      <span class="pill ok">sin defectos</span>
+      <span class="m">${datos.join('\u00a0· ')}</span>
+    </div>`);
+
+  return caja(`
+    <div style="display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+      ${c.fallos ? `<span class="pill crit">${c.fallos} para arreglar</span>` : ''}
+      ${c.avisos ? `<span class="pill warn">${c.avisos} aviso${c.avisos>1?'s':''}</span>` : ''}
+      <span class="m">${datos.join('\u00a0· ')}</span>
+    </div>
+    ${c.hallazgos.map(h=>`<div style="margin-bottom:9px">
+      <div style="font-size:13px"><b style="color:var(--${h.nivel==='fallo'?'crit':'warn'})">${
+        h.nivel==='fallo'?'❌':'⚠️'}</b> ${esc(h.que)}</div>
+      <div class="muted" style="margin-left:19px">${esc(h.arreglo)}</div>
+    </div>`).join('')}`);
+}
+
 /* ---------- cómo se va a publicar ----------
    Es lo que publisher.py subirá tal cual. Antes esto no existía hasta el
    instante de la subida: lo generaba el propio publisher justo antes de
@@ -1545,6 +1589,10 @@ const MANTENIMIENTO = [
   {accion:'recomprimir_limpiar', que:'Borrar temporales de recompresión', cmd:'recomprimir.py --limpiar',
    nota:'Los «…recomprimiendo.mp4» de una tanda cortada.',
    aviso:'Borra los temporales que dejó una recompresión interrumpida.\n\nNo lo hagas con una recompresión en marcha: borrarías el archivo que está escribiendo.'},
+  {accion:'calidad', que:'Medir los videos renderizados', cmd:'calidad.py',
+   nota:'Audio cortado, volumen, negros, imagen parada.', boton:'Medir'},
+  {accion:'calidad_todos', que:'Volver a medirlos todos', cmd:'calidad.py --todos',
+   nota:'Repite la medición de los que ya están revisados.', boton:'Medir'},
   {accion:'formato', que:'¿Toca hacer videos largos?', cmd:'formato.py',
    nota:'Están bloqueados hasta los 500 suscriptores.', boton:'Ver'},
   {accion:'ver_relanzar', que:'Vistas de lo subido', cmd:'relanzar.py',

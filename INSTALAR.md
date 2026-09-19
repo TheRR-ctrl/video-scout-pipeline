@@ -166,6 +166,48 @@ descartada no llega al guion. La lista se puede cambiar en `config.json`:
 "temas_bloqueados": ["suicidio_autolesion", "violencia_grave"]
 ```
 
+### Medir cómo salió cada video
+
+Los fallos que hacen daño no se ven mirando el video por encima: el audio que
+se corta a mitad de frase, el volumen doce decibelios por debajo de lo normal,
+el medio segundo en negro del principio —que además es el fotograma que
+YouTube ofrece como miniatura—. Antes se subían igual y se descubrían por las
+vistas, que para entonces ya no explican nada.
+
+```bash
+python calidad.py                   # los que aún no se han medido
+python calidad.py --todos           # otra vez, todos
+python calidad.py --solo 3          # solo la historia 3
+python calidad.py --archivo v.mp4   # un archivo suelto
+```
+
+Corre sola detrás de cada render dentro de `pipeline.py`, y el resultado sale
+en **Revisar**, junto al video, en la tarjeta «Cómo salió el archivo».
+
+Lo que mide, todo con ffmpeg y en una sola pasada (en un teléfono cada pasada
+es descodificar el video entero):
+
+- **Narración incompleta.** Compara la duración real con las palabras del
+  guion a 2,6 palabras por segundo. Si falta más del 30%, el TTS entregó menos
+  texto del que se le dio. El render ya tiene una guarda propia, pero con un
+  margen tan ancho (palabras/6.0) que una narración cortada por la mitad la
+  pasa entera.
+- **Volumen.** YouTube y TikTok normalizan a unos −14 LUFS. Más bajo y tu
+  video suena flojo al lado del siguiente; más alto y te lo bajan ellos.
+- **Picos** por encima de −0,5 dBFS, que el recodificado de la plataforma
+  convierte en saturación.
+- **Silencios** largos en medio, y sobre todo al principio, que es donde se
+  decide si alguien se queda.
+- **Fotogramas en negro** y **imagen congelada** (el fondo se acabó antes que
+  la narración).
+- **Resolución** equivocada para el formato.
+
+No frena la publicación a propósito: un umbral mal puesto dejaría el canal
+parado sin que nadie se entere. Deja el defecto anotado y lo escribe en el log.
+
+Y lo que esto **no** hace: predecir si un video va a funcionar. Que no tenga
+defectos no hace que el feed lo reparta. Sirve para no subir algo roto.
+
 ### Borrar de YouTube lo que no arrancó y volver a grabarlo
 
 De los 48 shorts, 18 se quedaron por debajo de 300 vistas y la mitad de esos

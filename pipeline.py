@@ -62,6 +62,29 @@ def videos_pendientes_de_publicar():
         return 0
 
 
+def revisar_lo_renderizado():
+    """Mide lo que acaba de salir del render, antes de que se publique.
+
+    NO frena la publicación, a propósito. Un umbral mal puesto dejaría el
+    canal parado sin que nadie se entere, y estas corridas no las mira nadie.
+    Lo que hace es dejarlo medido —sale en el panel, junto al video— y
+    escribir en el log los que tienen algo roto, que es donde se mira cuando
+    un video sale mal.
+    """
+    import calidad
+    nuevas = calidad.revisar_pendientes()
+    if not nuevas:
+        logger.info("Calidad: nada nuevo que medir.")
+        return
+
+    rotos = [e for e in nuevas if e["fallos"]]
+    logger.info(f"Calidad: {len(nuevas)} revisado(s), {len(rotos)} con algo que arreglar.")
+    for e in rotos:
+        for h in e["hallazgos"]:
+            if h["nivel"] == "fallo":
+                logger.warning(f"  {e['titulo'][:40]}: {h['que']}")
+
+
 def correr_etapa(nombre, fn):
     logger.info(f"===== Etapa: {nombre} =====")
     try:
@@ -125,6 +148,12 @@ def main():
     if i_desde <= ETAPAS.index("video") <= i_hasta:
         import generar_video_maestro
         resultados["video"] = correr_etapa("video (generar_video_maestro)", generar_video_maestro.renderizar_lote_historias)
+
+        # Va pegada al render y no como etapa aparte: lo que mide es
+        # justamente lo que se acaba de renderizar, y añadirla a ETAPAS
+        # cambiaría lo que aceptan --desde y --hasta. Para medir sin
+        # renderizar está python calidad.py.
+        resultados["calidad"] = correr_etapa("calidad (calidad)", revisar_lo_renderizado)
 
     if i_desde <= ETAPAS.index("publicar") <= i_hasta:
         import publisher
