@@ -54,6 +54,14 @@ ilustra, qué se superpone encima y qué zonas del cuadro deben quedar libres**:
   tarjeta de título arriba, duración exacta por escena (no loopea).
 - `PERFIL_HISTORIA_VERTICAL` — Short 9:16, subtítulos grandes al centro,
   animación **cíclica** porque el clip se loopea para cubrir la historia.
+- `PERFIL_HISTORIA_HORIZONTAL` — lo mismo pero en 16:9: subtítulos abajo,
+  tarjeta arriba, y **cíclico**. Es el que va cuando el fondo se loopea en
+  horizontal; el reflexivo tiene las zonas libres correctas pero no cierra el
+  bucle, porque está pensado para escenas de largo exacto.
+
+El perfil tiene que ir con el formato. El vertical deja libre la franja
+central, que es donde van los subtítulos de un Short; usarlo en 16:9 pone lo
+interesante justo debajo del texto quemado.
 
 Para un pipeline nuevo, rellena el dataclass; no toques el motor. Cambiar
 `nombre` invalida la caché de ese perfil, que es lo que quieres al retocar la
@@ -158,5 +166,16 @@ En corridas desatendidas, exporta `HYPERFRAMES_NO_TELEMETRY=1`,
 - Necesita salida a internet durante el render: la composición carga GSAP desde
   jsDelivr. Para renderizar sin red, hay que empotrar GSAP en el HTML.
 - Requiere Node.js ≥ 22.
+- **Es un motor de PC.** El render arranca Chrome headless, y el Chrome que
+  baja el CLI está enlazado contra glibc: en Android (bionic) el binario ni
+  arranca. `plataforma_apta()` lo detecta antes de gastar una llamada a Gemini
+  o un render; `comprobar_dependencias()` lanza y `generar_clip_cacheado()`
+  devuelve `None`, para que el llamador decida si eso es abortar el lote o caer
+  a otro motor. `HYPERFRAMES_FORZAR=1` lo intenta igual (proot con glibc).
+- La caché tiene tope (`CACHE_MAX_MB`, 600 MB) y poda los clips menos usados
+  recientemente. El render es atómico: escribe a un `.parcial` oculto,
+  comprueba con ffprobe que el MP4 se lee, y solo entonces lo mueve al nombre
+  de la caché. Un proceso muerto a media escritura no deja un clip truncado
+  haciéndose pasar por bueno.
 - No genera imágenes fotorrealistas. Si el guion pide "una playa al atardecer",
   este no es el motor.
