@@ -127,6 +127,30 @@
   .tbtn{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
     background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer}
 
+  /* El mismo avance, en una linea y pegado abajo. La tarjeta entera vive
+     arriba del todo, y en una pestaña larga eso obliga a subir solo para ver
+     como va. Esto queda debajo de lo que estes mirando, sea el apartado que
+     sea, y se quita solo cuando la tarjeta de arriba ya esta a la vista: dos
+     veces lo mismo en pantalla es ruido, no informacion. */
+  .mini{position:fixed;left:0;right:0;bottom:0;z-index:40;width:100%;
+    background:var(--surface);border:0;border-top:1px solid var(--line);
+    padding:8px 14px calc(8px + env(safe-area-inset-bottom));
+    font:inherit;color:inherit;text-align:left;cursor:pointer}
+  .mini:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+  .mini-top{display:flex;align-items:center;gap:9px}
+  /* min-width:0 por lo de siempre: sin esto el paso largo estira la fila y se
+     sale por el lado derecho en vez de cortarse con puntos suspensivos. */
+  .mini-top .q{flex:1;min-width:0;font:11.5px var(--mono);color:var(--ink-dim);
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .mini-top .t{flex-shrink:0;font:11.5px var(--mono);color:var(--ink-dim);
+    font-variant-numeric:tabular-nums}
+  .mini .barra{margin-top:7px}
+  /* La tarjeta de arriba avisa del fallo poniéndose roja entera; aquí abajo no
+     hay caja que teñir, así que lo dice la barra. Sin esto quedaba una barra
+     verde al 100% justo al lado de la etiqueta ERROR. */
+  .mini.err .barra i{background:var(--crit)}
+  .mini.fin .barra i{background:var(--ok)}
+
   /* revisar */
   .review{display:grid;grid-template-columns:300px 1fr;gap:20px}
   video{width:100%;border-radius:9px;background:#000;display:block;aspect-ratio:9/16;object-fit:contain}
@@ -325,6 +349,15 @@
   <section class="view" id="v-ajustes"></section>
 </div>
 
+<button class="mini" id="mini-job" hidden title="Ir a la tarjeta de arriba">
+  <div class="mini-top">
+    <span class="pill acc" id="mini-estado"></span>
+    <span class="q" id="mini-paso"></span>
+    <span class="t" id="mini-t"></span>
+  </div>
+  <div class="barra"><i id="mini-barra"></i></div>
+</button>
+
 <div class="toast" id="toast"></div>
 <audio id="oido" style="display:none"></audio>
 
@@ -385,9 +418,36 @@ $('#oido').onended = ()=>{ sonando = null; pintaBotonesOir(); };
    ========================================================= */
 let jobMontado = null;   // nombre+arranque del trabajo ya dibujado
 
+/* La barra de abajo (.mini) enseña lo mismo que la tarjeta, pero solo cuando
+   la tarjeta no se ve. Quien decide eso es el navegador, no un cálculo de
+   scroll a mano: el margen negativo descuenta la cabecera pegajosa, porque la
+   tarjeta asomando POR DEBAJO de la cabecera no es una tarjeta que puedas
+   leer. */
+let hayTrabajo = false, tarjetaALaVista = false, vigilante = null;
+
+function refrescarMini(){
+  $('#mini-job').hidden = !hayTrabajo || tarjetaALaVista;
+}
+
+function vigilarTarjeta(caja){
+  if(vigilante) vigilante.disconnect();
+  tarjetaALaVista = false;
+  const alto = document.querySelector('.nav').offsetHeight;
+  vigilante = new IntersectionObserver(entradas=>{
+    tarjetaALaVista = entradas[0].isIntersecting;
+    refrescarMini();
+  }, {rootMargin: `-${alto}px 0px 0px 0px`});
+  vigilante.observe(caja);
+}
+
 function pintaJob(){
   const j = E && E.trabajo, slot = $('#job-slot');
-  if(!j){ slot.innerHTML=''; jobMontado=null; return; }
+  if(!j){
+    slot.innerHTML=''; jobMontado=null;
+    if(vigilante){ vigilante.disconnect(); vigilante = null; }
+    hayTrabajo = false; refrescarMini();
+    return;
+  }
 
   const id = j.nombre;
   if(jobMontado !== id){
@@ -414,6 +474,7 @@ function pintaJob(){
       $('#b-detalle').textContent = abierto ? 'Ver detalle' : 'Ocultar detalle';
       if(!abierto) l.scrollTop = l.scrollHeight;
     };
+    vigilarTarjeta($('#job-caja'));
   }
 
   const corriendo = j.estado==='corriendo' || j.estado==='pausado';
@@ -434,6 +495,17 @@ function pintaJob(){
   $('#job-paso').textContent = ultima;
   const m = ultima.match(/(\d{1,3}(?:\.\d)?)\s*%/);
   $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
+
+  // La mini repite lo que acaba de calcularse arriba, no lo recalcula: si
+  // algún día cambia cómo se saca el porcentaje, cambia en un solo sitio.
+  hayTrabajo = true;
+  $('#mini-job').className = 'mini' + (j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : ''));
+  $('#mini-estado').textContent = j.estado;
+  $('#mini-estado').className = $('#job-estado').className;
+  $('#mini-paso').textContent = ultima;
+  $('#mini-t').textContent = $('#job-t').textContent;
+  $('#mini-barra').style.width = $('#job-barra').style.width;
+  refrescarMini();
 
   const log = $('#log');
   if(log.style.display !== 'none'){
@@ -2000,6 +2072,10 @@ async function refrescar(){
   catch(e){ $('#job-slot').innerHTML =
     `<div class="aviso crit"><span>✕</span><div>Se perdió la conexión con el servidor. ¿Sigue corriendo <code style="font:12px var(--mono)">python servidor.py</code>?</div></div>`; }
 }
+
+// Tocar la barra de abajo sube a la tarjeta, que es donde están el detalle y
+// los botones de pausar y abortar.
+$('#mini-job').onclick = ()=>window.scrollTo({top:0, behavior:'smooth'});
 
 /* La tira de pestañas rueda de lado, así que hay que avisar de que queda
    alguna fuera del borde derecho. */
