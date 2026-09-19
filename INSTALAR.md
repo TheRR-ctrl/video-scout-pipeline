@@ -206,14 +206,37 @@ Si prefieres no gastar datos, hay un workflow que los baja en los servidores
 de GitHub y te los deja empaquetados: pestaña **Actions** → *Bajar fondos de
 Pexels* → **Run workflow**. Eliges tema, cuántos y formato.
 
+Desde agosto usa **dos** bancos, Pexels y Pixabay, y por defecto los dos a la
+vez repartiendo el cupo: un tema que uno tiene flojo lo completa el otro. Si
+solo tienes una de las dos claves, se avisa y se sigue con la que haya.
+
 Necesita la misma clave, pero puesta **también** como secret del repo
 (*Settings → Secrets and variables → Actions → New repository secret*,
-nombre `PEXELS_API_KEY`). Tenerla en `secretos.env` no la pone ahí: son dos
-sitios distintos y ninguno ve al otro.
+nombre `PEXELS_API_KEY` y/o `PIXABAY_API_KEY`). Tenerlas en `secretos.env` no
+las pone ahí: son dos sitios distintos y ninguno ve al otro.
+
+#### Añadir la API de un servicio nuevo
+
+En *Ajustes* hay un apartado **Añadir una API nueva**: escribes el nombre
+(`PIXABAY_API_KEY`, por ejemplo) y la clave, y se guarda en `secretos.env` con
+permisos 600. No hace falta tocar código ni abrir Termux, y a partir de ahí la
+clave sale en la lista de arriba y se puede copiar a los secrets de GitHub
+como cualquier otra.
+
+El nombre va en MAYÚSCULAS con guion bajo. Se rechaza cualquier otra cosa
+—minúsculas, espacios, un `=`, un salto de línea— porque el archivo es una
+línea `NOMBRE=valor` por clave y un nombre raro metería líneas que nadie
+escribió.
 
 Al terminar, descarga el artefacto y descomprímelo dentro de
 `~/video-scout-pipeline`. Los archivos ya vienen con el prefijo que el render
-busca, así que no hay que enlazar ni registrar nada.
+busca, así que no hay que enlazar ni registrar nada. El paquete trae además
+un `fondos_atribucion_tanda.json` con quién grabó los clips nuevos; para
+sumarlo a lo que ya tenías anotado, sin pisarlo:
+
+```bash
+python descargar_fondos.py --fusionar fondos_atribucion_tanda.json
+```
 
 Dos avisos. El servidor arranca sin `fondos_historial.json` (está en
 `.gitignore`), así que puede volver a bajar un clip que ya tengas — no
@@ -223,6 +246,27 @@ paquete puede pesar: son hasta 60 MB por clip.
 
 Los clips nuevos no sustituyen al gameplay: el render elige entre **todos** los
 `fondo_vertical*` que encuentre, así que esto solo añade variedad a la baraja.
+
+#### Fondos fabricados en vez de grabados
+
+Hay un segundo workflow, *Fabricar fondos con IA*, que no busca material: lo
+**genera**. Le pide a Gemini una animación en HTML y la renderiza a MP4 con el
+motor de HyperFrames. Salen fondos abstractos en bucle, pensados para que no
+le roben atención a los subtítulos.
+
+Va en Actions por la misma razón que el otro, pero más a lo bruto: ese motor
+le pide los frames a Chrome headless, y el Chrome que se baja es un binario de
+glibc. Android es bionic, así que **en Termux no arranca**. En el servidor sí.
+
+Necesita el secret `GEMINI_API_KEY` (la misma clave del teléfono, puesta
+también en *Settings → Secrets and variables → Actions*) y que
+`hyperframes_broll.py` esté en el repo. Si no está, el workflow se para en
+diez segundos con un error claro en vez de gastar minutos de runner.
+
+Tarda: cada clip son 20 segundos de video y el render va a un tercio de
+velocidad, así que cuenta un minuto largo por clip. El artefacto se
+descomprime igual que el de Pexels, y los archivos (`fondo_vertical_ia_*.mp4`)
+entran en la misma baraja que el gameplay y los clips de Pexels.
 Quién grabó cada uno queda anotado en
 `pipeline_state/fondos_atribucion.json` por si quieres citarlo, aunque la
 licencia de Pexels no lo exige.

@@ -1,0 +1,148 @@
+name: Fabricar fondos con IA
+
+# Genera videos de fondo con el motor de HyperFrames y te los deja como
+# artefacto, con el mismo nombre que los de Pexels. A partir de ahí son fondos
+# normales: la FASE 2 del render los usa sin enterarse de dónde salieron.
+#
+# Por qué aquí y no en el teléfono: HyperFrames renderiza pidiéndole frames a
+# Chrome headless, y el Chrome que se baja el CLI es un binario de glibc.
+# Android es bionic, así que en Termux no arranca. Este workflow es la forma
+# de que ese motor sirva de algo en este proyecto.
+#
+# Lo que hay que saber antes de usarlo:
+#
+#   1. Hace falta el secret GEMINI_API_KEY (Settings -> Secrets and variables
+#      -> Actions). Es la misma clave que va en secretos.env del teléfono;
+#      tenerla en un sitio no la pone en el otro.
+#
+#   2. Hace falta hyperframes_broll.py en el repo. Llega con el PR del motor
+#      de fondo; hasta que esté fusionado, esto se para con un error claro en
+#      vez de gastar minutos de runner.
+#
+#   3. Tarda. El render va a ~3x tiempo real y cada clip son 20 s, o sea un
+#      minuto largo por clip más lo que tarde Gemini en escribir el HTML.
+#
+# Qué hacer con el artefacto: descomprimirlo en ~/video-scout-pipeline. Los
+# archivos ya vienen con el prefijo fondo_vertical_ / fondo_horizontal_, que
+# es lo que mira la FASE 2 al elegir fondo. No hay que registrar nada más.
+
+on:
+  workflow_dispatch:
+    inputs:
+      emocion:
+        description: "Tono del fondo"
+        type: choice
+        default: todas
+        options: [todas, tension, melancolia, giro]
+      cuantos:
+        description: "Cuántos clips por tono"
+        type: choice
+        default: "1"
+        options: ["1", "2", "3"]
+      orientacion:
+        description: "Formato"
+        type: choice
+        default: vertical
+        options: [vertical, horizontal]
+
+jobs:
+  fondos_ia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Antes de instalar nada: si el motor no está en el repo, no hay nada
+      # que hacer aquí y más vale decirlo en diez segundos.
+      - name: Comprobar que el motor está en el repo
+        run: |
+          if [ ! -f hyperframes_broll.py ]; then
+            echo "::error::Falta hyperframes_broll.py. Llega con el PR del motor de fondo con HyperFrames; fusiónalo antes de lanzar esto."
+            exit 1
+          fi
+
+      - name: Instalar ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+
+      - name: Configurar Node.js (CLI de HyperFrames)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      # Solo el cliente de Gemini: generar_fondos_ia.py no necesita nada más,
+      # y el requirements.txt completo trae edge-tts, pillow y los clientes de
+      # YouTube para no usarlos aquí.
+      - name: Instalar dependencias
+        run: pip install google-genai
+
+      # Las entradas van por el entorno y entrecomilladas, no interpoladas
+      # dentro del script: lo que escribe quien lanza el workflow no debe
+      # poder convertirse en parte del comando.
+      - name: Fabricar fondos
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          EMOCION: ${{ inputs.emocion }}
+          CUANTOS: ${{ inputs.cuantos }}
+          ORIENTACION: ${{ inputs.orientacion }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "::error::Falta el secret GEMINI_API_KEY. Settings -> Secrets and variables -> Actions -> New repository secret. La clave es gratis en https://aistudio.google.com/apikey"
+            exit 1
+          fi
+          args=(--cuantos "$CUANTOS")
+          if [ "$EMOCION" != "todas" ]; then
+            args+=(--emocion "$EMOCION")
+          fi
+          if [ "$ORIENTACION" = "horizontal" ]; then
+            args+=(--horizontal)
+          fi
+          python generar_fondos_ia.py "${args[@]}"
+
+      # Resumen legible desde el móvil: la pestaña Actions en una pantalla
+      # pequeña es incómoda de leer, y esto sale arriba del todo.
+      - name: Resumen
+        if: always()
+        run: |
+          {
+            echo "### Fondos fabricados"
+            echo ""
+            if ls fondo_*_ia_*.mp4 >/dev/null 2>&1; then
+              echo "| archivo | tamaño |"
+              echo "| --- | --- |"
+              for f in fondo_*_ia_*.mp4; do
+                echo "| \`$f\` | $(du -h "$f" | cut -f1) |"
+              done
+            else
+              echo "No se fabricó ningún archivo."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # El manifiesto viaja con OTRO nombre y fuera de pipeline_state/: si
+      # fuera como pipeline_state/fondos_ia_manifiesto.json, descomprimir el
+      # zip sobre la carpeta del teléfono pisaría el registro acumulado allí
+      # con el del runner, que arranca en blanco.
+      - name: Preparar paquete
+        run: |
+          mkdir -p paquete
+          if ls fondo_*_ia_*.mp4 >/dev/null 2>&1; then
+            mv fondo_*_ia_*.mp4 paquete/
+            if [ -f pipeline_state/fondos_ia_manifiesto.json ]; then
+              cp pipeline_state/fondos_ia_manifiesto.json paquete/fondos_ia_manifiesto_tanda.json
+            fi
+          else
+            echo "::warning::No se fabricó ningún clip."
+          fi
+
+      - name: Empaquetar
+        uses: actions/upload-artifact@v4
+        with:
+          name: fondos-ia-${{ inputs.emocion }}-${{ inputs.orientacion }}
+          path: paquete/
+          if-no-files-found: error
+          retention-days: 5
