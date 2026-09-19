@@ -166,6 +166,46 @@ descartada no llega al guion. La lista se puede cambiar en `config.json`:
 "temas_bloqueados": ["suicidio_autolesion", "violencia_grave"]
 ```
 
+### Fondos nuevos sin salir a grabarlos
+
+Los videos de fondo los pones tú: metes gameplay en la SD y
+`vincular_fondos.py` los enlaza al repo. Eso sigue igual, pero ahora se puede
+completar con material de archivo de [Pexels](https://www.pexels.com), que es
+gratis, permite uso comercial y deja modificar.
+
+Hace falta una clave (gratis, sin tarjeta) en
+[pexels.com/api](https://www.pexels.com/api/) → *Your API Key*. Va en
+`secretos.env`, que no se sube al repo:
+
+```
+PEXELS_API_KEY=lo_que_te_den
+```
+
+Desde el panel, pestaña Ajustes: **Ver fondos nuevos en Pexels** enseña qué
+bajaría sin gastar datos, y **Bajar esos fondos** los trae. A mano:
+
+```bash
+python descargar_fondos.py --ver          # qué bajaría
+python descargar_fondos.py                # bajarlos
+python descargar_fondos.py --tema lluvia  # solo un tema
+python descargar_fondos.py --horizontal   # para los videos largos
+```
+
+Los temas que busca son lluvia, ciudad, carretera, abstracto y naturaleza:
+textura y movimiento lento, nada que le robe atención a la narración. Guarda
+tres clips por tema y no baja lo que ya tiene.
+
+Dos topes pensados para un teléfono: ningún clip pasa de 60 MB (se corta a
+mitad de la descarga si se pasa, y no deja el archivo a medias), y se baja la
+versión más cercana a 1080×1920 sin pasarse, porque el render escala y recorta
+de todos modos y un 4K solo gastaría datos para tirar píxeles.
+
+Los clips nuevos no sustituyen al gameplay: el render elige entre **todos** los
+`fondo_vertical*` que encuentre, así que esto solo añade variedad a la baraja.
+Quién grabó cada uno queda anotado en
+`pipeline_state/fondos_atribucion.json` por si quieres citarlo, aunque la
+licencia de Pexels no lo exige.
+
 ### Medir cómo salió cada video
 
 Los fallos que hacen daño no se ven mirando el video por encima: el audio que

@@ -750,6 +750,8 @@ def api_estado():
 ACCIONES = {
     "musica":     ("Actualizando música", [sys.executable, "actualizar_musica.py"]),
     "fondos":     ("Enlazando material", [sys.executable, "vincular_fondos.py"]),
+    "ver_fondos_pexels": ("Mirando qué hay en Pexels", [sys.executable, "descargar_fondos.py", "--ver"]),
+    "bajar_fondos_pexels": ("Bajando fondos de Pexels", [sys.executable, "descargar_fondos.py"]),
     "buscar":     ("Buscando historias", [sys.executable, "trend_scout.py"]),
     # Explica un escaneo que no trajo nada: cuántos posts se leyeron y por qué
     # se descartó cada uno (ya usados, sin texto, muy cortos/largos).
