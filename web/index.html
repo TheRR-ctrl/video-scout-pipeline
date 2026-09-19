@@ -1467,6 +1467,54 @@ async function tiktokActivo(on){
   refrescar();
 }
 
+/* El guion del vídeo demo de la auditoría.
+
+   TikTok pide una grabación de pantalla con cinco escenas seguidas y sin
+   cortes entre la elección y el resultado. Una toma fallida son cuatro
+   minutos tirados, y lo que se olvida no es apretar grabar: es el orden, y
+   comprobar antes que la toma va a salir.
+
+   Las cuatro primeras escenas se marcan solas porque el panel se entera de
+   que han ocurrido de verdad (token nuevo, cuenta consultada, elección
+   guardada, subida terminada). La quinta pasa dentro de la app de TikTok,
+   así que se enseña como recordatorio y no como casilla.
+
+   Fuera de una grabación en curso esto es una línea y un botón: no estorba
+   los otros 364 días. */
+function bloqueDemo(demo){
+  if(!demo) return '';
+  if(!demo.empezado_en) return `
+    <div class="card" style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <div style="flex-grow:1"><b>Vídeo demo para la auditoría</b>
+        <div class="muted">Las cinco escenas en orden, marcándose solas.</div></div>
+      <button class="btn sm" onclick="ejecutar('demo_comprobar')">Comprobar</button>
+      <button class="btn sm" onclick="ejecutar('demo_empezar')">Empezar</button>
+    </div>`;
+
+  const hechos = demo.pasos.filter(p=>p.hecho).length;
+  return `
+    <div class="card" style="margin-top:10px;border-color:var(--accent)">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:11px">
+        <div style="flex-grow:1"><b>Grabando el demo</b>
+          <div class="muted">${hechos} de ${demo.pasos.length} escenas · empezó ${
+            haceCuanto(demo.empezado_en)||''}</div></div>
+        <button class="btn sm" onclick="ejecutar('demo_empezar')">Empezar de nuevo</button>
+      </div>
+      <div class="list">${demo.pasos.map((p,i)=>`
+        <div class="row" style="grid-template-columns:26px 1fr">
+          <span style="font-size:15px">${p.hecho ? '✅' : (p.automatico ? '·' : '○')}</span>
+          <div><div class="t dos" style="${p.hecho?'color:var(--ink-faint)':''}">${i+1}. ${esc(p.que)}</div>
+            <div class="m">${esc(p.donde)}</div></div>
+        </div>`).join('')}</div>
+      <div class="muted" style="margin-top:10px">
+        No cortes la grabación entre la escena 3 y la 5: lo que están
+        comprobando es justamente que nada se publica sin que tú lo elijas
+        antes. Al terminar, en Termux:
+        <div style="margin-top:6px"><code style="font:12px var(--mono)">python demo_tiktok.py --revisar tu_grabacion.mp4</code></div>
+      </div>
+    </div>`;
+}
+
 function pintaTiktok(){
   const t = E.tiktok || {activo:false, token:false, subidos:[], pendientes:[]};
   const pend = t.pendientes || [], sub = t.subidos || [];
@@ -1526,6 +1574,8 @@ function pintaTiktok(){
       <button class="btn sm" onclick="tiktokActivo(${t.activo ? 'false':'true'})">
         ${t.activo ? 'Apagar' : 'Encender'}</button>
     </div>
+
+    ${bloqueDemo(t.demo)}
 
     <div class="card" style="margin-top:10px">
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -1645,6 +1695,10 @@ const MANTENIMIENTO = [
    nota:'Una llamada de verdad, para saber si sirve.', boton:'Probar'},
   {accion:'probar_clave_youtube', que:'Probar la clave de YouTube', cmd:'youtube_scout.py --probar-clave',
    nota:'Distingue «no hay clave» de «la API no está habilitada».', boton:'Probar'},
+  {accion:'demo_comprobar', que:'TikTok: ¿sale bien el demo?', cmd:'demo_tiktok.py --comprobar',
+   nota:'Token, permisos, cuenta en privado y vídeo listo.', boton:'Comprobar'},
+  {accion:'demo_empezar', que:'TikTok: empezar el guion del demo', cmd:'demo_tiktok.py --empezar',
+   nota:'Las cinco escenas, marcándose solas mientras grabas.'},
   {accion:'tiktok_simular', que:'TikTok: qué subiría', cmd:'tiktok_publisher.py --simular',
    nota:'Sin subir nada.'},
   {accion:'tiktok_estado', que:'TikTok: qué lleva subido', cmd:'tiktok_publisher.py --estado',

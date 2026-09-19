@@ -629,6 +629,8 @@ def main(argv=None):
             # Se guarda tras cada video, no al final: si la subida siguiente
             # se corta, lo ya subido no se repite en la próxima corrida.
             publisher.guardar_json(RUTA_SUBIDOS, subidos)
+            import demo_tiktok
+            demo_tiktok.anotar("subida")   # cuarta escena del demo
             destino = "publicado" if modo == "directo" else "en tus borradores de TikTok"
             logger.info(f"  ✅ {destino} ({detalle})")
         except Exception as exc:

@@ -140,6 +140,10 @@ def main(argv):
     except OSError:
         pass
 
+    # Si hay una grabación del demo en curso, esta es su primera escena.
+    import demo_tiktok
+    demo_tiktok.anotar("token")
+
     print(f"\n ✓ Guardado en {RUTA_TOKEN}")
     print(f"   Permisos concedidos: {token['scope']}")
     if not token["refresh_token"]:

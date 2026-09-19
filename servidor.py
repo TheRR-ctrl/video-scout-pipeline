@@ -642,6 +642,7 @@ def tiktok_resumen():
     de que le toque el turno, y eso hay que verlo.
     """
     import tiktok_publisher as tk
+    import demo_tiktok
 
     cfg = tk.cargar_config()
     subidos = leer_json(tk.RUTA_SUBIDOS, [])
@@ -667,6 +668,9 @@ def tiktok_resumen():
         "modo": cfg["modo"],
         "max_por_corrida": cfg["max_por_corrida"],
         "token": os.path.exists(tk.RUTA_TOKEN),
+        # El guion del vídeo demo de la auditoría, si hay una grabación en
+        # curso. Fuera de esos diez minutos no se enseña nada.
+        "demo": demo_tiktok.estado(),
         "subidos": [{
             "nombre": os.path.basename(s["ruta"]),
             "titulo": s.get("pie", ""),
@@ -765,6 +769,8 @@ ACCIONES = {
     "tiktok":     ("Subiendo a TikTok", [sys.executable, "tiktok_publisher.py"]),
     "tiktok_datos": ("Subiendo a TikTok (datos móviles)", [sys.executable, "tiktok_publisher.py", "--con-datos"]),
     "tiktok_revisar": ("Consultando estados en TikTok", [sys.executable, "tiktok_publisher.py", "--revisar"]),
+    "demo_comprobar": ("Comprobando que la toma va a salir", [sys.executable, "demo_tiktok.py", "--comprobar"]),
+    "demo_empezar": ("Empezando el guion de la grabación", [sys.executable, "demo_tiktok.py", "--empezar"]),
 
     # Mantenimiento. Son las órdenes que si no habría que escribir a mano en
     # Termux, y de las que uno no se acuerda cuando hacen falta. Las que
@@ -909,7 +915,10 @@ def api_tiktok_creador():
     import tiktok_publisher as tk
     try:
         token, _ = tk.token_valido()
-        return jsonify({"ok": True, "creador": tk.consultar_creador(token)})
+        creador = tk.consultar_creador(token)
+        import demo_tiktok
+        demo_tiktok.anotar("creador")   # segunda escena del demo, si lo estás grabando
+        return jsonify({"ok": True, "creador": creador})
     except Exception as exc:
         return jsonify({"ok": False, "error": str(exc)}), 502
 
@@ -950,6 +959,8 @@ def api_tiktok_opciones(archivo):
         "elegido_en": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
     }
     guardar_json(tk.RUTA_OPCIONES, todas)
+    import demo_tiktok
+    demo_tiktok.anotar("eleccion")   # tercera escena del demo
     return jsonify({"ok": True, "opciones": todas[nombre]})
 
 

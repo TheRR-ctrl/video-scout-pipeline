@@ -55,6 +55,40 @@ what I selected. Posts are uploaded one at a time from my phone.
 
 Máximo 50 MB, mp4 o mov. Es una grabación de pantalla del móvil.
 
+`demo_tiktok.py` lleva todo lo de aquí abajo menos apretar el botón de
+grabar, que no se puede: Termux no tiene una orden para grabar la pantalla y
+Android no deja que una app grabe por otra. La grabadora la arrancas tú desde
+los ajustes rápidos (Android 11+ la trae).
+
+```bash
+python demo_tiktok.py --comprobar   # que la toma vaya a salir
+python demo_tiktok.py --empezar     # arranca el guion de las 5 escenas
+python demo_tiktok.py --estado      # por cuál vas
+python demo_tiktok.py --revisar grabacion.mp4     # ¿entra en los 50 MB?
+python demo_tiktok.py --recomprimir grabacion.mp4 # si no entra
+```
+
+`--comprobar` mira lo que si falla te obliga a repetir la toma: que el token
+esté vivo y con los permisos correctos, que `video.upload` ya no esté, que el
+modo sea directo, que haya un vídeo preparado y ligero, y —lo que más— **si
+la cuenta está en privado**. Eso último lo sabe sin preguntarte: una cuenta
+privada no puede publicar en público, así que `/creator_info/query/` no
+ofrece `PUBLIC_TO_EVERYONE`. Si lo ofrece, la cuenta está pública y la subida
+va a fallar justo en la escena que más importa.
+
+Mientras grabas, las escenas se van marcando solas en la pestaña **TikTok**
+del panel: las cuatro primeras porque el panel se entera de que han ocurrido
+de verdad (token nuevo, cuenta consultada, elección guardada, subida
+terminada). La quinta pasa dentro de la app de TikTok, así que esa la llevas
+tú.
+
+`--recomprimir` baja el peso **sin tocar la resolución**: lo que el revisor
+tiene que hacer es leer la pantalla, y quitar píxeles es justo lo que se lo
+impide. Baja el ritmo de datos, que en una grabación de interfaz —casi toda
+quieta— cuesta mucha menos calidad visible. Si la grabación es tan larga que
+para entrar habría que bajar de 1200 kbps, se niega y te dice que la cortes:
+comprimir más dejaría el texto ilegible y la revisión fallaría por eso.
+
 **El truco que hay que saber antes de grabar:** todavía no estás auditado, así
 que una publicación directa a una cuenta pública falla con
 `unaudited_client_can_only_post_to_private_accounts`. Para poder grabar la
