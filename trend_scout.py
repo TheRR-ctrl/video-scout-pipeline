@@ -109,12 +109,31 @@ cargar_historial = cola.cargar_historial
 guardar_historial = cola.guardar_historial
 
 
+_RE_CUERPO = re.compile(r"<!--\s*SC_OFF\s*-->(.*?)<!--\s*SC_ON\s*-->", re.DOTALL)
+
+
 def _limpiar_contenido_html(contenido_crudo):
     """Convierte el HTML del <content> del feed en texto plano, quitando el
-    pie que Reddit agrega ("submitted by ... [link] [comments]")."""
+    pie que Reddit agrega ("submitted by ... [link] [comments]").
+
+    Reddit envuelve el cuerpo del post entre <!-- SC_OFF --> y <!-- SC_ON -->,
+    y el pie queda siempre fuera: por eso se recorta por ahí.
+
+    Antes se cortaba por la primera aparición de "submitted by", y eso truncaba
+    la historia cuando la frase salía en el propio texto del post —cosa que
+    pasa justo en estos subreddits, donde se habla de informes, denuncias y
+    formularios. Lo malo no era perder el final, era perderlo en silencio: si
+    lo que quedaba pasaba de min_palabras_texto, Gemini recibía media historia,
+    la reescribía como si estuviera entera, y salía un video contando un
+    principio sin final.
+
+    El corte por "submitted by" se queda como respaldo para una entrada sin
+    esos marcadores, donde es mejor que nada.
+    """
     texto = html.unescape(contenido_crudo or "")
+    cuerpo = _RE_CUERPO.search(texto)
+    texto = cuerpo.group(1) if cuerpo else texto.split("submitted by")[0]
     texto = re.sub(r"<!--.*?-->", "", texto, flags=re.DOTALL)
-    texto = texto.split("submitted by")[0]
     texto = re.sub(r"<[^>]+>", " ", texto)
     return re.sub(r"\s+", " ", texto).strip()
 
