@@ -543,10 +543,14 @@ def credenciales():
     out = []
     for clave, tiene, origen in secretos.estado():
         # Opcionales: sin ellas el pipeline entero sigue corriendo. Jamendo
-        # solo añade música nueva y Pexels solo añade fondos de archivo; el
-        # material que ya está en el teléfono no depende de ninguna de las dos.
+        # solo añade música nueva, y Pexels/Pixabay solo añaden fondos de
+        # archivo; el material que ya está en el teléfono no depende de
+        # ninguna. Y lo que hayas añadido tú también es opcional por
+        # definición: el proyecto de serie no lo usa.
+        opcional = (clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY", "PIXABAY_API_KEY")
+                    or clave not in secretos.CLAVES_CONOCIDAS)
         out.append({"nombre": clave, "ok": tiene, "origen": origen,
-                    "opcional": clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY")})
+                    "opcional": opcional})
     for archivo in ("client_secret.json", "youtube_token.json"):
         out.append({"nombre": archivo, "ok": os.path.exists(os.path.join(BASE_DIR, archivo)),
                     "origen": "", "opcional": False})
@@ -990,7 +994,20 @@ SECRETOS_COPIABLES = {
     "JAMENDO_CLIENT_ID": ("entorno", "JAMENDO_CLIENT_ID"),
     "YOUTUBE_API_KEY": ("entorno", "YOUTUBE_API_KEY"),
     "PEXELS_API_KEY": ("entorno", "PEXELS_API_KEY"),
+    "PIXABAY_API_KEY": ("entorno", "PIXABAY_API_KEY"),
 }
+
+
+def copiables():
+    """Los de arriba más los que se hayan añadido desde el panel.
+
+    Se calcula cada vez y no una sola al arrancar: una clave añadida en la
+    pestaña Ajustes tiene que poder copiarse a los secrets de GitHub sin
+    reiniciar el servidor."""
+    todos = dict(SECRETOS_COPIABLES)
+    for clave in secretos.claves_extra():
+        todos.setdefault(clave, ("entorno", clave))
+    return todos
 
 
 @app.get("/api/secretos")
@@ -1002,7 +1019,7 @@ def api_secretos():
     peticiones solo por tener la pestaña abierta.
     """
     out = []
-    for nombre, (tipo, ref) in SECRETOS_COPIABLES.items():
+    for nombre, (tipo, ref) in copiables().items():
         if tipo == "archivo":
             ruta = os.path.join(BASE_DIR, ref)
             existe = os.path.exists(ruta)
@@ -1017,9 +1034,12 @@ def api_secretos():
 
 @app.get("/api/secretos/<nombre>")
 def api_secreto_valor(nombre):
-    if nombre not in SECRETOS_COPIABLES:
+    # Contra la lista, nunca contra os.environ directamente: si no, pedir
+    # /api/secretos/PATH devolvería cualquier variable del entorno.
+    disponibles = copiables()
+    if nombre not in disponibles:
         return jsonify({"error": "Secreto desconocido"}), 404
-    tipo, ref = SECRETOS_COPIABLES[nombre]
+    tipo, ref = disponibles[nombre]
 
     if tipo == "archivo":
         ruta = os.path.join(BASE_DIR, ref)
@@ -1043,40 +1063,25 @@ def api_secreto_guardar(nombre):
     Termux, escribir un export y reiniciar todo. Se escribe en el archivo
     (que sobrevive a cerrar la terminal) y también en el entorno de este
     proceso, para que los trabajos que lance a continuación ya la vean.
+
+    Admite un nombre que no esté en SECRETOS_COPIABLES: así se puede añadir
+    la API de un servicio nuevo sin tocar código ni abrir Termux. El nombre
+    lo valida secretos.guardar, que es quien sabe qué rompe el archivo.
     """
-    if nombre not in SECRETOS_COPIABLES:
-        return jsonify({"error": "Secreto desconocido"}), 404
-    tipo, ref = SECRETOS_COPIABLES[nombre]
-    if tipo != "entorno":
+    conocido = copiables().get(nombre)
+    if conocido and conocido[0] != "entorno":
         return jsonify({"error": "Los archivos de credenciales no se editan aquí"}), 400
+    ref = conocido[1] if conocido else nombre
 
-    valor = (request.json or {}).get("valor", "").strip()
-    if not valor:
-        return jsonify({"error": "Valor vacío"}), 400
-
-    lineas = []
-    if os.path.exists(secretos.RUTA_SECRETOS):
-        with open(secretos.RUTA_SECRETOS, "r", encoding="utf-8") as f:
-            lineas = f.read().splitlines()
-    # Se reemplaza la línea existente en su sitio en vez de añadir otra:
-    # con dos líneas de la misma clave ganaría la primera, y editar desde el
-    # panel parecería no haber hecho nada.
-    salida, puesta = [], False
-    for linea in lineas:
-        if linea.strip().startswith(ref + "="):
-            if not puesta:
-                salida.append(f"{ref}={valor}")
-                puesta = True
-        else:
-            salida.append(linea)
-    if not puesta:
-        salida.append(f"{ref}={valor}")
-
-    with open(secretos.RUTA_SECRETOS, "w", encoding="utf-8") as f:
-        f.write("\n".join(salida).rstrip() + "\n")
-    os.chmod(secretos.RUTA_SECRETOS, 0o600)   # es una credencial, no un config
-    os.environ[ref] = valor
-    secretos._DESDE_ARCHIVO.add(ref)
+    valor = (request.json or {}).get("valor", "")
+    try:
+        # secretos.guardar escribe con tmp + os.replace y borra las líneas
+        # repetidas de la misma clave; hacerlo aquí a mano era duplicarlo peor.
+        secretos.guardar(ref, valor)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+    except OSError as exc:
+        return jsonify({"error": f"No se pudo escribir secretos.env: {exc}"}), 500
     return jsonify({"ok": True, "nombre": nombre})
 
 

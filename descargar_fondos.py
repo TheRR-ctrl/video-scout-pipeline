@@ -1,7 +1,11 @@
 """
 Descargar Fondos — trae videos de fondo verticales desde Pexels
-(https://www.pexels.com), para no depender solo del gameplay que tengas
-metido a mano en la SD.
+(https://www.pexels.com) y Pixabay (https://pixabay.com), para no depender
+solo del gameplay que tengas metido a mano en la SD.
+
+Las dos fuentes se usan a la vez por defecto y el cupo se reparte: un tema
+que una tiene flojo lo completa la otra. Falta una clave, se avisa y se sigue
+con la que haya.
 
 De dónde sale la idea: los proyectos short-video-maker y MoneyPrinterTurbo
 sacan su material de archivo de bancos como Pexels en vez de pedirte los
@@ -19,11 +23,13 @@ Tampoco es parte de la corrida diaria —el material de archivo no necesita
 cambiar por video—, igual que actualizar_musica.py: se corre cada tanto.
 
 Requiere: pip install requests
-Credenciales: variable de entorno PEXELS_API_KEY (gratis, sin tarjeta, en
-https://www.pexels.com/api/ → Your API Key).
+Credenciales: PEXELS_API_KEY y/o PIXABAY_API_KEY (las dos gratis y sin
+tarjeta, en https://www.pexels.com/api/ y https://pixabay.com/api/docs/).
+Se ponen desde la pestaña Ajustes del panel, que las escribe en secretos.env.
 
-Licencia de Pexels: uso gratuito incluido el comercial, permite modificar, y
-no exige atribución. Aun así se guarda quién grabó cada clip en
+Licencias: la de Pexels y la Pixabay Content License permiten uso comercial y
+modificar, y ninguna exige atribución. Aun así se guarda quién grabó cada
+clip, y de qué fuente salió, en
 pipeline_state/fondos_atribucion.json, que es lo correcto y además te deja
 citarlos en la descripción si quieres.
 
@@ -33,6 +39,7 @@ Uso:
   python descargar_fondos.py --tema lluvia       # solo un tema
   python descargar_fondos.py --cuantos 5         # cuántos guardar por tema
   python descargar_fondos.py --horizontal        # para los videos largos
+  python descargar_fondos.py --fuente pixabay    # solo una de las dos
 """
 import os
 import re
@@ -53,6 +60,18 @@ RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "fondos_historial.json")
 RUTA_ATRIBUCION = os.path.join(CARPETA_ESTADO, "fondos_atribucion.json")
 
 PEXELS_API = "https://api.pexels.com/videos/search"
+PIXABAY_API = "https://pixabay.com/api/videos/"
+
+# Ninguna de las dos exige atribución, pero se guarda igual (ver más abajo).
+LICENCIAS = {
+    "pexels": "Pexels License (https://www.pexels.com/license/)",
+    "pixabay": "Pixabay Content License (https://pixabay.com/service/license-summary/)",
+}
+# Cada fuente necesita su propia clave, y son gratis y sin tarjeta las dos.
+CLAVES = {
+    "pexels": ("PEXELS_API_KEY", "https://www.pexels.com/api/"),
+    "pixabay": ("PIXABAY_API_KEY", "https://pixabay.com/api/docs/"),
+}
 FONDOS_POR_TEMA = 3
 
 # Búsquedas pensadas para material que se mire sin robarle atención a la
@@ -94,7 +113,7 @@ def usuario_de(video):
 
 
 class ClaveRechazada(Exception):
-    """Pexels dijo que no a la credencial, no al contenido.
+    """La fuente dijo que no a la credencial, no al contenido.
 
     Se distingue de «no encontré nada» porque el remedio es opuesto: con una
     clave mala, reintentar con otra búsqueda da exactamente el mismo 401. Sin
@@ -108,7 +127,29 @@ def limpiar_nombre(nombre):
     return re.sub(r"[^\w\-]", "_", nombre or "na")[:40]
 
 
-def elegir_archivo(video, vertical):
+def candidato(fuente, ident, url, ancho, alto, duracion, autor, perfil, pagina):
+    """Un clip elegido, ya sin nada específico de la fuente de donde salió.
+
+    El id va con el nombre de la fuente delante a propósito: Pexels y Pixabay
+    numeran sus clips por su cuenta y los dos empiezan por números bajos, así
+    que un id pelado haría que un clip de una se tomara por uno ya bajado de
+    la otra y no se descargara nunca."""
+    return {
+        "fuente": fuente,
+        "id": f"{fuente}:{ident}",
+        "id_corto": str(ident),
+        "url": url,
+        "ancho": ancho,
+        "alto": alto,
+        "duracion": duracion,
+        "autor": autor,
+        "perfil": perfil,
+        "pagina": pagina,
+        "licencia": LICENCIAS[fuente],
+    }
+
+
+def elegir_archivo_pexels(video, vertical):
     """De las versiones que ofrece Pexels, la más cercana a 1080x1920 (o
     1920x1080) sin pasarse.
 
@@ -128,8 +169,11 @@ def elegir_archivo(video, vertical):
             else min(candidatos, key=lambda f: f["height"]))
 
 
-def buscar(clave, consultas, cantidad, vertical, ya_bajados):
-    """Va probando consultas hasta juntar suficientes clips nuevos y usables."""
+def buscar_pexels(clave, consultas, cantidad, vertical, ya_bajados):
+    """Va probando consultas hasta juntar suficientes clips nuevos y usables.
+
+    Devuelve candidatos normalizados (ver `candidato`), no la respuesta cruda:
+    así el resto del script no sabe de qué fuente vino cada clip."""
     elegidos = []
     vistos = set()
     for consulta in consultas:
@@ -165,17 +209,127 @@ def buscar(clave, consultas, cantidad, vertical, ya_bajados):
             if len(elegidos) >= cantidad:
                 break
             vid = str(video.get("id"))
-            if vid in ya_bajados or vid in vistos:
+            if f"pexels:{vid}" in ya_bajados or vid in vistos:
                 continue
             dur = video.get("duration") or 0
             if not (SEGUNDOS_MINIMO <= dur <= SEGUNDOS_MAXIMO):
                 continue
-            archivo = elegir_archivo(video, vertical)
+            archivo = elegir_archivo_pexels(video, vertical)
             if not archivo:
                 continue
             vistos.add(vid)
-            elegidos.append((video, archivo))
+            usuario = usuario_de(video)
+            elegidos.append(candidato(
+                fuente="pexels", ident=vid, url=archivo["link"],
+                ancho=archivo["width"], alto=archivo["height"], duracion=dur,
+                autor=usuario.get("name"), perfil=usuario.get("url"),
+                pagina=video.get("url"),
+            ))
     return elegidos
+
+
+def elegir_archivo_pixabay(video, vertical):
+    """De las versiones que ofrece Pixabay, la más cercana a la resolución de
+    salida sin pasarse, y descartando las que no van en el formato pedido.
+
+    Pixabay no tiene parámetro de orientación en la API de videos (la de
+    imágenes sí), así que el filtro va aquí, mirando las medidas de verdad.
+    Y a diferencia de Pexels, la respuesta trae `size` en bytes: se puede
+    descartar un clip demasiado pesado sin llegar a empezar la descarga.
+    """
+    alto_objetivo = 1920 if vertical else 1080
+    tope = MB_MAXIMO * 1024 * 1024
+    candidatos = []
+    for version in (video.get("videos") or {}).values():
+        if not isinstance(version, dict):
+            continue
+        ancho, alto = version.get("width") or 0, version.get("height") or 0
+        if not (ancho and alto) or not version.get("url"):
+            continue
+        # Un clip apaisado recortado a 1080x1920 se queda en una tira central
+        # sin contexto; mejor no bajarlo.
+        if vertical and alto <= ancho:
+            continue
+        if not vertical and ancho <= alto:
+            continue
+        if (version.get("size") or 0) > tope:
+            continue
+        candidatos.append(version)
+
+    if not candidatos:
+        return None
+    cabe = [f for f in candidatos if f["height"] <= alto_objetivo]
+    return (max(cabe, key=lambda f: f["height"]) if cabe
+            else min(candidatos, key=lambda f: f["height"]))
+
+
+def buscar_pixabay(clave, consultas, cantidad, vertical, ya_bajados):
+    """Lo mismo que buscar_pexels, contra Pixabay. Devuelve candidatos
+    normalizados, así que a partir de aquí da igual de dónde salieron."""
+    elegidos = []
+    vistos = set()
+    for consulta in consultas:
+        if len(elegidos) >= cantidad:
+            break
+        params = {
+            "key": clave,
+            "q": consulta,
+            "video_type": "film",
+            "safesearch": "true",
+            "per_page": 20,   # el mínimo que acepta Pixabay es 3
+        }
+        try:
+            resp = requests.get(PIXABAY_API, params=params, timeout=20)
+            resp.raise_for_status()
+            data = resp.json()
+        except Exception as exc:
+            codigo = getattr(getattr(exc, "response", None), "status_code", None)
+            if codigo in (400, 401, 403):
+                # Pixabay contesta 400 a una clave mal formada y 401/403 a una
+                # que no vale; las tres se arreglan mirando la credencial, no
+                # cambiando de búsqueda.
+                raise ClaveRechazada(
+                    f"Pixabay rechazó la clave (HTTP {codigo}). Revisa "
+                    "PIXABAY_API_KEY: se copia entera desde "
+                    "https://pixabay.com/api/docs/ estando con la sesión abierta."
+                )
+            if codigo == 429:
+                raise ClaveRechazada(
+                    "Pixabay dice que has hecho demasiadas peticiones (HTTP 429). "
+                    "El límite gratuito se renueva solo; prueba más tarde."
+                )
+            logger.warning(f"    fallo consultando «{consulta}»: {exc}")
+            continue
+
+        for video in data.get("hits", []):
+            if len(elegidos) >= cantidad:
+                break
+            vid = str(video.get("id"))
+            if f"pixabay:{vid}" in ya_bajados or vid in vistos:
+                continue
+            dur = video.get("duration") or 0
+            if not (SEGUNDOS_MINIMO <= dur <= SEGUNDOS_MAXIMO):
+                continue
+            archivo = elegir_archivo_pixabay(video, vertical)
+            if not archivo:
+                continue
+            vistos.add(vid)
+            # En Pixabay el autor es una cadena suelta, no un objeto, y no
+            # viene la URL del perfil: se arma con el id, que es como enlaza
+            # la propia web.
+            autor = video.get("user")
+            user_id = video.get("user_id")
+            perfil = (f"https://pixabay.com/users/{autor}-{user_id}/"
+                      if autor and user_id else None)
+            elegidos.append(candidato(
+                fuente="pixabay", ident=vid, url=archivo["url"],
+                ancho=archivo["width"], alto=archivo["height"], duracion=dur,
+                autor=autor, perfil=perfil, pagina=video.get("pageURL"),
+            ))
+    return elegidos
+
+
+BUSCADORES = {"pexels": buscar_pexels, "pixabay": buscar_pixabay}
 
 
 def descargar(url, destino):
@@ -241,7 +395,9 @@ def fusionar_atribucion(ruta):
 
 
 def main(argv=None):
-    p = argparse.ArgumentParser(description="Bajar videos de fondo desde Pexels.")
+    p = argparse.ArgumentParser(description="Bajar videos de fondo desde Pexels y Pixabay.")
+    p.add_argument("--fuente", choices=("ambas", "pexels", "pixabay"), default="ambas",
+                   help="de dónde bajar (por defecto las dos, repartiendo el cupo)")
     p.add_argument("--tema", help="solo este tema (" + ", ".join(TEMAS) + ")")
     p.add_argument("--cuantos", type=int, default=FONDOS_POR_TEMA,
                    help=f"cuántos clips mantener por tema (por defecto {FONDOS_POR_TEMA})")
@@ -259,12 +415,27 @@ def main(argv=None):
     if requests is None:
         raise SystemExit("Falta el paquete 'requests'. Instálalo con: pip install requests")
 
-    clave = os.environ.get("PEXELS_API_KEY")
-    if not clave:
+    pedidas = ("pexels", "pixabay") if args.fuente == "ambas" else (args.fuente,)
+    claves = {}
+    for fuente in pedidas:
+        nombre_var, donde = CLAVES[fuente]
+        valor = os.environ.get(nombre_var)
+        if valor:
+            claves[fuente] = valor
+        elif args.fuente != "ambas":
+            raise SystemExit(
+                f"Falta la variable de entorno {nombre_var}. Es gratis y sin tarjeta: "
+                f"{donde}. Ponla en secretos.env desde la pestaña Ajustes del panel "
+                "(ese archivo no se sube al repo)."
+            )
+        else:
+            # Con --fuente ambas, que falte una no es motivo para no usar la
+            # otra: se avisa y se sigue.
+            logger.info(f"Sin {nombre_var}: se omite {fuente}.")
+    if not claves:
         raise SystemExit(
-            "Falta la variable de entorno PEXELS_API_KEY. Es gratis y sin tarjeta: "
-            "https://www.pexels.com/api/ → Your API Key. Ponla en secretos.env como "
-            "PEXELS_API_KEY=... (ese archivo no se sube al repo)."
+            "No hay ninguna clave configurada. Hace falta PEXELS_API_KEY o "
+            "PIXABAY_API_KEY; se ponen en la pestaña Ajustes del panel."
         )
 
     temas = TEMAS
@@ -277,7 +448,9 @@ def main(argv=None):
     prefijo = "fondo_vertical" if vertical else "fondo_horizontal"
 
     historial = cargar_json(RUTA_HISTORIAL, [])
-    ya_bajados = set(historial)
+    # Los historiales de antes de Pixabay guardan el id de Pexels pelado. Se
+    # leen como suyos: si no, todo lo bajado hasta hoy volvería a bajarse.
+    ya_bajados = {h if ":" in h else f"pexels:{h}" for h in historial}
     atribucion = cargar_json(RUTA_ATRIBUCION, {})
 
     for tema, consultas in temas.items():
@@ -287,45 +460,64 @@ def main(argv=None):
             logger.info(f"{tema}: ya hay {len(existentes)} clip(s), no se baja nada.")
             continue
 
+        # El cupo se reparte entre las fuentes disponibles, y lo que no
+        # consiga una lo intenta la siguiente: así un tema que Pexels tiene
+        # flojo se completa con Pixabay en vez de quedarse corto.
         logger.info(f"{tema}: buscando {faltan} clip(s) nuevo(s)...")
-        try:
-            encontrados = buscar(clave, consultas, faltan, vertical, ya_bajados)
-        except ClaveRechazada as exc:
-            # Se para aquí en vez de seguir con los demás temas: el siguiente
-            # daría el mismo error, y lo ya bajado sí se guarda al salir.
+        encontrados = []
+        restantes = list(claves.items())
+        for i, (fuente, clave) in enumerate(restantes):
+            pendientes = faltan - len(encontrados)
+            if pendientes <= 0:
+                break
+            # Al repartir, la primera fuente no se lleva todo el cupo salvo
+            # que sea la última que queda.
+            cupo = pendientes if i == len(restantes) - 1 else max(1, pendientes // 2)
+            try:
+                encontrados += BUSCADORES[fuente](clave, consultas, cupo,
+                                                  vertical, ya_bajados)
+            except ClaveRechazada as exc:
+                # No se para todo: la otra fuente puede seguir sirviendo. Se
+                # quita esta de la lista para no repetir el mismo error en
+                # cada tema que queda.
+                logger.warning(f"  ⚠️ {exc}")
+                claves.pop(fuente, None)
+        if not claves:
             if not args.ver:
                 guardar_json(RUTA_HISTORIAL, sorted(ya_bajados))
                 guardar_json(RUTA_ATRIBUCION, atribucion)
-            raise SystemExit(str(exc))
+            raise SystemExit("Ninguna fuente aceptó su clave; no hay nada más que intentar.")
         if not encontrados:
             logger.warning(f"{tema}: no se encontró nada usable.")
             continue
 
-        for video, archivo in encontrados:
-            autor = limpiar_nombre(usuario_de(video).get("name"))
-            nombre = f"{prefijo}_{tema}_{autor}_{video['id']}.mp4"
+        for clip in encontrados:
+            autor = limpiar_nombre(clip["autor"])
+            nombre = (f"{prefijo}_{tema}_{clip['fuente']}_{autor}_"
+                      f"{clip['id_corto']}.mp4")
             destino = os.path.join(BASE_DIR, nombre)
-            etiqueta = (f"{nombre} ({archivo['width']}x{archivo['height']}, "
-                        f"{video.get('duration')}s)")
+            etiqueta = (f"{nombre} ({clip['ancho']}x{clip['alto']}, "
+                        f"{clip['duracion']}s)")
             if args.ver:
                 logger.info(f"  · bajaría {etiqueta}")
                 continue
             try:
-                bytes_ = descargar(archivo["link"], destino)
+                bytes_ = descargar(clip["url"], destino)
                 logger.info(f"  ✅ {etiqueta} — {bytes_/1024/1024:.1f} MB")
-                ya_bajados.add(str(video["id"]))
+                ya_bajados.add(clip["id"])
                 atribucion[nombre] = {
-                    "autor": usuario_de(video).get("name"),
-                    "perfil": usuario_de(video).get("url"),
-                    "pagina_pexels": video.get("url"),
-                    "licencia": "Pexels License (https://www.pexels.com/license/)",
+                    "fuente": clip["fuente"],
+                    "autor": clip["autor"],
+                    "perfil": clip["perfil"],
+                    "pagina": clip["pagina"],
+                    "licencia": clip["licencia"],
                 }
             except DemasiadoGrande as exc:
                 # Se apunta igual: el clip pesa lo que pesa, y sin esto se
                 # vuelve a encontrar y a bajar (hasta 60 MB de datos) en cada
                 # corrida futura hasta que se corte sola otra vez.
                 logger.warning(f"  ⚠️ {nombre}: {exc} — descartado para siempre")
-                ya_bajados.add(str(video["id"]))
+                ya_bajados.add(clip["id"])
             except Exception as exc:
                 logger.warning(f"  ⚠️ {nombre}: {exc}")
 

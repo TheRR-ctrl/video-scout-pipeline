@@ -23,13 +23,24 @@ Formato de secretos.env (una por línea, se ignoran comentarios y comillas):
 El archivo está en .gitignore: nunca se sube al repo.
 """
 import os
+import re
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_SECRETOS = os.path.join(BASE_DIR, "secretos.env")
 
 CLAVES_CONOCIDAS = ("GEMINI_API_KEY", "JAMENDO_CLIENT_ID", "YOUTUBE_API_KEY",
                     "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET",
-                    "PEXELS_API_KEY")
+                    "PEXELS_API_KEY", "PIXABAY_API_KEY")
+
+# Las de arriba son las que el proyecto usa hoy, y salen en el panel aunque
+# falten, con su explicación. Pero se puede añadir cualquier otra desde el
+# panel sin tocar código: cargar() mete en el entorno TODO lo que haya en
+# secretos.env, y claves_extra() las saca para que el panel también las pinte.
+#
+# El nombre tiene que valer como variable de entorno y, sobre todo, no puede
+# traer un "=" ni un salto de línea: el archivo es NOMBRE=valor por línea, así
+# que un nombre con cualquiera de los dos metería líneas que nadie escribió.
+NOMBRE_VALIDO = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 
 # Qué claves acabaron viniendo del archivo. Se registra al cargar, porque
 # después no hay forma de saberlo: en os.environ ya no se distingue el
@@ -73,9 +84,18 @@ def guardar(clave, valor, ruta=RUTA_SECRETOS):
     tipográficas al pegar: el sed falla, el echo no, y uno acaba con la clave
     vieja intacta y un mensaje de error que no dice eso.
     """
+    if not NOMBRE_VALIDO.match(clave or ""):
+        raise ValueError(
+            "Nombre inválido. Solo MAYÚSCULAS, números y guion bajo, "
+            "empezando por letra (ej. PIXABAY_API_KEY)."
+        )
     valor = (valor or "").strip().strip('"').strip("'")
     if not valor:
         raise ValueError("El valor está vacío.")
+    # Un salto de línea en el valor partiría la línea en dos y la segunda
+    # mitad se leería como otra clave.
+    if "\n" in valor or "\r" in valor:
+        raise ValueError("El valor no puede tener saltos de línea.")
 
     lineas = []
     if os.path.exists(ruta):
@@ -102,10 +122,35 @@ def guardar(clave, valor, ruta=RUTA_SECRETOS):
     return ruta
 
 
+def claves_en_archivo(ruta=RUTA_SECRETOS):
+    """Los nombres que hay escritos en secretos.env, en su orden."""
+    nombres = []
+    if not os.path.exists(ruta):
+        return nombres
+    try:
+        with open(ruta, "r", encoding="utf-8") as f:
+            for linea in f:
+                linea = linea.strip()
+                if not linea or linea.startswith("#") or "=" not in linea:
+                    continue
+                clave = linea.partition("=")[0].strip()
+                if clave and clave not in nombres:
+                    nombres.append(clave)
+    except OSError:
+        pass
+    return nombres
+
+
+def claves_extra(ruta=RUTA_SECRETOS):
+    """Las añadidas a mano que el proyecto no trae de serie."""
+    return [c for c in claves_en_archivo(ruta) if c not in CLAVES_CONOCIDAS]
+
+
 def estado():
-    """(clave, valor_presente, de_dónde) para cada clave conocida."""
+    """(clave, valor_presente, de_dónde) para cada clave conocida y para las
+    que se hayan añadido después desde el panel."""
     out = []
-    for c in CLAVES_CONOCIDAS:
+    for c in tuple(CLAVES_CONOCIDAS) + tuple(claves_extra()):
         tiene = bool(os.environ.get(c))
         if not tiene:
             origen = ""

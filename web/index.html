@@ -1777,7 +1777,7 @@ const MANTENIMIENTO = [
   {accion:'ver_fondos_pexels', que:'Ver fondos nuevos en Pexels', cmd:'descargar_fondos.py --ver',
    nota:'Material de archivo para variar el gameplay. No baja nada.', boton:'Ver'},
   {accion:'bajar_fondos_pexels', que:'Bajar esos fondos', cmd:'descargar_fondos.py',
-   nota:'Gasta datos. Necesita PEXELS_API_KEY en secretos.env.', boton:'Bajar',
+   nota:'Gasta datos. Necesita PEXELS_API_KEY o PIXABAY_API_KEY.', boton:'Bajar',
    aviso:'Baja videos de fondo desde Pexels.\n\nGasta datos móviles y ocupa sitio en el teléfono (tope de 60 MB por clip). Mejor con wifi.'},
   {accion:'calidad', que:'Medir los videos renderizados', cmd:'calidad.py',
    nota:'Audio cortado, volumen, negros, imagen parada.', boton:'Medir'},
@@ -1906,6 +1906,20 @@ function pintaAjustes(){
           >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
       </div>`).join('')}</div>
 
+    <h3 class="sec">Añadir una API nueva</h3>
+    <div class="list"><div class="row" style="display:block">
+      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
+        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
+        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
+      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
+             spellcheck="false" style="width:100%;margin-bottom:6px">
+      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
+             style="width:100%;margin-bottom:8px">
+      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
+      <button class="btn sm" id="b-api-nueva">Guardar</button>
+      <div class="m" id="api-nota" style="margin-top:8px"></div>
+    </div></div>
+
     <h3 class="sec">Subida</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
@@ -1956,6 +1970,23 @@ function pintaAjustes(){
     if(t.aviso && !confirm(t.aviso)) return;
     ejecutar(t.accion);
   });
+  const bApi = $('#b-api-nueva');
+  if(bApi) bApi.onclick = async ()=>{
+    const nota = $('#api-nota');
+    const nombre = ($('#api-nombre').value || '').trim().toUpperCase();
+    const valor = ($('#api-valor').value || '').trim();
+    if(!nombre || !valor){ nota.textContent = 'Faltan el nombre o la clave.'; return; }
+    try{
+      await post('/api/secretos/' + encodeURIComponent(nombre), {valor});
+      // El valor se borra del campo en cuanto se guarda: es una credencial y
+      // no tiene por qué quedarse a la vista en la pestaña.
+      $('#api-valor').value = ''; $('#api-nombre').value = '';
+      // El aviso va por toast y no en la nota de aquí: refrescar() vuelve a
+      // pintar este bloque entero, así que la nota desaparecía al instante.
+      toast('✓ ' + nombre + ' guardada en secretos.env');
+      secretosCache = []; refrescar();
+    }catch(e){ nota.textContent = 'No se pudo guardar: ' + e.message; }
+  };
   $('#b-wifi').onclick = async ()=>{
     try{ const j = await post('/api/wifi',{solo_wifi: !E.solo_wifi});
       toast(j.solo_wifi ? 'Solo con WiFi' : 'Permite datos móviles'); refrescar();

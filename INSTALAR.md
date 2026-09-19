@@ -206,10 +206,27 @@ Si prefieres no gastar datos, hay un workflow que los baja en los servidores
 de GitHub y te los deja empaquetados: pestaña **Actions** → *Bajar fondos de
 Pexels* → **Run workflow**. Eliges tema, cuántos y formato.
 
+Desde agosto usa **dos** bancos, Pexels y Pixabay, y por defecto los dos a la
+vez repartiendo el cupo: un tema que uno tiene flojo lo completa el otro. Si
+solo tienes una de las dos claves, se avisa y se sigue con la que haya.
+
 Necesita la misma clave, pero puesta **también** como secret del repo
 (*Settings → Secrets and variables → Actions → New repository secret*,
-nombre `PEXELS_API_KEY`). Tenerla en `secretos.env` no la pone ahí: son dos
-sitios distintos y ninguno ve al otro.
+nombre `PEXELS_API_KEY` y/o `PIXABAY_API_KEY`). Tenerlas en `secretos.env` no
+las pone ahí: son dos sitios distintos y ninguno ve al otro.
+
+#### Añadir la API de un servicio nuevo
+
+En *Ajustes* hay un apartado **Añadir una API nueva**: escribes el nombre
+(`PIXABAY_API_KEY`, por ejemplo) y la clave, y se guarda en `secretos.env` con
+permisos 600. No hace falta tocar código ni abrir Termux, y a partir de ahí la
+clave sale en la lista de arriba y se puede copiar a los secrets de GitHub
+como cualquier otra.
+
+El nombre va en MAYÚSCULAS con guion bajo. Se rechaza cualquier otra cosa
+—minúsculas, espacios, un `=`, un salto de línea— porque el archivo es una
+línea `NOMBRE=valor` por clave y un nombre raro metería líneas que nadie
+escribió.
 
 Al terminar, descarga el artefacto y descomprímelo dentro de
 `~/video-scout-pipeline`. Los archivos ya vienen con el prefijo que el render

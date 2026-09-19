@@ -1,4 +1,4 @@
-name: Bajar fondos de Pexels
+name: Bajar fondos de archivo
 
 # Baja videos de fondo en el runner y te los deja como artefacto, para
 # descargarlos por wifi desde el teléfono sin gastar datos móviles y sin que
@@ -10,9 +10,11 @@ name: Bajar fondos de Pexels
 #
 # Lo que hay que saber antes de usarlo:
 #
-#   1. Hace falta el secret PEXELS_API_KEY (Settings -> Secrets and variables
-#      -> Actions). Es la misma clave que va en secretos.env del teléfono;
-#      tenerla en un sitio no la pone en el otro.
+#   1. Hace falta el secret PEXELS_API_KEY, PIXABAY_API_KEY o los dos
+#      (Settings -> Secrets and variables -> Actions). Son las mismas claves
+#      que van en secretos.env del teléfono; tenerlas en un sitio no las pone
+#      en el otro. Con "fuente: ambas" se usa la que haya y se avisa de la
+#      que falte, sin fallar.
 #
 #   2. El runner arranca en blanco. pipeline_state/ está en .gitignore, así
 #      que aquí no existe fondos_historial.json y esto puede volver a bajar
@@ -51,6 +53,11 @@ on:
         type: choice
         default: vertical
         options: [vertical, horizontal]
+      fuente:
+        description: "De dónde bajarlos"
+        type: choice
+        default: ambas
+        options: [ambas, pexels, pixabay]
 
 jobs:
   fondos:
@@ -77,15 +84,17 @@ jobs:
       - name: Bajar fondos
         env:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+          PIXABAY_API_KEY: ${{ secrets.PIXABAY_API_KEY }}
           TEMA: ${{ inputs.tema }}
           CUANTOS: ${{ inputs.cuantos }}
           ORIENTACION: ${{ inputs.orientacion }}
+          FUENTE: ${{ inputs.fuente }}
         run: |
-          if [ -z "$PEXELS_API_KEY" ]; then
-            echo "::error::Falta el secret PEXELS_API_KEY. Settings -> Secrets and variables -> Actions -> New repository secret. La clave es gratis en https://www.pexels.com/api/"
+          if [ -z "$PEXELS_API_KEY" ] && [ -z "$PIXABAY_API_KEY" ]; then
+            echo "::error::No hay ninguna clave. Hace falta el secret PEXELS_API_KEY o PIXABAY_API_KEY (Settings -> Secrets and variables -> Actions -> New repository secret). Las dos son gratis: https://www.pexels.com/api/ y https://pixabay.com/api/docs/"
             exit 1
           fi
-          args=(--cuantos "$CUANTOS")
+          args=(--cuantos "$CUANTOS" --fuente "$FUENTE")
           if [ "$TEMA" != "todos" ]; then
             args+=(--tema "$TEMA")
           fi
