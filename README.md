@@ -190,6 +190,29 @@ valid config. Three styles are available:
 | `relleno` | Classic karaoke fill: words already spoken keep the accent color, upcoming ones stay white. |
 | `pop` | One word at a time, entering with a scale bounce. |
 
+### Word timing, and the fallback
+
+Word-level karaoke timing comes from the TTS itself: `edge-tts` is driven with
+`boundary="WordBoundary"`, so each word's highlight starts when that word is
+actually spoken. Nothing estimates anything on the normal path.
+
+If that capture fails — or the audio comes back suspiciously short — the
+renderer falls back to an SRT split by sentence, and there the per-word timing
+has to be guessed. `reparto_respaldo` picks how:
+
+| value | how the sentence's time is split |
+|---|---|
+| `"igual"` (default) | Every word gets the same slice. `a` and `extraordinariamente` last exactly as long. |
+| `"proporcional"` | Each word gets a slice weighted by its letter count. In a 6-second sentence that is 0.07 s vs 1.37 s for those two words. |
+
+The proportional split is borrowed from the sibling repo
+[`video_generation`](https://github.com/TheRR-ctrl/video_generation), where
+Gemini TTS returns no word timings at all and estimating is the only option.
+It only ever applies to this fallback: replacing real `WordBoundary` timings
+with an estimate would be a downgrade, so the normal path never uses it.
+
+The panel shows which one is active under **Estilo → Qué usa el activo**.
+
 **Fonts ship in `fuentes/`** (Anton, Montserrat Black, Archivo Black, Bebas
 Neue — all SIL OFL, redistributable and fine for monetized video) and ffmpeg
 is pointed at that directory with `fontsdir`. This matters: libass silently
