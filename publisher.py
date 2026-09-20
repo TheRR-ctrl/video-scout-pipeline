@@ -99,6 +99,11 @@ CONFIG_DEFAULT = {
     # de tokens y menos de un megabyte; aun así, se salta sin wifi. Ponlo en
     # false para que solo pase cuando lo pidas tú desde el panel.
     "calidad_ia_automatica": True,
+    # Despues de cada tanda de renders, cambiar por otras las pistas de musica
+    # que ya sonaron (actualizar_musica.py --rotar). Sin esto la biblioteca se
+    # queda fija y las mismas canciones se reparten entre todos los videos.
+    # Se salta sola sin wifi y sin JAMENDO_CLIENT_ID.
+    "musica_rotacion_automatica": True,
     "duracion_min_sec": 10,
     "duracion_max_sec": 15 * 60,
     "categoria_youtube": "24",  # Entertainment

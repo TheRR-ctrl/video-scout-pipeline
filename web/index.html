@@ -1887,7 +1887,7 @@ function pintaTiktok(){
 let secretosCache = [];
 function firmaAjustes(){
   return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
-          JSON.stringify(E.ajustes), E.solo_wifi,
+          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto,
           JSON.stringify(E.musica), secretosCache.length].join('~');
 }
 /* Las tareas de mantenimiento del panel. Cada una lleva su orden de Termux
@@ -1989,8 +1989,11 @@ function pintaAjustes(){
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
           <h4 style="margin:0;font:500 13px var(--mono)">Música</h4>
           <span class="pill ${m.musica?'ok':'warn'}">${m.musica} pistas</span></div>
-        <div class="muted" style="margin:8px 0">Tres por emoción desde Jamendo, con licencia comercial. Se acredita sola en la descripción.</div>
-        <button class="btn go sm" onclick="ejecutar('musica')">↻ Actualizar música</button>
+        <div class="muted" style="margin:8px 0">Tres por emoción desde Jamendo, con licencia comercial. Se acredita sola en la descripción.
+          Rellenar solo trae las que falten para llegar a tres; cambiar aparta a <code>musica_usadas/</code>
+          las que ya sonaron en un video y baja otras tantas.</div>
+        <button class="btn go sm" onclick="ejecutar('musica')">↻ Rellenar</button>
+        <button class="btn go sm" onclick="ejecutar('musica_rotar')">🔀 Cambiar las usadas</button>
       </div>
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -2062,6 +2065,12 @@ function pintaAjustes(){
         <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
         <button class="btn sm" id="b-wifi">${E.solo_wifi?'activado':'desactivado'}</button>
       </div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Cambiar la música sola</div><div class="m">Después de cada tanda de renders, aparta
+          las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
+            : 'Hace falta JAMENDO_CLIENT_ID en Ajustes → Claves.'}</div></div>
+        <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
+      </div>
     </div>
 
     <h3 class="sec">Mantenimiento</h3>
@@ -2126,6 +2135,12 @@ function pintaAjustes(){
   $('#b-wifi').onclick = async ()=>{
     try{ const j = await post('/api/wifi',{solo_wifi: !E.solo_wifi});
       toast(j.solo_wifi ? 'Solo con WiFi' : 'Permite datos móviles'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#b-musica-auto').onclick = async ()=>{
+    try{ const j = await post('/api/musica/auto',{auto: !E.musica_auto});
+      toast(j.auto ? 'La música se cambiará sola tras cada render'
+                   : 'La música solo cambia cuando lo pidas'); refrescar();
     }catch(e){ toast(e.message); }
   };
   pintaBotonesOir();

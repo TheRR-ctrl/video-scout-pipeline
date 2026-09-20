@@ -38,7 +38,7 @@ de megas que no pintan nada en git.
 | `client_secret.json` | Permiso para subir a YouTube | Google Cloud Console → OAuth de escritorio. Cópialo a la carpeta del proyecto |
 | `youtube_token.json` | Tu sesión de YouTube | `python generar_youtube_token.py` — una sola vez, se abre el navegador del teléfono |
 | `fondo_*.mp4` | El video que va detrás | Los tuyos. Cópialos con nombre `fondo_vertical_1.mp4`, `fondo_vertical_2.mp4`… |
-| `musica_*.mp3` | Música de fondo | `python actualizar_musica.py` las baja de Jamendo |
+| `musica_*.mp3` | Música de fondo | `python actualizar_musica.py` las baja de Jamendo; `--rotar` cambia las que ya sonaron |
 
 ### Si vienes de otro teléfono
 

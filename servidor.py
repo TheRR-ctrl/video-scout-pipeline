@@ -71,6 +71,7 @@ class Trabajo:
         self.proc = None
         self.lineas = []
         self.estado = "corriendo"   # corriendo | pausado | ok | error | abortado
+        self.luego = None           # acción que se encola sola si este acaba bien
         self.inicio = time.time()
         self._lock = threading.Lock()
 
@@ -159,20 +160,25 @@ _CANDADO = threading.Lock()
 _SIGUIENTE_ID = [0]
 
 
-def _arrancar(nombre, cmd):
+def _arrancar(nombre, cmd, luego=None):
     """Arranca ya. Quien llama tiene el candado."""
     t = Trabajo(nombre, cmd)
+    t.luego = luego
     t.arrancar()
     TRABAJO["actual"] = t
     return t
 
 
-def lanzar(nombre, cmd):
+def lanzar(nombre, cmd, luego=None):
     """Arranca el comando, o lo pone a la cola si hay algo corriendo.
 
     Devuelve (trabajo, encolado, error): uno de los tres con valor y los
     otros dos en None. "encolado" es la entrada que se quedó esperando, con
     su id, para que el panel pueda quitarla luego.
+
+    "luego" es el nombre de una acción que se encola sola cuando esta termina
+    bien. La usa el render para rotar la música: lo que decide qué pistas
+    apartar es justo lo que se acaba de renderizar.
     """
     with _CANDADO:
         actual = TRABAJO["actual"]
@@ -180,10 +186,29 @@ def lanzar(nombre, cmd):
             if len(TRABAJO["cola"]) >= TOPE_COLA:
                 return None, None, f"Ya hay {TOPE_COLA} esperando; quita alguno antes."
             _SIGUIENTE_ID[0] += 1
-            entrada = {"id": _SIGUIENTE_ID[0], "nombre": nombre, "cmd": cmd}
+            entrada = {"id": _SIGUIENTE_ID[0], "nombre": nombre, "cmd": cmd, "luego": luego}
             TRABAJO["cola"].append(entrada)
-            return None, dict(entrada, posicion=len(TRABAJO["cola"])), None
-        return _arrancar(nombre, cmd), None, None
+            return None, {"id": entrada["id"], "nombre": nombre,
+                          "posicion": len(TRABAJO["cola"])}, None
+        return _arrancar(nombre, cmd, luego), None, None
+
+
+def _toca_encadenar(accion):
+    """Si la acción encadenada de verdad tiene algo que hacer.
+
+    Encolarla igualmente no rompería nada (el script se salta solo), pero
+    dejaría en el panel un trabajo que no hizo nada después de cada render,
+    y eso acaba siendo ruido que se ignora.
+    """
+    if accion != "musica_rotar":
+        return False
+    if not os.environ.get("JAMENDO_CLIENT_ID"):
+        return False
+    try:
+        import publisher
+        return bool(publisher.cargar_config().get("musica_rotacion_automatica", True))
+    except Exception:                              # noqa: BLE001 — informativo
+        return False
 
 
 def seguir_con_la_cola(terminado):
@@ -204,6 +229,19 @@ def seguir_con_la_cola(terminado):
         TRABAJO["hechos"].append(hecho)
         del TRABAJO["hechos"][:-HECHOS_QUE_SE_RECUERDAN]
 
+        # Lo que va detrás de este trabajo, si salió bien. Va al final de la
+        # cola y no delante: lo que tú pulsaste manda sobre lo que se encola
+        # solo. Se encola aquí dentro, con el candado puesto, porque un
+        # instante después ya hay otro proceso corriendo.
+        luego = getattr(terminado, "luego", None)
+        if luego and terminado.estado == "ok" and _toca_encadenar(luego):
+            nombre_luego, cmd_luego = ACCIONES[luego]
+            ya_esperando = any(e["cmd"] == cmd_luego for e in TRABAJO["cola"])
+            if not ya_esperando and len(TRABAJO["cola"]) < TOPE_COLA:
+                _SIGUIENTE_ID[0] += 1
+                TRABAJO["cola"].append({"id": _SIGUIENTE_ID[0], "nombre": nombre_luego,
+                                        "cmd": cmd_luego, "luego": None})
+
         if not TRABAJO["cola"]:
             return
         # Sacar de la cola y arrancar van dentro del mismo candado. Si se
@@ -211,7 +249,7 @@ def seguir_con_la_cola(terminado):
         # trabajo anterior ya terminado, arrancaría el suyo, y acabarían
         # dos procesos a la vez, que es justo lo que no cabe en el teléfono.
         entrada = TRABAJO["cola"].pop(0)
-        _arrancar(entrada["nombre"], entrada["cmd"])
+        _arrancar(entrada["nombre"], entrada["cmd"], entrada.get("luego"))
 
 
 def quitar_de_la_cola(id_entrada):
@@ -825,6 +863,8 @@ def api_estado():
         "subtitulos": cfg["subtitulos"],
         "presets": list(gvm.PRESETS_SUBTITULOS.keys()),
         "solo_wifi": cfg.get("solo_wifi", True),
+        "musica_auto": cfg.get("musica_rotacion_automatica", True),
+        "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "musica": pistas_musica(),
         "fondos": sorted(
             os.path.basename(f) for p in ("fondo_vertical*", "fondo_horizontal*", "fondo_gameplay*")
@@ -845,6 +885,9 @@ def api_estado():
 # error no puede pedir la ejecución de algo arbitrario.
 ACCIONES = {
     "musica":     ("Actualizando música", [sys.executable, "actualizar_musica.py"]),
+    # Rellenar solo trae lo que falta para llegar a 3 por emoción; rotar
+    # cambia las que ya sonaron. Esta es la que corre sola tras cada render.
+    "musica_rotar": ("Rotando la música ya usada", [sys.executable, "actualizar_musica.py", "--rotar"]),
     "fondos":     ("Enlazando material", [sys.executable, "vincular_fondos.py"]),
     "ver_fondos_pexels": ("Mirando qué hay en Pexels", [sys.executable, "descargar_fondos.py", "--ver"]),
     "bajar_fondos_pexels": ("Bajando fondos de Pexels", [sys.executable, "descargar_fondos.py"]),
@@ -921,7 +964,8 @@ def api_ejecutar(accion):
             cmd += ["--fondo", str(d["fondo"])]
         if d.get("volumen_musica") is not None:
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
-        t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando", cmd)
+        t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando",
+                                  cmd, luego="musica_rotar")
     elif accion == "regenerar_metadata":
         # Volver a preguntarle a Gemini por UN video. --forzar porque el
         # botón solo aparece cuando ya la estás mirando: pedirlo ahí es
@@ -1002,6 +1046,15 @@ def api_wifi():
     cfg["solo_wifi"] = bool((request.json or {}).get("solo_wifi", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "solo_wifi": cfg["solo_wifi"]})
+
+
+@app.post("/api/musica/auto")
+def api_musica_auto():
+    """Enciende o apaga la rotación automática de música tras cada render."""
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["musica_rotacion_automatica"] = bool((request.json or {}).get("auto", True))
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
 
 
 @app.post("/api/tiktok/marcar")

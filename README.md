@@ -278,16 +278,35 @@ This downloads a few tracks per emotion category (`drama`, `venganza`,
 `suspenso`, `comedia`) as `musica_<emocion>_<artista>_<id>.mp3`, filtering
 for licenses that allow commercial use and don't forbid derivatives (needed
 since the track gets mixed with narration). `generar_video_maestro.py`
-picks randomly among all tracks available for an emotion, so re-running
-`actualizar_musica.py` occasionally (weekly/monthly is plenty — music
-doesn't need to change per video) keeps adding variety instead of repeating
-the same song. Attribution (artist, license, Jamendo page) is saved to
+picks randomly among all tracks available for an emotion.
+
+Note that the plain run only *tops up*: once an emotion has its three
+tracks it downloads nothing, however often you run it. To actually rotate
+the library, use:
+
+```bash
+python actualizar_musica.py --rotar
+```
+
+That looks up which tracks already play in a rendered video (each render
+records its track in `resultado_lote.json`), downloads that many new ones,
+and only then moves the spent ones to `musica_usadas/` — one out per one
+in, so a Jamendo outage leaves the library as it was and never empty. The
+files are moved, not deleted: dropping one back into the repo root puts it
+back in rotation.
+
+This rotation runs by itself after every batch of renders — from
+`pipeline.py` (a stage attached to the video stage, like the quality
+checks) and from the panel (queued right behind the render job). It skips
+itself without WiFi, without `JAMENDO_CLIENT_ID`, or with
+`"musica_rotacion_automatica": false` in `config.json` (there's a switch
+for it in the panel, under Ajustes → Subida). The monthly cron entry still
+does the plain top-up.
+
+Attribution (artist, license, Jamendo page) is saved to
 `pipeline_state/musica_atribucion.json` and automatically credited in the
 YouTube description by `publisher.py` when a video uses one of these
 tracks.
-
-This isn't part of the daily `pipeline.py` run — run it manually, or set up
-its own occasional cron/Action if you want it fully hands-off.
 
 For YouTube uploads, download an OAuth "Desktop app" client from Google Cloud
 Console as `client_secret.json`. The first run of `publisher.py` (or
