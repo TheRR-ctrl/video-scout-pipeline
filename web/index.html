@@ -1040,6 +1040,12 @@ function firmaCola(){
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length].join('~');
 }
+/* El aviso de limpiar la cola sale en dos sitios —aquí y en Mantenimiento—
+   y dice justo lo que se pierde, que es la numeración. Una sola copia para
+   que no se queden diciendo cosas distintas. */
+const AVISO_LIMPIAR_COLA =
+  "Quita de guion.txt las historias que ya tienen video.\n\nDeja una copia con fecha, y las que quedan se renumeran (un «--historias 44» de antes deja de apuntar a lo mismo).";
+
 function pintaCola(){
   const h = E.historias, cont = $('#v-cola');
   if(!h.length){
@@ -1089,6 +1095,8 @@ function pintaCola(){
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
           <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
+          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Mantenimiento"
+            onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
           <button class="btn go" id="b-render">▶ Renderizar</button>
         </div>
       </div>
@@ -1807,7 +1815,7 @@ const MANTENIMIENTO = [
    nota:'Las historias de la cola que ya tienen video hecho.'},
   {accion:'limpiar_cola', que:'Quitar de la cola lo ya grabado', cmd:'limpiar_cola.py --si',
    nota:'Deja copia de la cola anterior. Las que quedan se renumeran.',
-   aviso:'Quita de guion.txt las historias que ya tienen video.\n\nDeja una copia con fecha, y las que quedan se renumeran (un «--historias 44» de antes deja de apuntar a lo mismo).'},
+   aviso:AVISO_LIMPIAR_COLA},
   {accion:'ver_recomprimir', que:'Ver videos que pesan de más', cmd:'recomprimir.py',
    nota:'Los hechos antes de fijar el preset actual.'},
   {accion:'recomprimir', que:'Recomprimir esos videos', cmd:'recomprimir.py --si',
