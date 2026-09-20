@@ -34,6 +34,16 @@ schedule (cron, Termux, or GitHub Actions).
    the button that writes them — searching without this step looks like
    searching found nothing.
 
+   The queue is bounded, because the scouts add on every run and this stage
+   only drains what the daily free Gemini quota allows — left alone it grows
+   faster than it empties. `cola.TOPE_CANDIDATOS` (60) caps it and
+   `cola.FRESCURA_MAXIMA_DIAS` (14) expires the rest; what is dropped is
+   marked as seen so the next scan doesn't bring it straight back. Candidates
+   are written newest first, and each run writes at most
+   `MAX_POR_CORRIDA` (12, `--max N`, `--max 0` for no cap) — the rest of the
+   day's quota is for `calidad_ia` and the publisher's metadata, which call
+   Gemini later in the same pipeline.
+
    Most Reddit posts are one dry paragraph, so the prompt asks Gemini to
    *develop* them — scene, inner monologue, dialogue spelled out from what
    the post summarizes, tension held before the turn — aiming past ~200
