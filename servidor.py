@@ -193,6 +193,36 @@ def lanzar(nombre, cmd, luego=None):
         return _arrancar(nombre, cmd, luego), None, None
 
 
+def lanzar_tanda(tareas):
+    """Encola varias de golpe, conservando el orden.
+
+    Con `lanzar` una por una no basta: si la primera acaba entre llamada y
+    llamada, la cola se vacía y la tercera arranca antes de que la segunda
+    llegue a entrar. Aquí el candado se sostiene durante toda la tanda, así
+    que el orden que se pide es el orden que corre.
+
+    Devuelve (encolados, saltados) con el nombre y la posición de cada una.
+    """
+    encolados, saltados = [], []
+    with _CANDADO:
+        for nombre, cmd in tareas:
+            actual = TRABAJO["actual"]
+            ocupado = (actual and actual.estado in ("corriendo", "pausado")) or encolados
+            if not ocupado:
+                _arrancar(nombre, cmd)
+                encolados.append({"nombre": nombre, "posicion": 0})
+                continue
+            if len(TRABAJO["cola"]) >= TOPE_COLA:
+                saltados.append({"nombre": nombre,
+                                 "motivo": f"la cola ya tiene {TOPE_COLA} esperando"})
+                continue
+            _SIGUIENTE_ID[0] += 1
+            TRABAJO["cola"].append({"id": _SIGUIENTE_ID[0], "nombre": nombre,
+                                    "cmd": cmd, "luego": None})
+            encolados.append({"nombre": nombre, "posicion": len(TRABAJO["cola"])})
+    return encolados, saltados
+
+
 def _toca_encadenar(accion):
     """Si la acción encadenada de verdad tiene algo que hacer.
 
@@ -481,6 +511,100 @@ AJUSTES_NUMERICOS = {
     "volumen_sonido_transicion": (0.0, 1.0),
     "velo_blanco_fondo": (0.0, 1.0),
 }
+
+
+# Lo que el panel puede tocar de un estilo de subtítulos, con su tipo y sus
+# límites. Lista blanca por el mismo motivo que AJUSTES_NUMERICOS: lo que
+# llegue del navegador acaba en config.json, del que depende todo el render.
+# Los topes no son gusto: por debajo de 40 px no se lee en el móvil, por
+# encima de 160 no cabe una palabra larga; un borde de más de 20 come la
+# letra; y "palabras por frase" es lo que decide si hay frase que resaltar.
+def _entero(minimo, maximo):
+    def valida(v):
+        if isinstance(v, bool) or not isinstance(v, (int, float)):
+            raise ValueError("tiene que ser un número")
+        return max(minimo, min(maximo, int(v)))
+    return valida
+
+
+def _color(v):
+    if not isinstance(v, str) or not re.fullmatch(r"#[0-9A-Fa-f]{6}", v.strip()):
+        raise ValueError("tiene que ser un color tipo #RRGGBB")
+    return v.strip().upper()
+
+
+def _booleano(v):
+    if not isinstance(v, bool):
+        raise ValueError("tiene que ser sí o no")
+    return v
+
+
+def _paleta(v):
+    if not isinstance(v, list):
+        raise ValueError("tiene que ser una lista de colores")
+    if len(v) > 8:
+        raise ValueError("como mucho 8 colores")
+    return [_color(c) for c in v]
+
+
+def _de_la_lista(opciones):
+    def valida(v):
+        if v not in opciones:
+            raise ValueError(f"tiene que ser uno de: {', '.join(opciones)}")
+        return v
+    return valida
+
+
+def _fuente(v):
+    # Sin lista cerrada: FUENTES_INCLUIDAS es lo que viaja en el repo, pero
+    # quien tenga otra instalada puede escribirla. Si no existe, libass
+    # sustituye y se ve en el render, no aquí.
+    if not isinstance(v, str) or not v.strip() or len(v) > 60:
+        raise ValueError("nombre de fuente vacío o demasiado largo")
+    return v.strip()
+
+
+def campos_estilo():
+    import generar_video_maestro as gvm
+    return {
+        "estilo": _de_la_lista(gvm.ESTILOS_SUBTITULOS),
+        "fuente": _fuente,
+        "palabras_por_frase_short": _entero(1, 8),
+        "palabras_por_frase_largo": _entero(1, 10),
+        "tamano_short": _entero(40, 160),
+        "tamano_largo": _entero(40, 200),
+        "color_texto": _color,
+        "color_activo": _color,
+        "color_borde": _color,
+        "grosor_borde": _entero(0, 20),
+        "sombra": _entero(0, 10),
+        "mayusculas": _booleano,
+        "italica": _booleano,
+        "escala_activa": _entero(100, 160),
+        "colores_resalte": _paleta,
+        "resaltar_solo_clave": _booleano,
+        "min_letras_resalte": _entero(1, 12),
+        "reparto_respaldo": _de_la_lista(gvm.REPARTOS_RESPALDO),
+    }
+
+
+def limpiar_valores_estilo(valores):
+    """Devuelve (valores_validados, errores). Lo que no esté en la lista se
+    ignora sin ruido; lo que esté pero venga mal se nombra, porque eso sí es
+    un fallo del panel que conviene ver."""
+    campos = campos_estilo()
+    limpios, errores = {}, []
+    for clave, valor in (valores or {}).items():
+        if clave not in campos:
+            continue
+        try:
+            limpios[clave] = campos[clave](valor)
+        except ValueError as exc:
+            errores.append(f"{clave}: {exc}")
+    return limpios, errores
+
+
+NOMBRE_ESTILO = re.compile(r"^[a-z0-9_]{1,32}$")
 
 
 @app.post("/api/recorte")
@@ -862,6 +986,17 @@ def api_estado():
         "credenciales": credenciales(),
         "subtitulos": cfg["subtitulos"],
         "presets": list(gvm.PRESETS_SUBTITULOS.keys()),
+        # Los estilos propios y con qué se arma el formulario del panel. Las
+        # opciones salen de las constantes del motor y no repetidas en el
+        # JavaScript: dos listas de estilos válidos acabarían divergiendo.
+        "presets_propios": {n: v for n, v in (cfg.get("presets_propios") or {}).items()
+                            if isinstance(v, dict)},
+        "previsualizaciones": previsualizaciones(),
+        "estilo_opciones": {
+            "estilos": list(gvm.ESTILOS_SUBTITULOS),
+            "repartos": list(gvm.REPARTOS_RESPALDO),
+            "fuentes": list(gvm.FUENTES_INCLUIDAS),
+        },
         "solo_wifi": cfg.get("solo_wifi", True),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
@@ -988,6 +1123,40 @@ def api_ejecutar(accion):
     return jsonify({"ok": True, "trabajo": t.como_dict()})
 
 
+# La tanda de mantenimiento: lo que hay que hacer de vez en cuando y que, por
+# separado, se olvida. Van en este orden a propósito — medir antes de tocar
+# nada, limpiar la cola después (usa lo medido para saber qué está grabado) y
+# rotar la música al final, que es lo único que baja megas.
+TANDA_MANTENIMIENTO = ["calidad", "limpiar_cola", "musica_rotar"]
+
+
+@app.post("/api/mantenimiento")
+def api_mantenimiento():
+    """Encola de una vez las tareas de mantenimiento.
+
+    No es un comando nuevo: son los mismos de la lista blanca, puestos en la
+    cola uno detrás de otro. Así se ven pasar en el panel de siempre y se
+    puede quitar cualquiera a mitad, en vez de ser una caja negra que tarda
+    diez minutos.
+    """
+    tareas, saltados = [], []
+    for accion in TANDA_MANTENIMIENTO:
+        if accion == "musica_rotar" and not _toca_encadenar("musica_rotar"):
+            saltados.append({"accion": accion, "motivo":
+                             "sin JAMENDO_CLIENT_ID o con la rotación apagada"})
+            continue
+        nombre, cmd = ACCIONES[accion]
+        tareas.append((nombre, cmd))
+
+    encolados, no_cupieron = lanzar_tanda(tareas)
+    por_nombre = {ACCIONES[a][0]: a for a in TANDA_MANTENIMIENTO}
+    for e in encolados:
+        e["accion"] = por_nombre.get(e["nombre"], "")
+    for x in no_cupieron:
+        saltados.append({"accion": por_nombre.get(x["nombre"], ""), "motivo": x["motivo"]})
+    return jsonify({"ok": True, "encolados": encolados, "saltados": saltados})
+
+
 @app.post("/api/cola/<que>")
 def api_cola(que):
     """Quita una entrada de la cola de espera, o la vacía entera.
@@ -1029,15 +1198,73 @@ def api_preset():
     """Fija el preset de subtítulos en config.json, conservando lo demás."""
     import generar_video_maestro as gvm
     nombre = (request.json or {}).get("preset", "")
-    if nombre not in gvm.PRESETS_SUBTITULOS:
+    cfg = leer_json(RUTA_CONFIG, {})
+    propios = cfg.get("presets_propios") or {}
+    if nombre not in gvm.PRESETS_SUBTITULOS and nombre not in propios:
         return jsonify({"error": "Preset desconocido"}), 400
 
-    cfg = leer_json(RUTA_CONFIG, {})
     subs = dict(cfg.get("subtitulos") or {})
     subs["preset"] = nombre
     cfg["subtitulos"] = subs
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "preset": nombre})
+
+
+@app.post("/api/estilo/guardar")
+def api_estilo_guardar():
+    """Guarda un estilo propio en config.json y lo deja activo.
+
+    Los del repo no se tocan: un estilo propio que se llame igual que uno de
+    ellos se rechaza, porque resolver_subtitulos da preferencia al del repo y
+    el panel enseñaría un estilo que el render no usa.
+    """
+    import generar_video_maestro as gvm
+    d = request.json or {}
+    nombre = str(d.get("nombre", "")).strip().lower().replace(" ", "_")
+    if not NOMBRE_ESTILO.fullmatch(nombre):
+        return jsonify({"error": "El nombre va en minúsculas, sin acentos, hasta 32 letras."}), 400
+    if nombre in gvm.PRESETS_SUBTITULOS:
+        return jsonify({"error": f"«{nombre}» es uno de los que trae el repo. Ponle otro nombre."}), 400
+
+    valores, errores = limpiar_valores_estilo(d.get("valores"))
+    if errores:
+        return jsonify({"error": "; ".join(errores)}), 400
+    if not valores:
+        return jsonify({"error": "No llegó ningún ajuste que guardar."}), 400
+
+    cfg = leer_json(RUTA_CONFIG, {})
+    propios = dict(cfg.get("presets_propios") or {})
+    propios[nombre] = valores
+    cfg["presets_propios"] = propios
+    if d.get("activar", True):
+        subs = dict(cfg.get("subtitulos") or {})
+        subs["preset"] = nombre
+        cfg["subtitulos"] = subs
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "nombre": nombre, "activo": bool(d.get("activar", True))})
+
+
+@app.post("/api/estilo/borrar")
+def api_estilo_borrar():
+    """Quita un estilo propio. Si era el activo, vuelve al predeterminado:
+    dejarlo apuntando a un preset que ya no existe haría que cada render
+    avisara y se cayera al predeterminado igual, pero sin decirlo aquí."""
+    nombre = str((request.json or {}).get("nombre", ""))
+    cfg = leer_json(RUTA_CONFIG, {})
+    propios = dict(cfg.get("presets_propios") or {})
+    if nombre not in propios:
+        return jsonify({"error": "Ese estilo no está guardado."}), 404
+
+    del propios[nombre]
+    cfg["presets_propios"] = propios
+    subs = dict(cfg.get("subtitulos") or {})
+    volvio = False
+    if subs.get("preset") == nombre:
+        subs["preset"] = "predeterminado"
+        cfg["subtitulos"] = subs
+        volvio = True
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "nombre": nombre, "volvio_al_predeterminado": volvio})
 
 
 @app.post("/api/wifi")
@@ -1247,6 +1474,39 @@ def api_secreto_guardar(nombre):
     except OSError as exc:
         return jsonify({"error": f"No se pudo escribir secretos.env: {exc}"}), 500
     return jsonify({"ok": True, "nombre": nombre})
+
+
+# La subcarpeta donde previsualizar_estilos.py deja las muestras. El panel
+# necesita su propia ruta: /video/ y /miniatura/ hacen basename() y solo
+# alcanzan la raíz de la carpeta de salida, así que estas quedaban invisibles
+# desde el teléfono aunque el trabajo dijera OK.
+CARPETA_PREVIS = "previsualizacion_estilos"
+
+
+def previsualizaciones():
+    """Las muestras de estilo que hay en disco, la hoja de contactos primero."""
+    carpeta = os.path.join(cfg_actual()["carpeta_salida"], CARPETA_PREVIS)
+    if not os.path.isdir(carpeta):
+        return []
+    hay = sorted(f for f in os.listdir(carpeta) if f.lower().endswith(".png"))
+    return sorted(hay, key=lambda f: (not f.startswith("_comparacion"), f))
+
+
+@app.get("/previsualizacion/<path:archivo>")
+def api_previsualizacion(archivo):
+    """Sirve un PNG de la comparación de estilos.
+
+    basename() y la comprobación de extensión van juntas a propósito: es una
+    carpeta cuyo nombre sale de la config, y sin las dos una petición con
+    ../.. leería cualquier archivo del teléfono.
+    """
+    nombre = os.path.basename(archivo)
+    if not nombre.lower().endswith(".png"):
+        abort(404)
+    ruta = os.path.join(cfg_actual()["carpeta_salida"], CARPETA_PREVIS, nombre)
+    if not os.path.isfile(ruta):
+        abort(404)
+    return send_file(ruta, mimetype="image/png", conditional=True)
 
 
 @app.get("/video/<path:archivo>")

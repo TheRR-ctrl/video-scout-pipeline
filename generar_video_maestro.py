@@ -43,6 +43,14 @@ RUTA_FUENTES = os.path.join(BASE_DIR, "fuentes")
 # cómo se ven, sin meter mano en la generación del .ass.
 ESTILOS_SUBTITULOS = ("frase_activa", "relleno", "pop")
 
+# Las familias que hay en fuentes/. El nombre NO es el del archivo: es el que
+# libass busca dentro del .ttf, y si no coincide sustituye en silencio. Van
+# escritas a mano porque leerlas del archivo pide fontconfig, que en Termux no
+# siempre está. Si añades un .ttf a fuentes/, añade aquí su familia
+# (fc-query -f '%{family}\n' archivo.ttf la imprime) — el panel ofrece esta
+# lista, pero también deja escribir otra por si la tienes instalada.
+FUENTES_INCLUIDAS = ("Anton", "Archivo Black", "Bebas Neue", "Montserrat Black")
+
 # Cómo se reparte el tiempo en el RESPALDO por SRT (ver
 # convertir_srt_a_karaoke_ass). No toca el camino normal: ese usa el timing
 # real por palabra de edge-tts, que le gana a cualquier estimación.
@@ -236,25 +244,34 @@ CONFIG_DEFAULT = {
     "adelanto_sonido_transicion": 0.25,
 }
 
-def resolver_subtitulos(pedido, preset=None):
+def resolver_subtitulos(pedido, preset=None, propios=None):
     """Arma la configuración de subtítulos en cascada:
 
         defaults  ->  preset  ->  lo que pusiste suelto en "subtitulos"
 
     Así puedes tomar un preset y cambiarle un detalle sin copiar el resto, y
     lo que ya funciona sigue igual aunque se agreguen presets nuevos.
+
+    `propios` son los presets que el usuario guardó en config.json bajo
+    "presets_propios" (el panel los escribe ahí). Valen lo mismo que los del
+    repo: un nombre suyo se puede usar en "preset" o en --estilo.
     """
     pedido = dict(pedido or {})
+    propios = {k: v for k, v in (propios or {}).items() if isinstance(v, dict)}
     nombre = preset or pedido.pop("preset", None) or "predeterminado"
-    if nombre not in PRESETS_SUBTITULOS:
+    # Los de config.json van después: si alguien llama "sobrio" a uno suyo,
+    # manda el del repo, que es el que describen los mensajes de ayuda.
+    catalogo = dict(propios)
+    catalogo.update(PRESETS_SUBTITULOS)
+    if nombre not in catalogo:
         print(
             f"⚠️ Preset de subtítulos desconocido: '{nombre}'. "
-            f"Disponibles: {', '.join(PRESETS_SUBTITULOS)}. Se usa 'predeterminado'."
+            f"Disponibles: {', '.join(catalogo)}. Se usa 'predeterminado'."
         )
         nombre = "predeterminado"
 
     subs = dict(SUBTITULOS_DEFAULT)
-    subs.update(PRESETS_SUBTITULOS[nombre])
+    subs.update(catalogo[nombre])
     pedido.pop("preset", None)
     subs.update(pedido)
     subs["preset"] = nombre
@@ -264,15 +281,17 @@ def resolver_subtitulos(pedido, preset=None):
 def cargar_config(ruta="config.json", preset=None):
     cfg = dict(CONFIG_DEFAULT)
     usuario_subs = {}
+    propios = {}
     if os.path.exists(ruta):
         try:
             with open(ruta, "r", encoding="utf-8") as f:
                 usuario = json.load(f)
             usuario_subs = usuario.pop("subtitulos", {}) or {}
+            propios = usuario.get("presets_propios") or {}
             cfg.update(usuario)
         except Exception as exc:
             print(f"⚠️ No se pudo leer {ruta}, usando valores por defecto: {exc}")
-    cfg["subtitulos"] = resolver_subtitulos(usuario_subs, preset)
+    cfg["subtitulos"] = resolver_subtitulos(usuario_subs, preset, propios)
     return cfg
 
 import formato   # decide si los videos largos están abiertos

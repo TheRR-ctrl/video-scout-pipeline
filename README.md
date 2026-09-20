@@ -242,6 +242,36 @@ valid config. Three styles are available:
 | `relleno` | Classic karaoke fill: words already spoken keep the accent color, upcoming ones stay white. |
 | `pop` | One word at a time, entering with a scale bounce. |
 
+### Named styles, including your own
+
+A style can be saved under a name and selected by it, from `config.json`
+(`"subtitulos": {"preset": "sobrio"}`), per render (`--estilo sobrio`), or
+from the panel's Estilo tab. The repo ships seven; your own go under
+`presets_propios` and count exactly the same:
+
+```json
+{
+  "subtitulos": {"preset": "mi_estilo"},
+  "presets_propios": {
+    "mi_estilo": {"estilo": "pop", "fuente": "Bebas Neue", "tamano_short": 130}
+  }
+}
+```
+
+Resolution is defaults → preset → whatever you put loose in `subtitulos`, so
+a named style only lists what it changes. A name that collides with one of the
+repo's resolves to the repo's, and the panel refuses to save it.
+
+The panel writes that block for you: **Estilo → Crear estilo** copies the
+active one into a form (type, font, colors, palette, sizes, toggles) and saves
+it with a name. `previsualizar_estilos.py` renders every style — yours
+included — onto the same frame, and the resulting PNGs now show up in the
+Estilo tab itself rather than only as files in the video folder.
+
+Fonts ship in `fuentes/` because libass silently substitutes a missing family;
+the four bundled ones are listed in `FUENTES_INCLUIDAS`, and the panel also
+accepts a family name typed by hand if you have it installed.
+
 ### Word timing, and the fallback
 
 Word-level karaoke timing comes from the TTS itself: `edge-tts` is driven with
