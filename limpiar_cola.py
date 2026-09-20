@@ -14,7 +14,11 @@ posicion de la historia dentro de guion.txt. Al quitar historias, las que
 quedan se renumeran: la que era 44 puede pasar a ser 1. Los videos ya hechos
 conservan su nombre viejo (no se tocan), pero un `--historias 44` de antes
 deja de apuntar a lo mismo. Por eso esto se empareja por titulo y no por
-numero, y por eso conviene hacerlo cuando no tengas selecciones a medias.
+numero.
+
+Desde el panel no hay que preocuparse: al repintar suelta lo elegido cuyo
+numero cambio de dueño, asi que la seleccion y la musica no se quedan
+apuntando a otra historia. Desde la terminal, repasa tu `--historias`.
 """
 import io
 import os
@@ -129,8 +133,11 @@ def main(argv=None):
 
     print(f"\n   ✓ Copia de la cola anterior en {os.path.basename(respaldo)}")
     print(f"   ✓ {RUTA_GUION}: quedan {len(quedan)} historia(s).")
-    # El servidor relee guion.txt en cada peticion, no hace falta reiniciarlo.
-    print("\n  Pulsa ↻ en el panel para que la pestaña Cola lo relea.\n")
+    # El servidor relee guion.txt en cada peticion y el panel repinta solo
+    # en cuanto ve que el trabajo termino, asi que no hay que pulsar nada.
+    # Aqui ponia que habia que darle a refrescar: mandaba a hacer a mano
+    # algo que ya pasaba solo.
+    print()
     return 0
 
 
