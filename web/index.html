@@ -339,6 +339,7 @@
 
 <div class="wrap">
   <div id="job-slot"></div>
+  <div id="cola-slot"></div>
 
   <section class="view on" id="v-revisar"></section>
   <section class="view" id="v-cola"></section>
@@ -385,8 +386,13 @@ const post = (url, cuerpo) => api(url, {method:'POST',
   headers:{'Content-Type':'application/json'}, body: JSON.stringify(cuerpo||{})});
 
 async function ejecutar(accion, cuerpo){
-  try{ await post('/api/ejecutar/'+accion, cuerpo); refrescar(); }
-  catch(e){ toast(e.message); }
+  try{
+    const r = await post('/api/ejecutar/'+accion, cuerpo);
+    // Sin esto, pulsar con algo corriendo parece que no hace nada: antes
+    // salía un error y ahora se encola en silencio.
+    if(r && r.encolado) toast(`En espera (${r.encolado.posicion}º): ${r.encolado.nombre}`);
+    refrescar();
+  }catch(e){ toast(e.message); }
 }
 async function trabajo(que){
   try{ await api('/api/trabajo/'+que, {method:'POST'}); refrescar(); }
@@ -438,6 +444,62 @@ function vigilarTarjeta(caja){
     refrescarMini();
   }, {rootMargin: `-${alto}px 0px 0px 0px`});
   vigilante.observe(caja);
+}
+
+/* La cola de espera y los últimos terminados.
+
+   Va en su propio hueco y no dentro de la tarjeta del trabajo, porque esa
+   solo se vuelve a montar cuando cambia el nombre de lo que corre: la cola
+   cambia mientras el nombre es el mismo, y se quedaría congelada.
+
+   Los terminados están aquí porque con cola el panel deja de estar mirando:
+   arrancas cinco, sales, y al volver quieres ver cómo fueron los cuatro que
+   ya pasaron. De los que fallaron se enseña el final de su salida, que es lo
+   que hay que leer. */
+function pintaColaTrabajos(){
+  const cola = (E && E.cola) || [], hechos = (E && E.hechos) || [];
+  const slot = $('#cola-slot');
+  if(!cola.length && !hechos.length){ slot.innerHTML = ''; return; }
+
+  slot.innerHTML = `
+    ${!cola.length ? '' : `
+    <div class="list" style="margin-top:8px">
+      <div class="list-head">
+        <div><b>En espera</b><div class="m">Arrancan solos, de uno en uno.</div></div>
+        <button class="btn sm" onclick="vaciarCola()">Vaciar</button>
+      </div>
+      ${cola.map((e,i)=>`
+        <div class="row" style="grid-template-columns:auto 1fr auto">
+          <span class="n">${i+1}</span>
+          <span class="t">${esc(e.nombre)}</span>
+          <button class="tbtn" title="Quitar de la cola"
+            onclick="quitarDeCola(${e.id})">✕</button>
+        </div>`).join('')}
+    </div>`}
+    ${!hechos.length ? '' : `
+    <div class="list" style="margin-top:8px">
+      <div class="list-head"><div><b>Ya terminados</b></div></div>
+      ${hechos.slice().reverse().map(h=>`
+        <div class="row" style="grid-template-columns:1fr auto auto">
+          <div style="min-width:0">
+            <span class="t">${esc(h.nombre)}</span>
+            ${!h.lineas ? '' : `<div class="m" style="font:11px var(--mono);
+              color:var(--ink-faint);white-space:pre-wrap">${esc(h.lineas.join('\n'))}</div>`}
+          </div>
+          <span class="m">${Math.floor(h.segundos/60)}:${String(h.segundos%60).padStart(2,'0')}</span>
+          <span class="pill ${h.estado==='ok'?'ok':h.estado==='error'?'crit':'idle'}">${esc(h.estado)}</span>
+        </div>`).join('')}
+    </div>`}`;
+}
+
+async function quitarDeCola(id){
+  try{ await post('/api/cola/quitar', {id}); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+async function vaciarCola(){
+  if(!confirm('¿Quitar todo lo que está esperando?\n\nLo que ya está corriendo sigue.')) return;
+  try{ const r = await post('/api/cola/vaciar'); toast(`${r.quitados} quitado(s).`); refrescar(); }
+  catch(e){ toast(e.message); }
 }
 
 function pintaJob(){
@@ -2133,6 +2195,7 @@ function pintar(){
   $('#c-can').textContent = E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0;
   $('#c-tk').textContent = (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0;
   pintaJob();
+  pintaColaTrabajos();
 
   const v = vistaActual();
   const [firma, pinta] = VISTAS[v];
@@ -2204,9 +2267,14 @@ $('#b-actualizar').onclick = async (e)=>{
 };
 
 $('#b-apagar').onclick = async ()=>{
-  const j = E && E.trabajo;
+  const j = E && E.trabajo, enEspera = ((E && E.cola) || []).length;
   if(j && (j.estado==='corriendo'||j.estado==='pausado')){
-    if(!confirm('Hay algo corriendo. ¿Apagar el panel de todas formas?\n(el trabajo se interrumpe)')) return;
+    // La cola vive en memoria del servidor: apagar no la aplaza, la borra.
+    // Decirlo aquí, que es donde se pierde, y no solo en la documentación.
+    const extra = enEspera ? `\n(y ${enEspera} en espera se pierden)` : '';
+    if(!confirm('Hay algo corriendo. ¿Apagar el panel de todas formas?\n(el trabajo se interrumpe)' + extra)) return;
+  }else if(enEspera){
+    if(!confirm(`Hay ${enEspera} en espera. ¿Apagar de todas formas?\n(la cola se pierde)`)) return;
   }
   try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
   document.body.innerHTML = `<div style="max-width:420px;margin:22vh auto;padding:0 20px;
