@@ -28,6 +28,15 @@ import almacen   # leer y escribir los .json de estado
 CARPETA_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline_state")
 RUTA_CANDIDATOS = os.path.join(CARPETA_ESTADO, "candidatos.json")
 RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "historial_vistos.json")
+# Lo que sale de la cola por caducado o por pasar del tope no se tira: se
+# guarda aquí con la fecha en que se soltó. Ocupa poco, no lo lee nadie del
+# pipeline, y es lo que permite volver a mirar qué había si un día se quiere
+# rescatar algo. El historial de ids (historial_vistos) dice QUÉ se vio; esto
+# guarda el texto.
+RUTA_ARCHIVO = os.path.join(CARPETA_ESTADO, "candidatos_archivados.json")
+# Más que esto no se guarda: el archivo se lee a mano muy de vez en cuando y
+# no tiene sentido que crezca sin fin en un teléfono.
+TOPE_ARCHIVO = 300
 
 # Un candidato que falla una y otra vez (texto que Gemini rechaza, por
 # ejemplo) bloquearía la cola para siempre. Tras estos intentos se descarta.
@@ -175,6 +184,26 @@ def marcar_vistos(ids):
     return len(nuevos)
 
 
+def cargar_archivados():
+    datos = _leer_json(RUTA_ARCHIVO, [])
+    return datos if isinstance(datos, list) else []
+
+
+def archivar(candidatos):
+    """Guarda en el archivo los candidatos que salen de la cola.
+
+    Los últimos primero, para que abrir el archivo enseñe lo más reciente sin
+    tener que bajar hasta el final.
+    """
+    candidatos = [c for c in candidatos if c]
+    if not candidatos:
+        return 0
+    cuando = _ahora().isoformat()
+    nuevos = [dict(c, archivado_en=cuando) for c in candidatos]
+    _escribir_json(RUTA_ARCHIVO, (nuevos + cargar_archivados())[:TOPE_ARCHIVO])
+    return len(nuevos)
+
+
 def _ahora():
     return datetime.now().replace(microsecond=0)
 
@@ -257,6 +286,10 @@ def agregar_candidatos(nuevos):
 
     cola, fuera = podar(pendientes + agregados)
     guardar_pendientes(cola)
+    # Antes de marcarlos como vistos: soltarlos de la cola no es tirarlos, y
+    # el texto original ya no está en ningún otro sitio (trend_scout no
+    # guarda los posts que escanea).
+    archivar(fuera)
     # Lo podado se marca como visto: si no, el siguiente escaneo lo volvería a
     # traer y la poda se repetiría en cada corrida sin avanzar nada.
     marcar_vistos([c.get("id") for c in fuera if c.get("id")])

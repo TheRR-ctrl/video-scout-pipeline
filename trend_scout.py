@@ -55,21 +55,52 @@ RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_t
 RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estricto que el JSON con el rate limit
 
 CONFIG_DEFAULT = {
+    # Un subreddit que no existe o que se cerró no rompe nada: se salta con un
+    # aviso y la corrida sigue. Lo que cuesta es el tiempo — hay una pausa de
+    # RATE_LIMIT_SEG entre cada uno, así que la lista entera tarda unos
+    # minutos. Si alguno falla siempre, quítalo de config_trends.json.
     "subreddits": [
         # Drama / dilemas
         "AmItheAsshole",
+        "AITAH",
+        "AmIOverreacting",
         "relationship_advice",
         "relationships",
         "confession",
+        "confessions",
+        "TrueOffMyChest",
+        "offmychest",
         "AmItheButtface",
+        "TwoHotTakes",
+        "BestofRedditorUpdates",
+        # Familia difícil: el mismo material que los dilemas, pero con la
+        # relación de por medio, que es lo que engancha en los comentarios.
+        "JUSTNOMIL",
+        "raisedbynarcissists",
+        "insaneparents",
+        "EntitledParents",
+        "EntitledPeople",
         # Venganza (final feliz para quien narra)
         "ProRevenge",
         "pettyrevenge",
+        "NuclearRevenge",
         "MaliciousCompliance",
-        "EntitledParents",
+        "ChoosingBeggars",
+        "IDontWorkHereLady",
+        # Trabajo de cara al público: anécdota cerrada, con remate, contada en
+        # primera persona. Es lo que mejor se convierte en guion.
+        "TalesFromRetail",
+        "TalesFromTheCustomer",
+        "TalesFromYourServer",
+        "TalesFromTheFrontDesk",
+        "TalesFromTechSupport",
+        "StoriesAboutKevin",
         # Suspenso / misterio (experiencias reales, no ficción tipo nosleep)
         "UnresolvedMysteries",
         "Glitch_in_the_Matrix",
+        "LetsNotMeet",
+        "Paranormal",
+        "HighStrangeness",
         # Comedia / torpezas
         "tifu",
         "mildlyinfuriating",

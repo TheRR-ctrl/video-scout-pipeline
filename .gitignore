@@ -4,6 +4,7 @@ client_secret.json
 youtube_token.json
 pipeline_state/
 guion.txt
+guion_historial.txt
 resultado_lote.json
 video_maestro.log
 *.mp4
