@@ -358,13 +358,20 @@ def main(argv=None):
     # Se AGREGAN a la cola: los pendientes que script_writer aún no consumió
     # se conservan. (Antes esta línea sobrescribía el archivo entero, así que
     # un escaneo vacío borraba candidatos que nunca se llegaron a usar.)
-    total_cola, agregados, repetidos = cola.agregar_candidatos(nuevos)
+    total_cola, agregados, repetidos, podados = cola.agregar_candidatos(nuevos)
 
     logger.info(f"{agregados} candidato(s) nuevo(s); {total_cola} en cola en {RUTA_CANDIDATOS}")
     if repetidos:
         # Descartados por parecerse a una historia ya escrita, no por el id.
         # Verlo en el log importa: si sale alto, la fuente está reciclando.
         logger.info(f"{repetidos} descartado(s) por ser la misma historia que una ya contada")
+    if podados:
+        # La cola tiene tope y caducidad: lo que sobra se suelta aquí, no se
+        # queda engordando el archivo para no atenderse nunca.
+        logger.info(
+            f"{podados} candidato(s) soltado(s) de la cola por caducados o por pasar "
+            f"del tope de {cola.TOPE_CANDIDATOS}"
+        )
     for c in nuevos:
         print(f" • [{c['subreddit']}] {c['titulo_original']} (rank={c['rank_en_subreddit']})")
 

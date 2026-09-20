@@ -21,6 +21,7 @@ el que se veía desde fuera: el script deja de generar historias nuevas.
 import os
 import re
 import unicodedata
+from datetime import datetime, timedelta
 
 import almacen   # leer y escribir los .json de estado
 
@@ -31,6 +32,18 @@ RUTA_HISTORIAL = os.path.join(CARPETA_ESTADO, "historial_vistos.json")
 # Un candidato que falla una y otra vez (texto que Gemini rechaza, por
 # ejemplo) bloquearía la cola para siempre. Tras estos intentos se descarta.
 MAX_INTENTOS = 3
+
+# La cola no puede crecer sin fin. Los buscadores agregan en cada corrida y
+# script_writer solo drena lo que la cuota diaria de Gemini deja escribir, así
+# que entra más de lo que sale: 145 candidatos esperando, los más viejos de
+# hace semanas, y la cuota del día gastándose en ellos por orden de llegada.
+#
+# Dos frenos. Caducidad: un post de Reddit de hace dos semanas ya no es lo que
+# se está contando, y escribirlo hoy es gastar cuota en algo pasado. Y un
+# tope: por encima de esto la cola deja de ser trabajo pendiente y pasa a ser
+# un archivo que nunca se va a atender.
+FRESCURA_MAXIMA_DIAS = 14
+TOPE_CANDIDATOS = 60
 
 
 # Huellas de las historias ya escritas, para no contar dos veces la misma.
@@ -162,9 +175,56 @@ def marcar_vistos(ids):
     return len(nuevos)
 
 
+def _ahora():
+    return datetime.now().replace(microsecond=0)
+
+
+def fecha_de(candidato):
+    """Cuándo se vio este candidato. Los de antes de que existiera el sello no
+    tienen fecha: se tratan como recién llegados en vez de como caducados, que
+    los borraría todos de golpe la primera vez que corra esto."""
+    try:
+        return datetime.fromisoformat(str(candidato.get("visto_en") or ""))
+    except ValueError:
+        return None
+
+
+def por_frescura(candidatos):
+    """Los más recientes primero.
+
+    La cola es por orden de llegada, así que la cuota del día se gastaba en lo
+    más viejo — lo que menos posibilidades tiene de funcionar ya. Sin fecha van
+    al final, que es donde estaban.
+    """
+    viejisimo = datetime.min
+    return sorted(candidatos, key=lambda c: fecha_de(c) or viejisimo, reverse=True)
+
+
+def podar(candidatos, ahora=None):
+    """Quita lo caducado y lo que sobra del tope. Devuelve (quedan, fuera).
+
+    El tope se aplica sobre la frescura, no sobre el orden del archivo: si hay
+    que dejar fuera a alguien, que sea al más viejo.
+    """
+    ahora = ahora or _ahora()
+    limite = ahora - timedelta(days=FRESCURA_MAXIMA_DIAS)
+    frescos, fuera = [], []
+    for c in candidatos:
+        fecha = fecha_de(c)
+        (fuera if (fecha and fecha < limite) else frescos).append(c)
+
+    frescos = por_frescura(frescos)
+    if len(frescos) > TOPE_CANDIDATOS:
+        fuera.extend(frescos[TOPE_CANDIDATOS:])
+        frescos = frescos[:TOPE_CANDIDATOS]
+    return frescos, fuera
+
+
 def agregar_candidatos(nuevos):
     """Mezcla candidatos nuevos con los que quedaban pendientes, sin duplicar
-    ni perder los viejos. Devuelve (total_en_cola, cuantos_se_agregaron)."""
+    ni perder los viejos, y poda lo caducado y lo que pase del tope.
+
+    Devuelve (total_en_cola, cuantos_se_agregaron, repetidos, podados)."""
     pendientes = cargar_pendientes()
     conocidos = {c.get("id") for c in pendientes}
 
@@ -186,11 +246,21 @@ def agregar_candidatos(nuevos):
             continue
         conocidos.add(c["id"])
         huellas.append(huella(_texto_de(c)))
+        c.setdefault("visto_en", _ahora().isoformat())
         agregados.append(c)
 
-    cola = pendientes + agregados
+    # Los que ya estaban sin sello lo reciben ahora: sin fecha no se puede
+    # decidir si caducaron, y darlos por viejos borraría la cola entera.
+    ahora = _ahora().isoformat()
+    for c in pendientes:
+        c.setdefault("visto_en", ahora)
+
+    cola, fuera = podar(pendientes + agregados)
     guardar_pendientes(cola)
-    return len(cola), len(agregados), repetidos
+    # Lo podado se marca como visto: si no, el siguiente escaneo lo volvería a
+    # traer y la poda se repetiría en cada corrida sin avanzar nada.
+    marcar_vistos([c.get("id") for c in fuera if c.get("id")])
+    return len(cola), len(agregados), repetidos, len(fuera)
 
 
 def _texto_de(candidato):

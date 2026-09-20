@@ -160,6 +160,14 @@ SCHEMA_HISTORIA = {
 # acabaría contando lo mismo.
 MAX_ANECDOTAS_POR_VIDEO = 3
 
+# Cuántos candidatos se escriben por corrida.
+#
+# Sin tope, esto corre hasta chocar con el 429 de Gemini, y entonces la cuota
+# del día se ha ido entera en guiones: calidad_ia y la metadata del publicador
+# —que también llaman a Gemini, más tarde en el pipeline— se quedan sin nada.
+# Mejor parar solo con algo de margen que reventar a mitad de la corrida.
+MAX_POR_CORRIDA = 12
+
 # El suelo por debajo del cual no hay historia que valga, se_sostiene o no.
 # No es el largo que se busca —eso se lo pide el prompt, unas 200 palabras—
 # sino la red por si el modelo contesta que sí a todo: a ~2,6 palabras por
@@ -559,6 +567,9 @@ def main(argv=None):
     # argv explícito: pipeline.py llama a main() sin argumentos, y si argparse
     # cayera a sys.argv se comería los flags del pipeline.
     ap = argparse.ArgumentParser(description="Convierte la cola de candidatos en guiones.")
+    ap.add_argument("--max", type=int, default=MAX_POR_CORRIDA, dest="maximo",
+                    metavar="N", help=f"Cuántos candidatos escribir como mucho "
+                                      f"(por omisión {MAX_POR_CORRIDA}; 0 = sin tope).")
     ap.add_argument("--probar-clave", action="store_true",
                     help="Comprueba que GEMINI_API_KEY sirve, sin escribir nada.")
     # nargs="?" para poder usarlo sin valor: pasar la clave en la linea de
@@ -604,7 +615,17 @@ def main(argv=None):
     if args.probar_clave:
         return 0 if probar_clave() else 1
 
-    candidatos = cola.cargar_pendientes()
+    # Los más frescos primero: la cuota del día rinde más en lo de ayer que en
+    # un post de hace tres semanas, y la cola es por orden de llegada.
+    candidatos = cola.por_frescura(cola.cargar_pendientes())
+    # Lo que no toca esta vez vuelve a la cola tal cual, sin gastar intento.
+    para_luego = []
+    if args.maximo and len(candidatos) > args.maximo:
+        candidatos, para_luego = candidatos[:args.maximo], candidatos[args.maximo:]
+        logger.info(
+            f"{len(candidatos)} de {len(candidatos) + len(para_luego)} candidato(s) en esta "
+            f"corrida; el resto espera a la próxima (--max para cambiarlo)."
+        )
 
     if not candidatos:
         logger.info(
@@ -735,20 +756,22 @@ def main(argv=None):
     # La cola se actualiza siempre, aunque no haya salido ningún bloque: si
     # no, los contadores de intentos se perderían y los mismos candidatos
     # rotos se reintentarían eternamente.
-    cola.guardar_pendientes(quedan)
+    cola.guardar_pendientes(quedan + para_luego)
     # Con el guion ya en disco, esos posts pasan a ser "vistos". Marcarlos
     # antes (que era lo que hacía trend_scout al escanear) los quemaba aunque
     # la reescritura fallara.
     cola.marcar_vistos(usados + descartados)
-    if quedan:
-        logger.info(f"{len(quedan)} candidato(s) quedaron en la cola para el próximo intento.")
+    if quedan or para_luego:
+        logger.info(
+            f"{len(quedan) + len(para_luego)} candidato(s) quedaron en la cola para la próxima."
+        )
 
     if error_global:
         codigo, mensaje = error_global
         logger.error(mensaje)
         print("")
         print(f" ⛔ {mensaje}")
-        print(f"    Los {len(quedan)} candidato(s) siguen en la cola, intactos.")
+        print(f"    Los {len(quedan) + len(para_luego)} candidato(s) siguen en la cola, intactos.")
         print("")
         for linea in ARREGLOS.get(codigo, (
             "Saca una clave en https://aistudio.google.com/apikey y guárdala con",

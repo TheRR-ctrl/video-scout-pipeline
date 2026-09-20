@@ -1214,7 +1214,8 @@ function pintaCola(){
     <h2>${h.length} historias listas para renderizar</h2>
     ${!esperando ? '' : `<div class="aviso warn"><span>✍</span><div>
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
-      YouTube no entra aquí hasta que Gemini los escribe.
+      YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
+      recientes primero— para no gastar la cuota del día de una sentada.
       <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
         >✍ Escribir guiones</button></div></div></div>`}
     <p class="sub">La numeración se conserva aunque pidas solo algunas: la historia 7 siempre genera <code style="font:12px var(--mono)">07_…</code></p>

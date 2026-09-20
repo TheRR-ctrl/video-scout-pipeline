@@ -722,13 +722,20 @@ def main(argv=None):
     pendientes_antes = len(cola.cargar_pendientes())
     contar = {}
     nuevos = escanear(cfg, contar)
-    total_cola, agregados, repetidos = cola.agregar_candidatos(nuevos)
+    total_cola, agregados, repetidos, podados = cola.agregar_candidatos(nuevos)
 
     logger.info(f"{agregados} video(s) nuevo(s); {total_cola} en cola en {cola.RUTA_CANDIDATOS}")
     if repetidos:
         # Descartados por parecerse a una historia ya escrita, no por el id.
         # Verlo en el log importa: si sale alto, la fuente está reciclando.
         logger.info(f"{repetidos} descartado(s) por ser la misma historia que una ya contada")
+    if podados:
+        # La cola tiene tope y caducidad: lo que sobra se suelta aquí, no se
+        # queda engordando el archivo para no atenderse nunca.
+        logger.info(
+            f"{podados} candidato(s) soltado(s) de la cola por caducados o por pasar "
+            f"del tope de {cola.TOPE_CANDIDATOS}"
+        )
     for c in nuevos:
         print(f" • [{c['canal']}] {c['titulo_original']} ({c['vistas']:,} vistas)")
 
