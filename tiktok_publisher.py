@@ -10,16 +10,23 @@ depurar después. Aquí solo se sube lo que ya pasó por ahí.
 
 Dos modos, y la diferencia no es un detalle:
 
-  borrador (por defecto)  El video aterriza en la bandeja de "subidos" de tu
-                          cuenta y tú le das a publicar desde la app. Solo
-                          necesita el permiso video.upload, que TikTok
-                          concede sin más trámite.
+  borrador (por defecto)  El video llega ya subido al buzón de tu cuenta;
+                          tocas la notificación y se abre el editor de TikTok
+                          con el archivo dentro. Solo necesita el permiso
+                          video.upload, que TikTok concede sin más trámite, y
+                          no pasa por auditoría ni tiene tope de visibilidad,
+                          porque quien publica eres tú. Es el modo real.
 
   directo                 Publica solo, sin tocar nada. Necesita el permiso
                           video.publish Y que TikTok haya auditado la app.
                           Sin esa auditoría, TikTok obliga a que todo lo
                           publicado quede en modo privado, así que "directo"
                           sin auditar no es publicar: es subir en privado.
+                          Y la auditoría esta app no la pasa: TikTok excluye
+                          las herramientas de uso personal y las que suben a
+                          la cuenta que tú manejas. El código se queda por si
+                          algún día el proyecto deja de serlo; las reglas,
+                          citadas, están en AUDITORIA_TIKTOK.md.
 
 Uso:
   python tiktok_publisher.py                # sube a borradores
@@ -518,7 +525,8 @@ def revisar_subidos():
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Sube a TikTok los videos ya aprobados.")
     ap.add_argument("--directo", action="store_true",
-                    help="Publica en vez de dejar en borradores (requiere auditoría de TikTok).")
+                    help="Publica en vez de dejar en borradores (requiere una auditoría "
+                         "que esta app no pasa; ver AUDITORIA_TIKTOK.md).")
     ap.add_argument("--simular", action="store_true",
                     help="Enseña qué subiría, sin llamar a TikTok.")
     ap.add_argument("--con-datos", action="store_true",
@@ -633,6 +641,11 @@ def main(argv=None):
             demo_tiktok.anotar("subida")   # cuarta escena del demo
             destino = "publicado" if modo == "directo" else "en tus borradores de TikTok"
             logger.info(f"  ✅ {destino} ({detalle})")
+            if modo != "directo":
+                # El buzón no acepta pie: la API solo lleva post_info en
+                # directo. Se imprime aquí para copiarlo de la pantalla y
+                # pegarlo en el editor, que es lo único que queda a mano.
+                logger.info(f"     Pie para pegar: {pie}")
         except Exception as exc:
             if "unaudited_client_can_only_post_to_private_accounts" in str(exc):
                 logger.error(

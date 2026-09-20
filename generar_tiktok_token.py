@@ -4,13 +4,13 @@ Genera tiktok_token.json con el flujo OAuth de TikTok. Una sola vez.
 Antes de correrlo hace falta una app en https://developers.tiktok.com/:
 
   1. Crea la app y añádele los productos "Login Kit" y "Content Posting API".
-  2. Pide los permisos (scopes) user.info.basic y video.publish. El primero es
-     el que deja al panel enseñar a qué cuenta va el video; el segundo es el de
-     publicar. video.publish necesita que TikTok audite la app: ver
-     AUDITORIA_TIKTOK.md. Sin auditar solo funciona con la cuenta en privado.
-     El modo borrador, que usa video.upload en vez de video.publish, no hace
-     falta pedirlo: deja el video en el buzon de notificaciones para que lo
-     publiques a mano, que es justo el trabajo que esto viene a quitar.
+  2. Pide los permisos (scopes) user.info.basic y video.upload. El primero es
+     el que deja al panel enseñar a que cuenta va el video; el segundo deja el
+     video en tu buzon de TikTok para que lo publiques tu desde la app.
+     video.publish, el del modo directo, NO lo pidas: necesita que TikTok
+     audite la app, y esta app no puede pasar esa auditoria (el porque, con
+     las reglas citadas, esta en AUDITORIA_TIKTOK.md). Pedir un permiso que
+     luego no se usa solo suma motivos de rechazo.
   3. Registra una URL de redirección. TikTok exige que empiece por https y que
      no lleve parámetros. No hace falta que sea una web tuya de verdad: solo
      tiene que coincidir con la que pongas aquí, porque el código de
@@ -66,9 +66,11 @@ def main(argv):
     ap = argparse.ArgumentParser(description="Autoriza la app de TikTok y guarda el token.")
     ap.add_argument("--redirect", required=True,
                     help="La URL de redirección registrada en developers.tiktok.com.")
-    ap.add_argument("--scope", default="user.info.basic,video.publish",
-                    help="Separados por comas. Por defecto los del modo directo; "
-                         "añade video.upload solo si vas a usar el modo borrador.")
+    ap.add_argument("--scope", default="user.info.basic,video.upload",
+                    help="Separados por comas. Por defecto los del modo borrador, "
+                         "que es el unico que funciona sin auditoria. Solo hace "
+                         "falta cambiarlos si algun dia la app pasa la revision "
+                         "y se usa el modo directo (video.publish).")
     args = ap.parse_args(argv)
 
     clave = os.environ.get("TIKTOK_CLIENT_KEY", "").strip()

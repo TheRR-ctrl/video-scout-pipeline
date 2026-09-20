@@ -1597,7 +1597,9 @@ function bloqueDemo(demo){
   if(!demo.empezado_en) return `
     <div class="card" style="margin-top:10px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <div style="flex-grow:1"><b>Vídeo demo para la auditoría</b>
-        <div class="muted">Las cinco escenas en orden, marcándose solas.</div></div>
+        <div class="muted">Las cinco escenas en orden, marcándose solas. Solo
+        sirve si el proyecto deja de ser personal: tal como está, TikTok no
+        aprueba la app (<code>AUDITORIA_TIKTOK.md</code>).</div></div>
       <button class="btn sm" onclick="ejecutar('demo_comprobar')">Comprobar</button>
       <button class="btn sm" onclick="ejecutar('demo_empezar')">Empezar</button>
     </div>`;
@@ -1660,10 +1662,11 @@ function pintaTiktok(){
         <span class="d"><b>${b}</b><span>${d}</span></span></div>`).join('')}</div>
 
     ${!directo ? `<div class="aviso warn"><span>·</span><div>
-      <b>El modo borrador no te ahorra el trabajo:</b> baja de TikTok un archivo
-      que ya tienes en el teléfono para que lo publiques tú. El que automatiza
-      de verdad es el modo directo, y necesita pasar la auditoría de TikTok
-      (ver <code>AUDITORIA_TIKTOK.md</code>).
+      <b>Borrador es el modo real:</b> el vídeo llega ya subido a tu buzón de
+      TikTok, tocas la notificación y se abre el editor con el archivo dentro.
+      Te queda pegar el pie y publicar. El modo directo automatiza también eso,
+      pero pide una auditoría que esta app no pasa: TikTok excluye las
+      herramientas de uso personal (ver <code>AUDITORIA_TIKTOK.md</code>).
     </div></div>` : ''}
 
     ${!t.token ? `<div class="aviso crit"><span>⛔</span><div>
