@@ -36,6 +36,7 @@ except ImportError:
         "Instálalo con:\n\n    pip install flask\n"
     )
 
+import cola      # la cola de candidatos que dejaron los buscadores
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -158,6 +159,9 @@ HECHOS_QUE_SE_RECUERDAN = 12
 # sitio de sobra para que se crucen y arranquen dos.
 _CANDADO = threading.Lock()
 _SIGUIENTE_ID = [0]
+# Los terminados también llevan id: sin él, "cerrar este" tendría que ir por
+# posición, y la lista se mueve sola cada vez que acaba otro trabajo.
+_SIGUIENTE_HECHO = [0]
 
 
 def _arrancar(nombre, cmd, luego=None):
@@ -249,7 +253,9 @@ def seguir_con_la_cola(terminado):
         # después de abortar) podría arrancar la cola por segunda vez.
         if TRABAJO["actual"] is not terminado:
             return
-        hecho = {"nombre": terminado.nombre, "estado": terminado.estado,
+        _SIGUIENTE_HECHO[0] += 1
+        hecho = {"id": _SIGUIENTE_HECHO[0], "nombre": terminado.nombre,
+                 "estado": terminado.estado,
                  "segundos": int(time.time() - terminado.inicio)}
         # De los que fallaron se guarda el final de la salida: es lo que hay
         # que leer para saber por qué, y al arrancar el siguiente deja de
@@ -294,6 +300,54 @@ def vaciar_la_cola():
         cuantos = len(TRABAJO["cola"])
         TRABAJO["cola"].clear()
         return cuantos
+
+
+def mover_en_la_cola(id_entrada, delta):
+    """Sube o baja una entrada de la cola de espera.
+
+    Con el candado puesto porque entre encontrar la posición y moverla puede
+    terminar el trabajo en curso, que saca la primera de la lista: sin
+    candado se movería la de al lado o se dispararía un IndexError.
+    """
+    with _CANDADO:
+        for i, e in enumerate(TRABAJO["cola"]):
+            if e["id"] == id_entrada:
+                destino = i + delta
+                if destino < 0 or destino >= len(TRABAJO["cola"]):
+                    return False            # ya está en la punta; no es error
+                TRABAJO["cola"][i], TRABAJO["cola"][destino] = \
+                    TRABAJO["cola"][destino], TRABAJO["cola"][i]
+                return True
+        return False
+
+
+def olvidar_hecho(id_hecho):
+    with _CANDADO:
+        antes = len(TRABAJO["hechos"])
+        TRABAJO["hechos"][:] = [h for h in TRABAJO["hechos"] if h.get("id") != id_hecho]
+        return antes - len(TRABAJO["hechos"])
+
+
+def olvidar_hechos():
+    with _CANDADO:
+        cuantos = len(TRABAJO["hechos"])
+        TRABAJO["hechos"].clear()
+        return cuantos
+
+
+def cerrar_el_trabajo():
+    """Quita de la vista el trabajo que ya terminó.
+
+    Solo si terminó: lo que está corriendo o pausado se aborta desde su
+    propio botón, no se cierra. Al soltarlo aquí no se pierde nada — el
+    resultado ya quedó apuntado en "hechos" cuando acabó.
+    """
+    with _CANDADO:
+        t = TRABAJO["actual"]
+        if not t or t.estado in ("corriendo", "pausado"):
+            return False
+        TRABAJO["actual"] = None
+        return True
 
 
 def cola_como_lista():
@@ -1011,6 +1065,10 @@ def api_estado():
         "canal": resumen_canal(),
         "trabajo": TRABAJO["actual"].como_dict() if TRABAJO["actual"] else None,
         "cola": cola_como_lista(),
+        # Lo que los buscadores dejaron esperando guion. Sin esto, el panel
+        # enseña las historias de guion.txt y nada más: los candidatos que
+        # trajo Reddit se quedan en candidatos.json sin que se note.
+        "candidatos": len(cola.cargar_pendientes()),
         "hechos": list(TRABAJO["hechos"]),
     })
 
@@ -1165,6 +1223,13 @@ def api_cola(que):
     """
     if que == "vaciar":
         return jsonify({"ok": True, "quitados": vaciar_la_cola()})
+    if que == "mover":
+        datos = request.json or {}
+        id_entrada, hacia = datos.get("id"), datos.get("hacia")
+        if not isinstance(id_entrada, int) or hacia not in ("arriba", "abajo"):
+            return jsonify({"error": "Falta el id o el sentido"}), 400
+        movido = mover_en_la_cola(id_entrada, -1 if hacia == "arriba" else 1)
+        return jsonify({"ok": True, "movido": movido})
     if que == "quitar":
         id_entrada = (request.json or {}).get("id")
         if not isinstance(id_entrada, int):
@@ -1177,8 +1242,28 @@ def api_cola(que):
     return jsonify({"error": "Acción desconocida"}), 400
 
 
+@app.post("/api/hechos/<que>")
+def api_hechos(que):
+    """Olvida uno de los terminados, o la lista entera.
+
+    Solo quita la anotación: el trabajo ya pasó, esto es cerrar la tarjeta.
+    """
+    if que == "vaciar":
+        return jsonify({"ok": True, "quitados": olvidar_hechos()})
+    if que == "quitar":
+        id_hecho = (request.json or {}).get("id")
+        if not isinstance(id_hecho, int):
+            return jsonify({"error": "Falta el id"}), 400
+        return jsonify({"ok": True, "quitados": olvidar_hecho(id_hecho)})
+    return jsonify({"error": "Acción desconocida"}), 400
+
+
 @app.post("/api/trabajo/<que>")
 def api_trabajo(que):
+    # Cerrar va antes de exigir que haya trabajo: si ya no hay nada que
+    # cerrar, el panel pidió lo que quería y no es un error que contar.
+    if que == "cerrar":
+        return jsonify({"ok": True, "cerrado": cerrar_el_trabajo()})
     t = TRABAJO["actual"]
     if not t:
         return jsonify({"error": "No hay nada corriendo"}), 404

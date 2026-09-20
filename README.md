@@ -28,6 +28,12 @@ schedule (cron, Termux, or GitHub Actions).
    only marked as consumed once its script is on disk, so a failed run never
    burns the story.
 
+   This is a separate step on purpose: searching leaves candidates in
+   `candidatos.json`, and nothing reaches the render queue until Gemini has
+   written them. The panel says how many are waiting in the **Cola** tab, with
+   the button that writes them — searching without this step looks like
+   searching found nothing.
+
    Most Reddit posts are one dry paragraph, so the prompt asks Gemini to
    *develop* them — scene, inner monologue, dialogue spelled out from what
    the post summarizes, tension held before the turn — aiming past ~200
