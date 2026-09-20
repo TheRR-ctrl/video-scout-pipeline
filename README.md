@@ -13,7 +13,11 @@ schedule (cron, Termux, or GitHub Actions).
    candidates to a queue in `pipeline_state/candidatos.json`. No write access
    to Reddit at any point (no posting, commenting, voting, or messaging).
    `--diagnostico` explains a scan that came back empty; `--estado` shows the
-   queue.
+   queue. The default list is 36 subreddits across drama, difficult family,
+   revenge, customer-facing work, unexplained encounters and comedy; a
+   subreddit that is gone or misspelled is skipped with a warning, it does
+   not break the run. There is a `RATE_LIMIT_SEG` pause between each one, so
+   the full list takes a few minutes.
 2. **`youtube_scout.py`** — second source feeding the *same* queue. With a
    free `YOUTUBE_API_KEY` it searches by view count, so a three-year-old video
    with two million views is found (age is never a filter — only views are);
@@ -38,7 +42,9 @@ schedule (cron, Termux, or GitHub Actions).
    only drains what the daily free Gemini quota allows — left alone it grows
    faster than it empties. `cola.TOPE_CANDIDATOS` (60) caps it and
    `cola.FRESCURA_MAXIMA_DIAS` (14) expires the rest; what is dropped is
-   marked as seen so the next scan doesn't bring it straight back. Candidates
+   marked as seen so the next scan doesn't bring it straight back — and its
+   text is kept in `pipeline_state/candidatos_archivados.json` (last 300),
+   since the scouts don't store the posts they read anywhere else. Candidates
    are written newest first, and each run writes at most
    `MAX_POR_CORRIDA` (12, `--max N`, `--max 0` for no cap) — the rest of the
    day's quota is for `calidad_ia` and the publisher's metadata, which call
@@ -52,6 +58,13 @@ schedule (cron, Termux, or GitHub Actions).
    label that gates publishing has to stay honest. When the original stops
    without a resolution, the ending comes from the narrator's present
    ("I still don't know what became of her"), never from a made-up twist.
+   Rendering never removes anything from `guion.txt`, so the **Cola** tab
+   lists only the stories that don't have a video yet (matched the same way
+   `limpiar_cola.py` matches them); the rest are one click away behind
+   "verlas". `limpiar_cola.py` is what takes them out for good, and it now
+   appends them to `guion_historial.txt` first — one file with every script
+   ever written, instead of having to dig through dated backups.
+
    Gemini reports back in `se_sostiene` whether the story it just wrote
    holds up; the ones that don't are dropped before rendering, along with
    anything under `PALABRAS_MINIMAS_CUERPO` words as a backstop.

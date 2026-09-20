@@ -368,12 +368,35 @@ def cfg_actual():
     return gvm.cargar_config(RUTA_CONFIG)
 
 
+def apodos_ya_grabados():
+    """Lo que ya tiene video, con el mismo criterio que limpiar_cola.py.
+
+    Se pregunta en cada petición y no se guarda: renderizar y borrar videos
+    pasa por fuera del panel, y una lista cacheada enseñaría como pendiente
+    algo que se acaba de grabar. Si algo falla (config rara, carpeta que no
+    está), se devuelve vacío: el panel solo pinta, y enseñar todas las
+    historias es mejor que no enseñar ninguna.
+    """
+    try:
+        import limpiar_cola
+        return limpiar_cola.ya_renderizados()
+    except Exception:                              # noqa: BLE001 — informativo
+        return set()
+
+
 def historias_del_guion():
     if not os.path.exists(RUTA_GUION):
         return []
     import generar_video_maestro as gvm
     with open(RUTA_GUION, "r", encoding="utf-8") as f:
         bloques = [b.strip() for b in f.read().split("===NUEVA_HISTORIA===") if b.strip()]
+
+    grabados = apodos_ya_grabados()
+    try:
+        import limpiar_cola
+        apodo_de = limpiar_cola.apodo
+    except Exception:                              # noqa: BLE001 — informativo
+        apodo_de = None
 
     out = []
     for i, b in enumerate(bloques, 1):
@@ -393,6 +416,10 @@ def historias_del_guion():
             "genero": gvm.decidir_genero_narrador(b),
             "duracion": f"{segs // 60}:{segs % 60:02d}",
             "palabras": palabras,
+            # La cola enseña lo que falta por grabar. Lo ya grabado sigue en
+            # guion.txt (limpiar_cola es quien lo saca, y lo pasa al
+            # historial), pero en la lista solo estorba.
+            "renderizada": bool(apodo_de and apodo_de(b) in grabados),
         })
     return out
 

@@ -34,6 +34,12 @@ import publisher
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
+# Las historias que salen de la cola se van acumulando aquí, con la fecha en
+# que se quitaron. El respaldo con fecha guarda la cola ENTERA de aquel día,
+# así que con varias limpiezas hay que ir abriendo copias hasta dar con la
+# que tenía la historia; esto es un solo archivo con todo lo ya grabado, en
+# el mismo formato, y sirve para releer un guion viejo sin desenterrar nada.
+RUTA_HISTORIAL_GUION = os.path.join(BASE_DIR, "guion_historial.txt")
 SEPARADOR = "===NUEVA_HISTORIA==="
 
 
@@ -97,6 +103,26 @@ def _apodo_de_archivo(nombre):
     return re.sub(r"^\d+_", "", sin_ext)
 
 
+def archivar_en_historial(bloques, cuando=None):
+    """Agrega al historial las historias que salen de la cola.
+
+    Se agrega, nunca se reescribe: este archivo es lo único que queda de un
+    guion cuando su respaldo con fecha se borra.
+    """
+    if not bloques:
+        return 0
+    cuando = cuando or datetime.now().strftime("%Y-%m-%d %H:%M")
+    hay_algo = os.path.exists(RUTA_HISTORIAL_GUION) and os.path.getsize(RUTA_HISTORIAL_GUION)
+    with open(RUTA_HISTORIAL_GUION, "a", encoding="utf-8") as f:
+        for b in bloques:
+            if hay_algo:
+                f.write("\n" + SEPARADOR + "\n")
+            f.write(f"# Quitada de la cola: {cuando}\n{b}")
+            hay_algo = True
+        f.write("\n")
+    return len(bloques)
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Quita de la cola lo que ya tiene video.")
     ap.add_argument("--si", action="store_true", help="Hacerlo de verdad.")
@@ -125,13 +151,18 @@ def main(argv=None):
         print("\n  Esto era el listado. Para hacerlo:  python limpiar_cola.py --si\n")
         return 0
 
+    # Al historial ANTES de tocar guion.txt: si algo falla entre medias,
+    # prefiero una historia repetida en el historial que una perdida.
+    archivar_en_historial([b for _, b in fuera])
+
     sello = datetime.now().strftime("%Y%m%d-%H%M%S")
     respaldo = f"{RUTA_GUION}.bak-{sello}"
     os.replace(RUTA_GUION, respaldo)
     with open(RUTA_GUION, "w", encoding="utf-8") as f:
         f.write(("\n" + SEPARADOR + "\n").join(b for _, b in quedan) + "\n")
 
-    print(f"\n   ✓ Copia de la cola anterior en {os.path.basename(respaldo)}")
+    print(f"\n   ✓ Las {len(fuera)} quitada(s) quedan en {os.path.basename(RUTA_HISTORIAL_GUION)}")
+    print(f"   ✓ Copia de la cola anterior en {os.path.basename(respaldo)}")
     print(f"   ✓ {RUTA_GUION}: quedan {len(quedan)} historia(s).")
     # El servidor relee guion.txt en cada peticion y el panel repinta solo
     # en cuanto ve que el trabajo termino, asi que no hay que pulsar nada.

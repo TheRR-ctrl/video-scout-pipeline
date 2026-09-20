@@ -384,6 +384,7 @@ let tocado = false;      // ¿el usuario ya eligió historias a mano?
 let abiertoRehacer = false;
 let finos = {};          // qué casillas de "al rehacer, cambiar…" están marcadas
 let musicaElegida = {};  // nº de historia -> archivo de música fijado a mano
+let verGrabadas = false; // en la cola, ¿enseñar también las que ya tienen video?
 
 function esc(s){ return String(s??'').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('on');
@@ -1173,18 +1174,42 @@ function olvidarLoQueSeRenumero(){
 }
 
 function firmaCola(){
-  return [E.historias.length, E.historias.map(h=>h.n+h.titulo).join('|'),
+  return [E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
-          (E.musica||[]).length, E.candidatos || 0].join('~');
+          (E.musica||[]).length, E.candidatos || 0, verGrabadas].join('~');
 }
 /* El aviso de limpiar la cola sale en dos sitios —aquí y en Mantenimiento—
    y dice justo lo que se pierde, que es la numeración. Una sola copia para
    que no se queden diciendo cosas distintas. */
 const AVISO_LIMPIAR_COLA =
-  "Quita de guion.txt las historias que ya tienen video.\n\nDeja una copia con fecha, y las que quedan se renumeran (un «--historias 44» de antes deja de apuntar a lo mismo).";
+  "Quita de guion.txt las historias que ya tienen video.\n\nEl texto no se pierde: pasa a guion_historial.txt, y además queda una copia con fecha. Las que quedan se renumeran (un «--historias 44» de antes deja de apuntar a lo mismo).";
 
+/* La cola enseña lo que falta por grabar.
+
+   guion.txt guarda todo lo que Gemini escribió y renderizar no borra nada de
+   ahí, así que a las pocas semanas la lista eran decenas de historias ya
+   grabadas y había que ir recordando cuáles. Quitarlas de verdad es cosa de
+   «Limpiar» (que las pasa al historial); aquí solo se ocultan, que es
+   reversible y no renumera nada. */
 function pintaCola(){
-  const h = E.historias, cont = $('#v-cola');
+  const todas = E.historias, cont = $('#v-cola');
+  const grabadas = todas.filter(x=>x.renderizada).length;
+  const h = verGrabadas ? todas : todas.filter(x=>!x.renderizada);
+  // Lo que no se ve tampoco se renderiza: una historia grabada oculta pero
+  // marcada saldría en «Renderizar 3,7,12» sin que nadie la vea en la lista.
+  if(!verGrabadas) todas.forEach(x=>{ if(x.renderizada) seleccion.delete(x.n); });
+  if(!h.length && grabadas && !verGrabadas){
+    cont.innerHTML = `<h2>Nada pendiente</h2>
+      <p class="sub">Las ${grabadas} historia(s) de la cola ya tienen video.</p>
+      <div style="display:flex;gap:7px;flex-wrap:wrap">
+        <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
+        <button class="btn go" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+        <button class="btn" onclick="verGrabadas=true;pintar()">👁 Ver las ya grabadas</button>
+        <button class="btn" title="Las pasa al historial y renumera lo que quede"
+          onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
+      </div>`;
+    return;
+  }
   if(!h.length){
     cont.innerHTML = `<h2>Sin historias</h2>
       <p class="sub">No hay guion.txt. Busca historias en Reddit y conviértelas en guiones.</p>
@@ -1212,6 +1237,11 @@ function pintaCola(){
   const esperando = E.candidatos || 0;
   cont.innerHTML = `
     <h2>${h.length} historias listas para renderizar</h2>
+    ${!grabadas ? '' : `<p class="sub">${verGrabadas
+      ? `Se ven también las ${grabadas} que ya tienen video.`
+      : `${grabadas} más ya tienen video y no se enseñan.`}
+      <a href="#" onclick="verGrabadas=${!verGrabadas};pintar();return false"
+        >${verGrabadas ? 'ocultarlas' : 'verlas'}</a></p>`}
     ${!esperando ? '' : `<div class="aviso warn"><span>✍</span><div>
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
@@ -1231,7 +1261,7 @@ function pintaCola(){
         <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
           <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
           <span class="n">${String(x.n).padStart(2,'0')}</span>
-          <span class="t">${esc(x.titulo)}</span>
+          <span class="t">${x.renderizada ? '🎬 ' : ''}${esc(x.titulo)}</span>
           <span class="m">${esc(x.emocion).slice(0,5)}</span>
           <span class="m" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
             >${x.genero==='femenino'?'♀':'♂'}</span>
@@ -2536,7 +2566,7 @@ function pintar(){
   // de dueño.
   olvidarLoQueSeRenumero();
   $('#c-rev').textContent = E.videos.length;
-  $('#c-col').textContent = E.historias.length;
+  $('#c-col').textContent = E.historias.filter(h=>!h.renderizada).length;
   $('#c-pub').textContent = E.publicados.length;
   // En Canal el número que importa es lo que la revisión se llevaría.
   $('#c-can').textContent = E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0;
