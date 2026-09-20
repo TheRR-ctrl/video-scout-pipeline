@@ -60,9 +60,21 @@ derrota, pero es que las dos alternativas de la API son peores:
   bajarlo para acabar donde ya estabas. Está comprobado en el teléfono; la
   documentación de TikTok no lo cuenta.
 
-Para que subirlo a mano cueste lo mínimo, `tiktok_publisher.py` imprime el pie
-—título y hashtags, los mismos que se aprobaron para YouTube— ya montado al
-terminar cada subida, y el panel guarda el registro de lo publicado.
+Para que subirlo a mano cueste lo mínimo, el pie —título y hashtags, los
+mismos que se aprobaron para YouTube— se deja copiado en el portapapeles, que
+es lo único de esa etapa que se podía automatizar:
+
+```bash
+python tiktok_publisher.py --pie
+```
+
+Te lista los pendientes, eliges uno por número y lo copia. En el panel está el
+mismo botón, **Copiar pie**, en cada pendiente de la pestaña TikTok. Necesita
+`termux-api` (`instalar_panel.sh` ya lo instala); si no está, el pie se imprime
+igual y lo copias manteniendo pulsado.
+
+El panel sigue llevando el registro: cuando subas uno a mano, dale a **Ya
+subido** para que deje de contar como pendiente.
 
 ### 2. Publicar a través de un servicio ya auditado
 

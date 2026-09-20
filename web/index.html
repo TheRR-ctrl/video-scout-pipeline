@@ -1592,6 +1592,39 @@ async function tiktokActivo(on){
 
    Fuera de una grabación en curso esto es una línea y un botón: no estorba
    los otros 364 días. */
+/* Copia el pie al portapapeles del telefono.
+
+   navigator.clipboard solo existe en contexto seguro: va bien en
+   http://localhost, que es como se abre el panel normalmente, pero no si lo
+   abres por la IP de la red local. De ahi el respaldo con un textarea y
+   execCommand, que es viejo pero sigue funcionando en el WebView de Android. */
+async function copiarPie(boton, texto){
+  let ok = false;
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(texto);
+      ok = true;
+    }
+  }catch(e){ ok = false; }
+  if(!ok){
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.setAttribute('readonly','');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ ok = document.execCommand('copy'); }catch(e){ ok = false; }
+    document.body.removeChild(ta);
+  }
+  // El aviso va en el propio boton: un toast pediria sitio que a 412px no
+  // sobra, y aqui lo que hace falta es saber si pegar ya vale la pena.
+  const antes = boton.textContent;
+  boton.textContent = ok ? '\u2713 Copiado' : '\u2717 No pude';
+  boton.disabled = true;
+  setTimeout(()=>{ boton.textContent = antes; boton.disabled = false; }, 1500);
+}
+
 function bloqueDemo(demo){
   if(!demo) return '';
   if(!demo.empezado_en) return `
@@ -1736,6 +1769,8 @@ function pintaTiktok(){
         <div style="display:flex;gap:6px">
           ${directo ? `<button class="btn sm ${p.opciones?'':'go'}"
             onclick="abrirTiktok('${esc(p.nombre)}')">${p.opciones?'Cambiar':'Preparar'}</button>` : ''}
+          <button class="btn sm" onclick="copiarPie(this, ${esc(JSON.stringify(p.pie||p.titulo))})"
+            title="Copiar título y hashtags para pegarlos en TikTok">Copiar pie</button>
           <button class="btn sm" onclick="marcarEnTiktok('${esc(p.ruta)}', '${esc(p.titulo).replace(/'/g,"\\'")}')"
             title="Ya lo subiste a mano: sacarlo de la lista">Ya subido</button>
         </div>

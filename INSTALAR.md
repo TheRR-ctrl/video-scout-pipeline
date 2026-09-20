@@ -496,8 +496,10 @@ abrir el editor. Como el render se hace aquí mismo, es subirlo y bajarlo para
 acabar donde ya estabas.
 
 O sea que hoy esta etapa no te sirve, y lo honesto es decirlo: publica a mano
-desde la galería. El pipeline te deja el MP4 listo, y el publicador imprime el
-pie ya montado para que solo lo pegues. La etapa se queda por si algún día el
+desde la galería. El pipeline te deja el MP4 listo, y el pie —el título y los
+hashtags que ya se aprobaron para YouTube— te lo deja copiado en el
+portapapeles con `python tiktok_publisher.py --pie`, o con el botón **Copiar
+pie** de la pestaña TikTok del panel. La etapa se queda por si algún día el
 render sale del teléfono, que es cuando el buzón empezaría a tener sentido
 (ver `AUDITORIA_TIKTOK.md`).
 
