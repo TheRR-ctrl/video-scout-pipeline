@@ -27,6 +27,18 @@ schedule (cron, Termux, or GitHub Actions).
    `# Fuente:` / `# Autor:` reference back to the original. A candidate is
    only marked as consumed once its script is on disk, so a failed run never
    burns the story.
+
+   Most Reddit posts are one dry paragraph, so the prompt asks Gemini to
+   *develop* them — scene, inner monologue, dialogue spelled out from what
+   the post summarizes, tension held before the turn — aiming past ~200
+   words. That adds telling, not events: inventing facts is off limits,
+   since the video credits the post and its author by name, and the `tema`
+   label that gates publishing has to stay honest. When the original stops
+   without a resolution, the ending comes from the narrator's present
+   ("I still don't know what became of her"), never from a made-up twist.
+   Gemini reports back in `se_sostiene` whether the story it just wrote
+   holds up; the ones that don't are dropped before rendering, along with
+   anything under `PALABRAS_MINIMAS_CUERPO` words as a backstop.
 4. **`generar_video_maestro.py`** — renders the narration (edge-tts), karaoke
    subtitles, and background video locally with ffmpeg into a finished video
    file, and writes `resultado_lote.json` describing what was produced. Shorts

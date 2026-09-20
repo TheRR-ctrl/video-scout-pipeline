@@ -124,6 +124,24 @@ SCHEMA_HISTORIA = {
                 "para contarse bien."
             ),
         },
+        "se_sostiene": {
+            "type": "boolean",
+            "description": (
+                "true si la historia que ACABAS de escribir tiene situación, "
+                "desarrollo y un final —aunque el final sea el remate del "
+                "narrador sobre lo que le quedó—. false solo si el original no "
+                "daba para una historia ni desarrollándolo. Júzgate tu texto, no "
+                "el original: si lo pudiste desarrollar, se sostiene."
+            ),
+        },
+        "por_que_no": {
+            "type": "string",
+            "description": (
+                "Con se_sostiene en false, en una línea: qué le falta al original "
+                "(no tiene final, es un comentario suelto, no se entiende qué "
+                "pasó...). Cadena vacía si se sostiene."
+            ),
+        },
         "cierre": {
             "type": "string",
             "description": (
@@ -133,13 +151,22 @@ SCHEMA_HISTORIA = {
             ),
         },
     },
-    "required": ["titulo_hook", "genero_narrador", "emocion", "tema", "cuerpo", "cierre"],
+    "required": ["titulo_hook", "genero_narrador", "emocion", "tema", "cuerpo",
+                 "cierre", "se_sostiene", "por_que_no"],
 }
 
 # De un episodio largo (un podcast de anécdotas puede traer diez) se toman
 # solo las mejores: si no, un solo video llenaría la cola y todo el canal
 # acabaría contando lo mismo.
 MAX_ANECDOTAS_POR_VIDEO = 3
+
+# El suelo por debajo del cual no hay historia que valga, se_sostiene o no.
+# No es el largo que se busca —eso se lo pide el prompt, unas 200 palabras—
+# sino la red por si el modelo contesta que sí a todo: a ~2,6 palabras por
+# segundo, 120 palabras son tres cuartos de minuto, y en menos de eso no cabe
+# situación, desarrollo y remate. Subirlo aquí aprieta el filtro sin tocar el
+# prompt, pero ojo: lo que se tira ya gastó su llamada a Gemini.
+PALABRAS_MINIMAS_CUERPO = 120
 
 SCHEMA_SEGMENTOS = {
     "type": "object",
@@ -197,9 +224,13 @@ Reglas:
 - Usa español mexicano real y cotidiano, no español neutro de doblaje: modismos, muletillas y giros naturales de México ("neta", "qué onda", "se me hizo raro", "no manches", "wey" solo si el tono de la historia lo permite, etc.), sin forzarlos ni exagerar el acento a caricatura. La historia original puede ser de cualquier país — adapta el modo de contarla al mexicano, no la ubiques falsamente en México si el contexto no calza.
 - Evita que suene genérico o traducido: cada historia debe conservar su esencia y detalles particulares, no una versión aplanada/intercambiable con cualquier otra.
 - Mantén los hechos centrales de la historia original, pero puedes reordenar para maximizar tensión narrativa.
-- Cierra el cuerpo con una pregunta o gancho que invite a comentar (ej. "¿Ustedes qué hubieran hecho?").
+- DESARROLLA lo que el original solo resume. Muchos posts son un párrafo seco: ahí tu trabajo es contarlo, no copiarlo. Puedes poner la escena (dónde, qué hora, qué se oía), lo que el narrador pensó y sintió en cada momento, el diálogo dicho a partir de lo que el original resume ("me dijo que no" → la frase que dijo), y estirar el momento de tensión antes del giro. Nada de eso son hechos nuevos: es la misma historia contada de viva voz en vez de resumida. Una historia que se cuenta bien rara vez baja de 200 palabras; si el original da poco, desarróllalo hasta que se sostenga.
+- NO inventes hechos que no estén en el original: nada de que alguien confiese, muera, se vengue, aparezca un juicio o un giro que el original no tiene. Ese es el límite. El video lleva el enlace al post y el nombre de quien lo escribió, así que ponerle en la boca cosas que no dijo ya no es adaptar. Y la etiqueta `tema` decide si el video se publica: si inventas violencia o maltrato que no estaban, esa etiqueta deja de proteger a nadie.
+- Si el original se corta sin desenlace, REMATA DESDE EL NARRADOR, no con un final inventado: qué le quedó, qué no volvió a saber, qué haría distinto hoy ("hasta hoy no sé qué fue de ella, y ya dejé de buscar"). Eso es cierto y cierra; un giro falso pegado al final se nota.
+- Cierra el cuerpo con una pregunta o gancho que invite a comentar (ej. "¿Ustedes qué hubieran hecho?"). Va DESPUÉS del remate, no en su lugar: una pregunta al aire sobre una historia que nunca terminó deja al que escucha con la sensación de que le colgaron el teléfono.
 - El campo cierre es aparte del cuerpo: es la invitación final a compartir, dar like y suscribirse, y se narra después de la historia. Escríbela amarrada a ESTA historia — retoma su tema, su desenlace o su tono, con las mismas palabras que usarías contándola (ej. si fue de una herencia: "Si tú también tienes parientes que solo aparecen cuando hay dinero de por medio, compártele este video... y suscríbete, que historias así me llegan cada semana"). Nunca uses una fórmula intercambiable tipo "no olvides darle like y suscribirte", ni repitas el mismo cierre entre historias distintas. Máximo 2 frases, que suene dicho, no leído.
 - No inventes detalles explícitos, violentos o inapropiados que no estén en el original.
+- Si ni desarrollándola hay historia (el original es un comentario suelto, una pregunta, un pedazo de conversación sin principio ni fin), dilo en `se_sostiene` y no la fabriques. Es una respuesta correcta y se descarta sin más; inventarla para cumplir sale mucho más caro.
 - No incluyas markdown ni encabezados, solo el texto narrado."""
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -440,6 +471,19 @@ def motivo_para_tirar(historia, huellas):
     texto. La llamada ya está gastada de todos modos; lo que se ahorra es el
     render de cinco minutos en el teléfono y una subida que nadie va a ver.
     """
+    # Lo corto ya no se tira por corto: el prompt le pide desarrollarlo. Se
+    # tira lo que ni desarrollado era una historia, y eso lo dice quien leyó
+    # las dos versiones. El suelo de palabras es solo una red por si el
+    # modelo contesta que sí a todo: un cuerpo de tres frases no es una
+    # historia con desenlace, diga lo que diga el campo.
+    if not historia.get("se_sostiene", True):
+        falta = (historia.get("por_que_no") or "").strip()
+        return f"el original no daba para una historia{': ' + falta if falta else ''}"
+
+    palabras = len(str(historia.get("cuerpo", "")).split())
+    if palabras < PALABRAS_MINIMAS_CUERPO:
+        return f"se quedó en {palabras} palabras; ni desarrollada llega a historia"
+
     tema = historia.get("tema", "")
     if tema in temas_bloqueados():
         return f"tema «{tema}», que el feed de Shorts no reparte"
