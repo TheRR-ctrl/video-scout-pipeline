@@ -1,144 +1,123 @@
-# Pasar la auditoría de TikTok
+# La auditoría de TikTok: por qué este proyecto no la pasa
 
-Sin auditar, el único modo que funciona con una cuenta pública es **borrador**,
-y borrador no te ahorra trabajo: sube el vídeo a TikTok para que luego lo bajes
-desde la app y lo publiques a mano, sobre un archivo que ya tienes en el
-teléfono. La auditoría es lo que desbloquea `modo: "directo"`, y con ella la
-etapa de TikTok queda como la de YouTube: decides en el panel y el cron publica.
+Este documento explicaba paso a paso cómo enviar la app a revisión. Estaba
+equivocado en lo más importante, así que ahora explica lo contrario: **tal como
+está montado el proyecto, la auditoría no se puede pasar**, y enviarla solo
+sirve para acumular un rechazo en el historial de la app.
 
-Se revisa la app de **Production**, no el sandbox.
+## Lo que dice TikTok
 
-## 0. Antes de enviar: quita `video.upload`
+En las [Content Sharing Guidelines][csg], lista de casos de uso **no
+aceptables**, literalmente:
 
-TikTok rechaza la revisión si pides un permiso que no enseñas funcionando en el
-vídeo demo. Como el modo borrador ya no te sirve, `video.upload` solo añade una
-escena más que grabar y un motivo más de rechazo.
+> - An app that copies arbitrary contents from other platforms to TikTok.
+> - A utility tool to help upload contents to the account(s) you or your team
+>   manages.
 
-En la app de Production → **Scopes** → quita `video.upload`, deja
-`user.info.basic` y `video.publish` → **Apply changes**.
+Y en las [App Review Guidelines][arg], como requisito de admisión:
 
-A partir de ahí el modo borrador deja de funcionar. Da igual: está apagado.
+> Apps must not be for private or personal use.
 
-Repasa también que el resto siga completo, porque la revisión mira toda la
-ficha, no solo el formulario:
+El segundo punto describe este proyecto con precisión incómoda: una herramienta
+para subir a la cuenta que tú manejas. No es una interpretación severa de la
+regla, es la regla.
 
-- Category y Description rellenadas.
-- Terms of Service y Privacy Policy apuntando a las páginas publicadas
-  (`https://therr-ctrl.github.io/video-scout-pipeline/terminos.html` y
-  `.../privacidad.html`), con el prefijo verificado en verde.
-- Login Kit con su Redirect URI.
-- Content Posting API con **Direct Post** activado.
+Lo peor es que la versión anterior de este documento lo decía sola. El texto de
+1000 caracteres que proponía enviar empezaba así:
 
-## 1. La explicación (campo de 1000 caracteres)
+    Archivo de Relatos Olvidados is a personal tool I built for my own TikTok
+    account (@reflexiadaily).
 
-Va en inglés, que es como la leen. Cabe en el límite:
+Es la frase prohibida, redactada por nosotros, en la primera línea que lee el
+revisor.
 
+Del primer punto —copiar contenido de otras plataformas— sí se puede salir.
+Aquí no se copia nada: Gemini reescribe la historia, el narrador pone una voz
+nueva y el motor fabrica el fondo. El vídeo es una obra nueva. Pero eso hay que
+explicarlo, y "turns public stories into narrated short videos" suena justo a
+lo que prohíben.
+
+## Lo que no vale hacer
+
+Presentar el proyecto como una herramienta abierta a creadores en general
+cuando es para tu canal. Además de ser mentirle al revisor, no cuela: el vídeo
+demo que piden enseña el login, y en el login se ve una sola cuenta,
+@reflexiadaily, autorizándose a sí misma. Y una app aprobada sobre una
+descripción falsa se revoca cuando lo miran otra vez, normalmente cuando ya
+dependes de ella.
+
+## Lo que sí vale
+
+### 1. El modo borrador (recomendado)
+
+El flujo de buzón (`video.upload`) **no pasa por auditoría y no tiene
+restricción de visibilidad**, porque quien publica eres tú desde la app. Es la
+vía que TikTok tiene prevista exactamente para este caso.
+
+Y ahorra más de lo que decía este documento, que aquí también se equivocaba. El
+vídeo no "se baja" de ningún sitio: llega a tu buzón de TikTok ya subido, tocas
+la notificación y se abre el editor con el archivo dentro. Lo que te ahorras es
+justo lo caro desde el teléfono —buscar el archivo en la galería y esperar la
+subida por datos—. Lo que sigue siendo tuyo es pegar el pie y darle a publicar.
+Para que pegarlo sea un gesto, `tiktok_publisher.py` imprime el pie ya montado
+al terminar cada subida.
+
+Es lo que ya está configurado por defecto:
+
+```json
+"tiktok": { "activo": true, "modo": "borrador" }
 ```
-Archivo de Relatos Olvidados is a personal tool I built for my own TikTok
-account (@reflexiadaily). It turns public stories into narrated short videos.
 
-Login Kit: I authorize my own account once. The app stores the token locally on
-my phone and refreshes it; no other user ever logs in.
+Los permisos que necesitas en la app son `user.info.basic` y **`video.upload`**
+(no `video.publish`). Ojo, porque la versión anterior de este documento te
+mandaba quitar `video.upload`: eso rompería lo único que funciona.
 
-Content Posting API (video.publish): before anything is posted, I open the
-app's review panel, which queries /creator_info/query/ and shows me the target
-account, the privacy options that account allows, and the interaction settings
-(comment, duet, stitch), greyed out when my account disables them. Privacy has
-no default: nothing is posted until I pick one. The panel also has the
-commercial content disclosure toggle with the "your brand" and "branded
-content" checkboxes and the corresponding music and branded content policy
-links. Only after I save those choices does the upload run, sending exactly
-what I selected. Posts are uploaded one at a time from my phone.
-```
+### 2. Publicar a través de un servicio ya auditado
 
-## 2. El vídeo demo
+Postiz, bundle.social y parecidos tienen la auditoría pasada. Tú eres un
+usuario suyo, que es un caso de uso que TikTok sí acepta. Es la única forma de
+tener publicación automática de verdad sin mentir ni montar un producto.
+A cambio: cuota mensual y tus vídeos pasando por un tercero.
 
-Máximo 50 MB, mp4 o mov. Es una grabación de pantalla del móvil.
+### 3. Que la descripción sea verdad
 
-`demo_tiktok.py` lleva todo lo de aquí abajo menos apretar el botón de
-grabar, que no se puede: Termux no tiene una orden para grabar la pantalla y
-Android no deja que una app grabe por otra. La grabadora la arrancas tú desde
-los ajustes rápidos (Android 11+ la trae).
+Abrir el proyecto a otros creadores: login multiusuario, callback alojado de
+verdad, y custodia de tokens que no son tuyos. Entonces la auditoría es
+honesta y se puede pasar. Es un proyecto distinto del que tienes, y desde un
+teléfono es mucho trabajo, pero es el camino legítimo si algún día quieres el
+modo directo.
+
+## Si algún día vas por la opción 3
+
+Todo lo que hace falta para grabar el demo sigue en el repo y sigue
+funcionando: `demo_tiktok.py` lleva el guion de las cinco escenas, comprueba
+antes de grabar lo que te obligaría a repetir la toma, y recomprime la
+grabación a los 50 MB que admite el portal sin bajar la resolución.
 
 ```bash
-python demo_tiktok.py --comprobar   # que la toma vaya a salir
-python demo_tiktok.py --empezar     # arranca el guion de las 5 escenas
-python demo_tiktok.py --estado      # por cuál vas
-python demo_tiktok.py --revisar grabacion.mp4     # ¿entra en los 50 MB?
-python demo_tiktok.py --recomprimir grabacion.mp4 # si no entra
+python demo_tiktok.py --comprobar
+python demo_tiktok.py --empezar
+python demo_tiktok.py --estado
+python demo_tiktok.py --revisar grabacion.mp4
+python demo_tiktok.py --recomprimir grabacion.mp4
 ```
 
-`--comprobar` mira lo que si falla te obliga a repetir la toma: que el token
-esté vivo y con los permisos correctos, que `video.upload` ya no esté, que el
-modo sea directo, que haya un vídeo preparado y ligero, y —lo que más— **si
-la cuenta está en privado**. Eso último lo sabe sin preguntarte: una cuenta
-privada no puede publicar en público, así que `/creator_info/query/` no
-ofrece `PUBLIC_TO_EVERYONE`. Si lo ofrece, la cuenta está pública y la subida
-va a fallar justo en la escena que más importa.
+Las cinco escenas, en orden: el login con la pantalla de permisos de TikTok; el
+panel enseñando la cuenta destino y las opciones que devuelve
+`/creator_info/query/`; la elección de privacidad guardada; la subida
+completándose; y el vídeo ya en el perfil. Entre la 3 y la 5 no se corta ni se
+acelera, porque lo que comprueban es que nada se publica sin que alguien lo
+haya elegido antes.
 
-Mientras grabas, las escenas se van marcando solas en la pestaña **TikTok**
-del panel: las cuatro primeras porque el panel se entera de que han ocurrido
-de verdad (token nuevo, cuenta consultada, elección guardada, subida
-terminada). La quinta pasa dentro de la app de TikTok, así que esa la llevas
-tú.
+Y el detalle que no está en ninguna documentación: sin auditar, publicar en
+directo a una cuenta pública falla con
+`unaudited_client_can_only_post_to_private_accounts`. Para grabar la subida
+funcionando hay que poner la cuenta en privado, grabar, y volver a ponerla
+pública. Es el camino previsto por TikTok, no un rodeo.
 
-`--recomprimir` baja el peso **sin tocar la resolución**: lo que el revisor
-tiene que hacer es leer la pantalla, y quitar píxeles es justo lo que se lo
-impide. Baja el ritmo de datos, que en una grabación de interfaz —casi toda
-quieta— cuesta mucha menos calidad visible. Si la grabación es tan larga que
-para entrar habría que bajar de 1200 kbps, se niega y te dice que la cortes:
-comprimir más dejaría el texto ilegible y la revisión fallaría por eso.
+Lo que **no** se puede reaprovechar es el texto de 1000 caracteres de la
+versión anterior. Ese hay que escribirlo entero de nuevo, describiendo la
+herramienta abierta que para entonces existiría.
 
-**El truco que hay que saber antes de grabar:** todavía no estás auditado, así
-que una publicación directa a una cuenta pública falla con
-`unaudited_client_can_only_post_to_private_accounts`. Para poder grabar la
-subida funcionando:
-
-1. Pon **@reflexiadaily en privado** (Ajustes → Privacidad → Cuenta privada).
-2. Graba el demo entero.
-3. Vuelve a ponerla pública.
-
-Es el camino previsto por TikTok para demostrar Direct Post antes de la
-auditoría, no un rodeo: el revisor espera ver exactamente eso.
-
-Con los vídeos ya recomprimidos la subida dura poco, así que el demo entra en
-una sola toma sin cortes. Que se vea, en este orden:
-
-1. **Login Kit.** Lanza `generar_tiktok_token.py`, abre el enlace, y que se vea
-   la pantalla de permisos de TikTok con los scopes y tu cuenta.
-2. **El panel.** Abre la pestaña TikTok y pulsa **Preparar** en un vídeo. Tiene
-   que verse la cuenta destino (`@reflexiadaily`), el desplegable de privacidad
-   empezando por «elige una opción», las casillas de comentarios/dúo/stitch, y
-   el interruptor de contenido comercial con sus dos casillas y los enlaces.
-3. **La elección.** Elige una privacidad y guarda. Que se vea el ✓.
-4. **La subida.** Lánzala y que se vea el progreso hasta el final.
-5. **El resultado.** Abre TikTok y enseña el vídeo ya publicado en el perfil.
-
-No cortes ni aceleres el vídeo entre el paso 3 y el 5: lo que están comprobando
-es justamente que nada se publica sin que tú lo hayas elegido antes.
-
-## 3. Enviar
-
-Portal → app de Production → **App review** → rellena los dos campos → **Submit
-for review**. Mientras la revisan, la app sigue funcionando en sandbox.
-
-## 4. Cuando la aprueben
-
-Las credenciales de Production son distintas a las del sandbox, así que hay que
-guardarlas y volver a autorizar una vez:
-
-```bash
-python -c "import secretos; secretos.guardar('TIKTOK_CLIENT_KEY', 'aw...')"
-python -c "import secretos; secretos.guardar('TIKTOK_CLIENT_SECRET', '...')"
-python generar_tiktok_token.py --redirect https://therr-ctrl.github.io/video-scout-pipeline/callback.html
-```
-
-Y enciende el modo directo:
-
-```bash
-python -c "import json;c=json.load(open('config.json'));c['tiktok'].update(activo=True, modo='directo');json.dump(c,open('config.json','w'),indent=2,ensure_ascii=False);print(c['tiktok'])"
-```
-
-En el panel ya aparecerá `PUBLIC_TO_EVERYONE` entre las privacidades, porque
-`/creator_info/query/` deja de restringirlas. A partir de ahí preparas cada
-vídeo en el panel y el cron lo publica.
+[csg]: https://developers.tiktok.com/docs/en/content-sharing-guidelines
+[arg]: https://developers.tiktok.com/docs/en/app-review-guidelines

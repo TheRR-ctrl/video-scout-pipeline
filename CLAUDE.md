@@ -65,6 +65,23 @@ Y si el cambio de versión es para arreglar un render feo, hay que vaciar
 CLI dentro, así que los clips viejos se seguirían sirviendo y parecería que el
 cambio no hizo nada.
 
+## TikTok: la auditoría no se va a pasar
+
+Cada cierto tiempo vuelve la idea de mandar la app a revisión para desbloquear
+el modo directo. **No se manda.** TikTok excluye explícitamente las apps de uso
+personal y las herramientas para subir a la cuenta que uno mismo maneja, que es
+exactamente lo que es esto; un envío solo deja un rechazo en el historial de la
+app. Las reglas citadas y las tres salidas reales están en
+`AUDITORIA_TIKTOK.md`.
+
+El modo que funciona es **borrador**: no pasa por auditoría, no tiene tope de
+visibilidad, y el vídeo llega ya subido al buzón de TikTok. Los permisos son
+`user.info.basic` y `video.upload` — `video.publish` no se pide.
+
+Y no repitas que «borrador no ahorra trabajo porque bajas un archivo que ya
+tienes». Es falso, estuvo escrito en cuatro sitios del repo, y llevaba a
+descartar lo único que funciona.
+
 ## Imports que parecen sobrar
 
 `import secretos` e `import ruido` se importan por su efecto, no por su
