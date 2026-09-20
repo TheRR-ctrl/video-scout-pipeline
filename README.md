@@ -185,6 +185,25 @@ composes **per scene, in batches**. What varies between uses here is the
 which parts of the frame must stay clear. See `.claude/skills/hyperframes-broll/SKILL.md` for the
 composition contract and how to debug a failed render.
 
+The CLI version is pinned in `hyperframes_nucleo.py` (`VERSION_CLI`), so an
+unattended run never silently changes render engine. To bump it, use
+`subir_version_hyperframes.py` rather than editing by hand — it takes both
+repos at once, keeping that file byte-identical, and rewrites the comment above
+the constant so the stated reason never contradicts the pinned number:
+
+```bash
+python3 subir_version_hyperframes.py 0.8.29 \
+  --nota "why this version, ideally with the run that proved it" \
+  ~/video-scout-pipeline ~/video_generation
+md5sum ~/video-scout-pipeline/hyperframes_nucleo.py ~/video_generation/hyperframes_nucleo.py
+```
+
+Test a new version on a branch with the *Fabricar fondos con IA* workflow
+before it reaches `main`: this engine is PC-only, so it cannot be verified from
+the phone. And note the clip cache key does **not** include the CLI version —
+if you are bumping to fix a bad render, clear
+`pipeline_state/hyperframes_cache/` too, or the old clips keep being served.
+
 ## Subtitle style and fonts
 
 Subtitles are configured under `subtitulos` in `config.json` — nothing else
