@@ -32,8 +32,18 @@ datos. Para un plano fotorrealista concreto, sigue siendo un modelo generativo.
 
 ## El módulo de este repo
 
-`hyperframes_broll.py` (idéntico en `video-scout-pipeline` y `Video_Generation`
-— si lo tocas en uno, cópialo al otro).
+El motor está partido en dos archivos:
+
+- **`hyperframes_nucleo.py`** — byte a byte idéntico en `video-scout-pipeline` y
+  en `Video_Generation`. **Si lo tocas en uno, cópialo al otro.** Lleva lo que
+  no depende de qué se dibuja: la puerta de plataforma (`plataforma_apta`), el
+  comando y el entorno del CLI, el linter, y la caché en disco (escritura
+  atómica, marcado de uso, poda LRU).
+- **`hyperframes_broll.py`** — distinto en cada repo **a propósito**. Aquí
+  compone *un fondo por historia* con `PerfilVisual` y lo loopea; el repo
+  hermano compone *por escena y en lotes* con plantillas propias. No intentes
+  volver a igualarlos: se separaron en septiembre y unificarlos rompería uno de
+  los dos pipelines.
 
 ```python
 generar_clip_cacheado(prompt_visual, aspecto="16:9", modelo=..., reintentos=3,
