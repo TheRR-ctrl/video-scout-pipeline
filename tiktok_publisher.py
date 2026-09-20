@@ -10,12 +10,17 @@ depurar después. Aquí solo se sube lo que ya pasó por ahí.
 
 Dos modos, y la diferencia no es un detalle:
 
-  borrador (por defecto)  El video llega ya subido al buzón de tu cuenta;
-                          tocas la notificación y se abre el editor de TikTok
-                          con el archivo dentro. Solo necesita el permiso
-                          video.upload, que TikTok concede sin más trámite, y
-                          no pasa por auditoría ni tiene tope de visibilidad,
-                          porque quien publica eres tú. Es el modo real.
+  borrador (por defecto)  El video se sube al buzón de tu cuenta. Solo
+                          necesita el permiso video.upload, que TikTok
+                          concede sin trámite, y no pasa por auditoría ni
+                          tiene tope de visibilidad, porque publicas tú.
+                          Pero al tocar la notificación la app VUELVE A
+                          DESCARGAR el video para abrir el editor, y como
+                          aquí el render se hace en el mismo teléfono, eso
+                          es subirlo y bajarlo para acabar donde ya estabas.
+                          Hoy no compensa: publica a mano desde la galería.
+                          Empezaría a tener sentido el día que el video se
+                          fabrique fuera del teléfono; ver AUDITORIA_TIKTOK.md.
 
   directo                 Publica solo, sin tocar nada. Necesita el permiso
                           video.publish Y que TikTok haya auditado la app.
@@ -644,7 +649,8 @@ def main(argv=None):
             if modo != "directo":
                 # El buzón no acepta pie: la API solo lleva post_info en
                 # directo. Se imprime aquí para copiarlo de la pantalla y
-                # pegarlo en el editor, que es lo único que queda a mano.
+                # pegarlo en el editor, tanto si publicas desde la
+                # notificación como si lo haces a mano desde la galería.
                 logger.info(f"     Pie para pegar: {pie}")
         except Exception as exc:
             if "unaudited_client_can_only_post_to_private_accounts" in str(exc):

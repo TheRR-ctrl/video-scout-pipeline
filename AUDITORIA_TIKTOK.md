@@ -48,46 +48,57 @@ dependes de ella.
 
 ## Lo que sí vale
 
-### 1. El modo borrador (recomendado)
+### 1. Publicar a mano (lo que hay hoy)
 
-El flujo de buzón (`video.upload`) **no pasa por auditoría y no tiene
-restricción de visibilidad**, porque quien publica eres tú desde la app. Es la
-vía que TikTok tiene prevista exactamente para este caso.
+El pipeline deja el MP4 en el teléfono y tú lo subes desde la galería. Suena a
+derrota, pero es que las dos alternativas de la API son peores:
 
-Y ahorra más de lo que decía este documento, que aquí también se equivocaba. El
-vídeo no "se baja" de ningún sitio: llega a tu buzón de TikTok ya subido, tocas
-la notificación y se abre el editor con el archivo dentro. Lo que te ahorras es
-justo lo caro desde el teléfono —buscar el archivo en la galería y esperar la
-subida por datos—. Lo que sigue siendo tuyo es pegar el pie y darle a publicar.
-Para que pegarlo sea un gesto, `tiktok_publisher.py` imprime el pie ya montado
-al terminar cada subida.
+- **Directo** necesita la auditoría de arriba, que no se pasa.
+- **Borrador** parece la salida y no lo es. Sube el vídeo al buzón, y al tocar
+  la notificación **la app lo vuelve a descargar** al móvil para abrir el
+  editor. Como aquí el render se hace en el propio teléfono, eso es subirlo y
+  bajarlo para acabar donde ya estabas. Está comprobado en el teléfono; la
+  documentación de TikTok no lo cuenta.
 
-Es lo que ya está configurado por defecto:
-
-```json
-"tiktok": { "activo": true, "modo": "borrador" }
-```
-
-Los permisos que necesitas en la app son `user.info.basic` y **`video.upload`**
-(no `video.publish`). Ojo, porque la versión anterior de este documento te
-mandaba quitar `video.upload`: eso rompería lo único que funciona.
+Para que subirlo a mano cueste lo mínimo, `tiktok_publisher.py` imprime el pie
+—título y hashtags, los mismos que se aprobaron para YouTube— ya montado al
+terminar cada subida, y el panel guarda el registro de lo publicado.
 
 ### 2. Publicar a través de un servicio ya auditado
 
 Postiz, bundle.social y parecidos tienen la auditoría pasada. Tú eres un
 usuario suyo, que es un caso de uso que TikTok sí acepta. Es la única forma de
 tener publicación automática de verdad sin mentir ni montar un producto.
-A cambio: cuota mensual y tus vídeos pasando por un tercero.
+A cambio: cuota mensual, un servicio de por medio en un proyecto que se
+construyó justamente para no depender de ninguno, y tus vídeos pasando por
+sus servidores.
 
-### 3. Que la descripción sea verdad
+### 3. Sacar el render del teléfono
+
+Esta no desbloquea la auditoría, pero es la única que hace útil el modo
+borrador. Si el vídeo se fabricara en el runner de GitHub —como ya se fabrican
+los fondos— en vez de en el móvil, el buzón dejaría de ser un viaje redondo y
+pasaría a ser el transporte: el vídeo llegaría al teléfono una sola vez, que es
+la que hace falta de todas formas. Y con `source=PULL_FROM_URL` el móvil ni
+siquiera sube: se le da a TikTok una URL y él se lo descarga. El prefijo de
+dominio verificado ya lo tienes de las páginas de términos y privacidad.
+
+Lo que cuesta: mover el render completo, voz incluida, fuera de Termux; y que
+el MP4 esté en una URL pública los minutos que TikTok tarde en recogerlo.
+
+### 4. Que la descripción sea verdad
 
 Abrir el proyecto a otros creadores: login multiusuario, callback alojado de
 verdad, y custodia de tokens que no son tuyos. Entonces la auditoría es
-honesta y se puede pasar. Es un proyecto distinto del que tienes, y desde un
-teléfono es mucho trabajo, pero es el camino legítimo si algún día quieres el
-modo directo.
+honesta y se puede pasar, y con ella el modo directo. Es un proyecto distinto
+del que tienes, y desde un teléfono es mucho trabajo, pero es el único camino
+legítimo hasta `video.publish`.
 
-## Si algún día vas por la opción 3
+Los permisos, si algún día se usa la API: `user.info.basic` y `video.upload`.
+`video.publish` no se pide mientras no haya auditoría — y ojo, porque la
+versión anterior de este documento mandaba justo lo contrario.
+
+## Si algún día vas por la opción 4
 
 Todo lo que hace falta para grabar el demo sigue en el repo y sigue
 funcionando: `demo_tiktok.py` lleva el guion de las cinco escenas, comprueba
