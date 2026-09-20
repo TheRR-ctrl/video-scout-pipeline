@@ -109,6 +109,24 @@ def preguntarle_a_gemini():
         logger.info(f"Calidad IA: {exc}")
 
 
+def rotar_la_musica():
+    """Cambia por otras las pistas que acaban de sonar en los videos nuevos.
+
+    Va pegada al render por el mismo motivo que la calidad: lo que decide que
+    pistas apartar es justo lo que se acaba de renderizar. Sin wifi, sin clave
+    de Jamendo o con la rotacion apagada se salta sola, y eso no es un fallo
+    de la corrida: quedarse un dia con la misma musica no es motivo para que
+    cron marque el dia en rojo.
+    """
+    import publisher
+    if not publisher.cargar_config().get("musica_rotacion_automatica", True):
+        logger.info("Música: rotación automática apagada en config.json.")
+        return
+
+    import actualizar_musica
+    actualizar_musica.main(["--rotar"])
+
+
 def correr_etapa(nombre, fn):
     logger.info(f"===== Etapa: {nombre} =====")
     try:
@@ -179,6 +197,7 @@ def main():
         # renderizar está python calidad.py.
         resultados["calidad"] = correr_etapa("calidad (calidad)", revisar_lo_renderizado)
         resultados["calidad_ia"] = correr_etapa("calidad IA (calidad_ia)", preguntarle_a_gemini)
+        resultados["musica"] = correr_etapa("música (actualizar_musica --rotar)", rotar_la_musica)
 
     if i_desde <= ETAPAS.index("publicar") <= i_hasta:
         import publisher
