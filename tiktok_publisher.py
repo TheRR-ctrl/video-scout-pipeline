@@ -10,12 +10,17 @@ depurar después. Aquí solo se sube lo que ya pasó por ahí.
 
 Dos modos, y la diferencia no es un detalle:
 
-  borrador (por defecto)  El video llega ya subido al buzón de tu cuenta;
-                          tocas la notificación y se abre el editor de TikTok
-                          con el archivo dentro. Solo necesita el permiso
-                          video.upload, que TikTok concede sin más trámite, y
-                          no pasa por auditoría ni tiene tope de visibilidad,
-                          porque quien publica eres tú. Es el modo real.
+  borrador (por defecto)  El video se sube al buzón de tu cuenta. Solo
+                          necesita el permiso video.upload, que TikTok
+                          concede sin trámite, y no pasa por auditoría ni
+                          tiene tope de visibilidad, porque publicas tú.
+                          Pero al tocar la notificación la app VUELVE A
+                          DESCARGAR el video para abrir el editor, y como
+                          aquí el render se hace en el mismo teléfono, eso
+                          es subirlo y bajarlo para acabar donde ya estabas.
+                          Hoy no compensa: publica a mano desde la galería.
+                          Empezaría a tener sentido el día que el video se
+                          fabrique fuera del teléfono; ver AUDITORIA_TIKTOK.md.
 
   directo                 Publica solo, sin tocar nada. Necesita el permiso
                           video.publish Y que TikTok haya auditado la app.
@@ -33,6 +38,8 @@ Uso:
   python tiktok_publisher.py --directo      # publica (requiere auditoría)
   python tiktok_publisher.py --simular      # enseña qué haría, sin subir nada
   python tiktok_publisher.py --estado       # qué hay subido y qué falta
+  python tiktok_publisher.py --pie          # copia el pie de un pendiente,
+                                            # para subirlo a mano
 
 Credenciales: TIKTOK_CLIENT_KEY y TIKTOK_CLIENT_SECRET en secretos.env, y
 tiktok_token.json (lo genera  python generar_tiktok_token.py ).
@@ -40,8 +47,10 @@ tiktok_token.json (lo genera  python generar_tiktok_token.py ).
 import os
 import json
 import time
+import shutil
 import logging
 import argparse
+import subprocess
 
 import requests
 
@@ -436,6 +445,65 @@ def marcar_rutas(pares):
     return nuevos
 
 
+def copiar_al_portapapeles(texto):
+    """Deja el texto en el portapapeles de Android. Devuelve si lo consiguio.
+
+    Usa termux-clipboard-set, del paquete termux-api, que instalar_panel.sh ya
+    pone. Si no esta, o no es Android, no se considera un error: el pie se
+    imprime igual y se copia manteniendo pulsado sobre la terminal. Mismo
+    criterio que conectado_a_wifi en publisher.py.
+    """
+    if not shutil.which("termux-clipboard-set"):
+        return False
+    try:
+        # El texto va por stdin, no como argumento: un pie con comillas o con
+        # un # al principio se rompe en la linea de ordenes, y ademas acabaria
+        # en ~/.bash_history.
+        subprocess.run(["termux-clipboard-set"], input=texto, text=True,
+                       timeout=5, check=True)
+        return True
+    except (subprocess.SubprocessError, OSError):
+        return False
+
+
+def pie_al_portapapeles():
+    """Ensena los pendientes y copia el pie del que elijas.
+
+    Existe porque hoy la via real es publicar a mano desde la galeria (ver
+    AUDITORIA_TIKTOK.md), y entonces el trabajo que queda es escribir el
+    titulo y los hashtags que Gemini ya aprobo para YouTube. Esto los deja
+    pegados en el portapapeles sin lanzar ninguna subida.
+    """
+    pendientes, _ = videos_pendientes()
+    if not pendientes:
+        print(" No hay videos pendientes.")
+        return 0
+
+    print(f"\n {len(pendientes)} video(s) pendiente(s):\n")
+    for i, (v, m) in enumerate(pendientes, 1):
+        titulo = m.get("titulo_youtube") or os.path.basename(v["ruta"])
+        print(f"  {i:3}. {titulo[:70]}")
+
+    print("\n Numero del que vas a publicar. Enter para salir.")
+    entrada = input(" > ").strip()
+    if not entrada:
+        return 0
+    if not entrada.isdigit() or not 1 <= int(entrada) <= len(pendientes):
+        print(f" \u2717 Escribe un numero del 1 al {len(pendientes)}.")
+        return 1
+
+    v, m = pendientes[int(entrada) - 1]
+    pie = construir_pie(m)
+    print(f"\n {os.path.basename(v['ruta'])}")
+    print(f" {pie}\n")
+    if copiar_al_portapapeles(pie):
+        print(" \u2705 Copiado. Pegalo en TikTok al subir el video.")
+    else:
+        print(" \u2139 Sin termux-api: copialo manteniendo pulsado sobre el texto.")
+        print("   Para tenerlo automatico: pkg install termux-api")
+    return 0
+
+
 def marcar_subidos():
     """Apunta como ya subidos videos que están en TikTok pero no en el registro.
 
@@ -535,9 +603,15 @@ def main(argv=None):
                     help="Pregunta a TikTok en qué acabó cada video ya subido.")
     ap.add_argument("--marcar-subidos", action="store_true",
                     help="Marca como ya subidos videos que pusiste en TikTok a mano.")
+    ap.add_argument("--pie", action="store_true",
+                    help="Copia al portapapeles el título y hashtags de un pendiente, "
+                         "para publicarlo a mano.")
     ap.add_argument("--estado", action="store_true",
                     help="Cuántos videos hay subidos y cuántos pendientes.")
     args = ap.parse_args(argv if argv is not None else [])
+
+    if args.pie:
+        return pie_al_portapapeles()
 
     if args.marcar_subidos:
         return marcar_subidos()
@@ -643,9 +717,13 @@ def main(argv=None):
             logger.info(f"  ✅ {destino} ({detalle})")
             if modo != "directo":
                 # El buzón no acepta pie: la API solo lleva post_info en
-                # directo. Se imprime aquí para copiarlo de la pantalla y
-                # pegarlo en el editor, que es lo único que queda a mano.
+                # directo. Se imprime aquí para pegarlo en el editor, tanto
+                # si publicas desde la notificación como si lo haces a mano
+                # desde la galería. Solo se copia el del último de la tanda,
+                # que es lo que cabe en un portapapeles; para los demás está
+                # --pie, que los da de uno en uno.
                 logger.info(f"     Pie para pegar: {pie}")
+                copiar_al_portapapeles(pie)
         except Exception as exc:
             if "unaudited_client_can_only_post_to_private_accounts" in str(exc):
                 logger.error(

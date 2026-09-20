@@ -689,6 +689,11 @@ def tiktok_resumen():
             "ruta": v["ruta"],
             "nombre": os.path.basename(v["ruta"]),
             "titulo": m.get("titulo_youtube") or os.path.basename(v["ruta"]),
+            # El pie ya montado (titulo + hashtags, recortado al limite de
+            # TikTok), para que el boton de copiar del panel pegue exactamente
+            # lo mismo que pegaria la API. Montarlo en el navegador seria
+            # repetir la regla de recorte en otro idioma.
+            "pie": tk.construir_pie(m),
             "dias": dias_por_ruta.get(v["ruta"]),
             "opciones": opciones.get(os.path.basename(v["ruta"])),
         } for v, m in pendientes],

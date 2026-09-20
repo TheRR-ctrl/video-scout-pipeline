@@ -71,16 +71,21 @@ Cada cierto tiempo vuelve la idea de mandar la app a revisión para desbloquear
 el modo directo. **No se manda.** TikTok excluye explícitamente las apps de uso
 personal y las herramientas para subir a la cuenta que uno mismo maneja, que es
 exactamente lo que es esto; un envío solo deja un rechazo en el historial de la
-app. Las reglas citadas y las tres salidas reales están en
+app. Las reglas citadas y las salidas reales están en
 `AUDITORIA_TIKTOK.md`.
 
-El modo que funciona es **borrador**: no pasa por auditoría, no tiene tope de
-visibilidad, y el vídeo llega ya subido al buzón de TikTok. Los permisos son
-`user.info.basic` y `video.upload` — `video.publish` no se pide.
+El modo borrador tampoco sirve, y esto está comprobado en el teléfono, no
+deducido de la documentación: el vídeo se sube al buzón, y al tocar la
+notificación **la app lo vuelve a descargar** al móvil para abrir el editor.
+Como aquí el render se hace en el propio teléfono, es subirlo y bajarlo para
+acabar donde ya estabas. Publicar a mano desde la galería cuesta menos.
 
-Y no repitas que «borrador no ahorra trabajo porque bajas un archivo que ya
-tienes». Es falso, estuvo escrito en cuatro sitios del repo, y llevaba a
-descartar lo único que funciona.
+Así que hoy la API de TikTok no aporta nada a este proyecto. La etapa se queda
+en el repo, funcionando, porque el día que el render salga del teléfono la
+cosa cambia: con el vídeo fabricado en el runner, el buzón deja de ser un
+viaje redondo y pasa a ser el transporte, y con `PULL_FROM_URL` el móvil ni
+siquiera sube nada. Si se llega a eso, los permisos son `user.info.basic` y
+`video.upload` — `video.publish` no se pide nunca.
 
 ## Imports que parecen sobrar
 

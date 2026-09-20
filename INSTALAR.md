@@ -490,12 +490,18 @@ de uso personal y las que suben a la cuenta que tú manejas, que es justo lo que
 es esto. Enviar la revisión solo te deja un rechazo en el historial. El porqué,
 con las reglas citadas, está en `AUDITORIA_TIKTOK.md`.
 
-O sea que el modo real es **borrador**, y ahorra más de lo que parece: el video
-no se baja de ningún sitio, llega ya subido a tu buzón de TikTok y tocas la
-notificación para abrir el editor con el archivo dentro. Te quitas buscar el
-archivo en la galería y esperar la subida por datos, que desde el teléfono es
-lo caro. Te queda pegar el pie —que el publicador te imprime al terminar— y
-darle a publicar.
+Y **borrador tampoco te ahorra trabajo**, comprobado en el teléfono: el video
+se sube al buzón, y al tocar la notificación la app lo vuelve a descargar para
+abrir el editor. Como el render se hace aquí mismo, es subirlo y bajarlo para
+acabar donde ya estabas.
+
+O sea que hoy esta etapa no te sirve, y lo honesto es decirlo: publica a mano
+desde la galería. El pipeline te deja el MP4 listo, y el pie —el título y los
+hashtags que ya se aprobaron para YouTube— te lo deja copiado en el
+portapapeles con `python tiktok_publisher.py --pie`, o con el botón **Copiar
+pie** de la pestaña TikTok del panel. La etapa se queda por si algún día el
+render sale del teléfono, que es cuando el buzón empezaría a tener sentido
+(ver `AUDITORIA_TIKTOK.md`).
 
 Lo que tienes que hacer tú, una vez:
 

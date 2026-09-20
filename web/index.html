@@ -1592,6 +1592,39 @@ async function tiktokActivo(on){
 
    Fuera de una grabación en curso esto es una línea y un botón: no estorba
    los otros 364 días. */
+/* Copia el pie al portapapeles del telefono.
+
+   navigator.clipboard solo existe en contexto seguro: va bien en
+   http://localhost, que es como se abre el panel normalmente, pero no si lo
+   abres por la IP de la red local. De ahi el respaldo con un textarea y
+   execCommand, que es viejo pero sigue funcionando en el WebView de Android. */
+async function copiarPie(boton, texto){
+  let ok = false;
+  try{
+    if(navigator.clipboard && window.isSecureContext){
+      await navigator.clipboard.writeText(texto);
+      ok = true;
+    }
+  }catch(e){ ok = false; }
+  if(!ok){
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.setAttribute('readonly','');
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try{ ok = document.execCommand('copy'); }catch(e){ ok = false; }
+    document.body.removeChild(ta);
+  }
+  // El aviso va en el propio boton: un toast pediria sitio que a 412px no
+  // sobra, y aqui lo que hace falta es saber si pegar ya vale la pena.
+  const antes = boton.textContent;
+  boton.textContent = ok ? '\u2713 Copiado' : '\u2717 No pude';
+  boton.disabled = true;
+  setTimeout(()=>{ boton.textContent = antes; boton.disabled = false; }, 1500);
+}
+
 function bloqueDemo(demo){
   if(!demo) return '';
   if(!demo.empezado_en) return `
@@ -1662,11 +1695,12 @@ function pintaTiktok(){
         <span class="d"><b>${b}</b><span>${d}</span></span></div>`).join('')}</div>
 
     ${!directo ? `<div class="aviso warn"><span>·</span><div>
-      <b>Borrador es el modo real:</b> el vídeo llega ya subido a tu buzón de
-      TikTok, tocas la notificación y se abre el editor con el archivo dentro.
-      Te queda pegar el pie y publicar. El modo directo automatiza también eso,
-      pero pide una auditoría que esta app no pasa: TikTok excluye las
-      herramientas de uso personal (ver <code>AUDITORIA_TIKTOK.md</code>).
+      <b>Ninguno de los dos modos te sirve hoy:</b> borrador sube el vídeo al
+      buzón y al tocar la notificación la app lo vuelve a descargar, así que es
+      subirlo y bajarlo para acabar donde ya estabas. Y directo pide una
+      auditoría que esta app no pasa, porque TikTok excluye las herramientas de
+      uso personal. Publica a mano desde la galería; el pie te lo imprime el
+      publicador para que solo lo pegues (ver <code>AUDITORIA_TIKTOK.md</code>).
     </div></div>` : ''}
 
     ${!t.token ? `<div class="aviso crit"><span>⛔</span><div>
@@ -1735,6 +1769,8 @@ function pintaTiktok(){
         <div style="display:flex;gap:6px">
           ${directo ? `<button class="btn sm ${p.opciones?'':'go'}"
             onclick="abrirTiktok('${esc(p.nombre)}')">${p.opciones?'Cambiar':'Preparar'}</button>` : ''}
+          <button class="btn sm" onclick="copiarPie(this, ${esc(JSON.stringify(p.pie||p.titulo))})"
+            title="Copiar título y hashtags para pegarlos en TikTok">Copiar pie</button>
           <button class="btn sm" onclick="marcarEnTiktok('${esc(p.ruta)}', '${esc(p.titulo).replace(/'/g,"\\'")}')"
             title="Ya lo subiste a mano: sacarlo de la lista">Ya subido</button>
         </div>
