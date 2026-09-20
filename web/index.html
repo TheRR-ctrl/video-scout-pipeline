@@ -1097,6 +1097,30 @@ function rangoTexto(){
     p.push(j>i+1 ? a[i]+'-'+a[j] : a.slice(i,j+1).join(',')); i=j+1; }
   return p.join(',');
 }
+/* Al limpiar la cola, lo que queda se renumera: la 54 pasa a ser la 1. Pero
+   lo que has elegido —qué renderizar y qué música— se guarda por número, no
+   por historia. Sin esto, después de limpiar la música que le pusiste a la 20
+   se la queda la que ahora ocupa el 20, que es otra, y «Renderizar 62» sigue
+   diciendo 62 con tres historias en la lista.
+
+   Se recuerda qué título tenía cada número y se suelta lo que dejó de
+   coincidir. Perder la elección es lo correcto aquí: el número ya no
+   significa lo mismo, y renderizar la historia equivocada se descubre veinte
+   minutos después. */
+let tituloPorNumero = {};
+function olvidarLoQueSeRenumero(){
+  const antes = tituloPorNumero;
+  tituloPorNumero = {};
+  (E.historias || []).forEach(h => { tituloPorNumero[h.n] = h.titulo; });
+  Object.keys(antes).forEach(n => {
+    if(tituloPorNumero[n] !== antes[n]){ seleccion.delete(+n); delete musicaElegida[n]; }
+  });
+  [...seleccion].forEach(n => { if(!(n in tituloPorNumero)) seleccion.delete(n); });
+  Object.keys(musicaElegida).forEach(n => {
+    if(!(n in tituloPorNumero)) delete musicaElegida[n];
+  });
+}
+
 function firmaCola(){
   return [E.historias.length, E.historias.map(h=>h.n+h.titulo).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
@@ -2188,6 +2212,10 @@ function vistaActual(){ return document.querySelector('.tabs button.on').dataset
 
 function pintar(){
   if(!E) return;
+  // Antes que nada y antes de las firmas: lo que sigue usa seleccion y
+  // musicaElegida, y tienen que estar ya limpias de números que cambiaron
+  // de dueño.
+  olvidarLoQueSeRenumero();
   $('#c-rev').textContent = E.videos.length;
   $('#c-col').textContent = E.historias.length;
   $('#c-pub').textContent = E.publicados.length;
