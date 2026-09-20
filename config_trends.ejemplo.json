@@ -20,5 +20,10 @@
   "youtube_max_videos_por_canal": 5,
   "youtube_max_candidatos_salida": 8,
   "youtube_publicado_desde": "",
-  "youtube_min_palabras": 300
+  "youtube_min_palabras": 300,
+
+  "_busqueda_diaria": "La ventana en la que buscar_diario.py sortea la hora de cada día (hasta es exclusiva: con 23, la última franja posible es 22:30).",
+  "busqueda_diaria_desde": 9,
+  "busqueda_diaria_hasta": 23,
+  "busqueda_diaria_solo_wifi": true
 }

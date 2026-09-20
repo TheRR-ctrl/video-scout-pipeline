@@ -32,6 +32,10 @@ if ! command -v crontab >/dev/null 2>&1; then
 fi
 
 # ---- 2. las tareas --------------------------------------------------------
+# La primera línea se dispara cada media hora y casi siempre no hace nada: es
+# buscar_diario.py mirando si ya llegó la franja que sorteó para hoy. Así la
+# búsqueda sale a una hora distinta cada día sin que cron sepa de sorteos, y
+# sin dejar un `sleep` de horas colgando que Android acabaría matando.
 # Se quitan primero las anteriores nuestras, para no duplicarlas al reinstalar.
 ACTUAL="$(crontab -l 2>/dev/null | grep -v "$MARCA" || true)"
 
@@ -42,7 +46,8 @@ if [ "$1" = "--quitar" ]; then
 fi
 
 NUEVAS="$(cat <<EOF
-0 6 * * 1,4 cd $REPO && $PYTHON pipeline.py --hasta video >> $REPO/pipeline.log 2>&1 $MARCA
+*/30 * * * * cd $REPO && $PYTHON buscar_diario.py >> $REPO/buscar.log 2>&1 $MARCA
+0 6 * * 1,4 cd $REPO && $PYTHON pipeline.py --desde guion --hasta video >> $REPO/pipeline.log 2>&1 $MARCA
 0 9 * * * cd $REPO && $PYTHON pipeline.py --desde publicar >> $REPO/pipeline.log 2>&1 $MARCA
 0 8 1 * * cd $REPO && $PYTHON actualizar_musica.py >> $REPO/musica.log 2>&1 $MARCA
 30 7 1,15 * * cd $REPO && bash revision_quincenal.sh >> $REPO/revision.log 2>&1 $MARCA
@@ -51,7 +56,9 @@ EOF
 
 printf '%s\n%s\n' "$ACTUAL" "$NUEVAS" | grep -v '^$' | crontab -
 echo "  ✓ Programado:"
-echo "      lunes y jueves 06:00  → buscar historias, guiones y video"
+echo "      todos los días       → buscar historias a una hora sorteada"
+echo "                              (mírala con: python buscar_diario.py --ver)"
+echo "      lunes y jueves 06:00  → guiones y video con lo que haya en la cola"
 echo "      todos los días 09:00  → publicar lo que haya en la cola"
 echo "      día 1 de cada mes     → refrescar la música"
 echo "      días 1 y 15   07:30   → revisar qué funcionó y rehacer lo que no"

@@ -599,10 +599,45 @@ sin estropear nada. Después, reinicia el panel.
 bash instalar_cron.sh
 ```
 
-Deja cuatro tareas: generar una tanda lunes y jueves a las 6:00, publicar un
-video cada día a las 9:00, refrescar la música el día 1 de cada mes, y la
-revisión del canal los días 1 y 15 a las 7:30. Correrlo dos veces no duplica
-nada, y `bash instalar_cron.sh --quitar` las borra.
+Deja cinco tareas: buscar historias todos los días a una hora distinta,
+generar guiones y video lunes y jueves a las 6:00, publicar un video cada día
+a las 9:00, refrescar la música el día 1 de cada mes, y la revisión del canal
+los días 1 y 15 a las 7:30. Correrlo dos veces no duplica nada, y
+`bash instalar_cron.sh --quitar` las borra.
+
+### La búsqueda diaria a hora sorteada
+
+La primera línea del crontab (`*/30 * * * *`) llama a `buscar_diario.py` cada
+media hora, y casi siempre este se va sin hacer nada: solo mira si ya llegó la
+franja que sorteó para hoy. La franja se sortea una vez al día dentro de una
+ventana (por omisión de 09:00 a 22:30), así que la búsqueda no sale nunca a la
+misma hora dos días seguidos.
+
+```bash
+python buscar_diario.py --ver     # a qué hora toca hoy y si ya se hizo
+python buscar_diario.py --ahora   # buscar ya, sin esperar la franja
+tail -20 buscar.log
+```
+
+Por qué cada media hora en vez de una línea a la hora sorteada: cron no sabe
+de sorteos, y dejar un `sleep` de horas esperando la franja no funciona en
+Android — el sistema mata el proceso dormido y la búsqueda no sale. Con el
+plan guardado en `pipeline_state/busqueda_diaria.json`, si el teléfono estaba
+apagado a esa hora, la primera pasada al encenderlo recupera la búsqueda del
+día en vez de perderla.
+
+**Solo con WiFi.** La búsqueda entera son decenas de peticiones seguidas, así
+que por omisión no sale con datos móviles: si a la hora sorteada no hay WiFi,
+espera y lo reintenta en la siguiente pasada; si el día acaba sin WiFi, esa
+búsqueda se pierde y mañana se sortea otra. Para buscar también con datos,
+`"busqueda_diaria_solo_wifi": false` en `config_trends.json`. En un teléfono
+sin **Termux:API** la red se mira por la ruta de salida (`ip route`); si
+tampoco se puede saber, busca igual — es preferible a no buscar nunca.
+
+Lo que la hora sorteada consigue y lo que no: quita el sello de "esto lo lanza
+una máquina todos los días a la misma hora" y reparte las visitas. No es una
+forma de saltarse límites — se sigue leyendo el RSS público con la misma pausa
+entre peticiones, y si Reddit devuelve 429 lo devuelve a la hora que sea.
 
 ### La revisión quincenal
 
