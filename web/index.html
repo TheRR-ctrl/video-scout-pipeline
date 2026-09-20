@@ -482,18 +482,25 @@ function pintaColaTrabajos(){
         <button class="btn sm" onclick="vaciarCola()">Vaciar</button>
       </div>
       ${cola.map((e,i)=>`
-        <div class="row" style="grid-template-columns:auto 1fr auto">
+        <div class="row" style="grid-template-columns:auto 1fr auto auto auto">
           <span class="n">${i+1}</span>
           <span class="t">${esc(e.nombre)}</span>
+          <button class="tbtn" title="Subir" ${i===0?'disabled style="opacity:.3"':''}
+            onclick="moverEnCola(${e.id},'arriba')">↑</button>
+          <button class="tbtn" title="Bajar" ${i===cola.length-1?'disabled style="opacity:.3"':''}
+            onclick="moverEnCola(${e.id},'abajo')">↓</button>
           <button class="tbtn" title="Quitar de la cola"
             onclick="quitarDeCola(${e.id})">✕</button>
         </div>`).join('')}
     </div>`}
     ${!hechos.length ? '' : `
     <div class="list" style="margin-top:8px">
-      <div class="list-head"><div><b>Ya terminados</b></div></div>
+      <div class="list-head">
+        <div><b>Ya terminados</b></div>
+        <button class="btn sm" onclick="olvidarHechos()">Limpiar</button>
+      </div>
       ${hechos.slice().reverse().map(h=>`
-        <div class="row" style="grid-template-columns:1fr auto auto">
+        <div class="row" style="grid-template-columns:1fr auto auto auto">
           <div style="min-width:0">
             <span class="t">${esc(h.nombre)}</span>
             ${!h.lineas ? '' : `<div class="m" style="font:11px var(--mono);
@@ -501,12 +508,33 @@ function pintaColaTrabajos(){
           </div>
           <span class="m">${Math.floor(h.segundos/60)}:${String(h.segundos%60).padStart(2,'0')}</span>
           <span class="pill ${h.estado==='ok'?'ok':h.estado==='error'?'crit':'idle'}">${esc(h.estado)}</span>
+          <button class="tbtn" title="Cerrar este"
+            onclick="olvidarHecho(${h.id})">✕</button>
         </div>`).join('')}
     </div>`}`;
 }
 
 async function quitarDeCola(id){
   try{ await post('/api/cola/quitar', {id}); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+/* Reordenar mueve la entrada un puesto y vuelve a preguntar el estado: quien
+   manda es la cola del servidor, no lo que se ve. Si el trabajo en curso
+   terminó justo ahora y la lista ya se corrió sola, el refresco lo enseña. */
+async function moverEnCola(id, hacia){
+  try{ await post('/api/cola/mover', {id, hacia}); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+async function olvidarHecho(id){
+  try{ await post('/api/hechos/quitar', {id}); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+async function olvidarHechos(){
+  try{ await post('/api/hechos/vaciar'); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+async function cerrarTrabajo(){
+  try{ await post('/api/trabajo/cerrar'); refrescar(); }
   catch(e){ toast(e.message); }
 }
 async function vaciarCola(){
@@ -535,6 +563,7 @@ function pintaJob(){
           <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
           <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
           <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>
+          <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
         </div>
         <div class="paso" id="job-paso"></div>
         <div class="barra"><i id="job-barra"></i></div>
@@ -543,6 +572,9 @@ function pintaJob(){
       </div>`;
     $('#b-pausa').onclick = ()=>trabajo(E.trabajo.estado==='pausado'?'reanudar':'pausar');
     $('#b-abort').onclick = ()=>{ if(confirm('¿Abortar lo que está corriendo?')) trabajo('abortar'); };
+    // Cerrar solo aparece cuando ya terminó: quita la tarjeta de la vista.
+    // Lo que pasó no se pierde, queda apuntado abajo en "Ya terminados".
+    $('#b-cerrar').onclick = cerrarTrabajo;
     $('#b-detalle').onclick = ()=>{
       const l = $('#log'), abierto = l.style.display !== 'none';
       l.style.display = abierto ? 'none' : 'block';
@@ -561,6 +593,7 @@ function pintaJob(){
   $('#job-t').textContent = `${mins}:${String(segs).padStart(2,'0')}`;
   $('#b-pausa').style.display = corriendo ? '' : 'none';
   $('#b-abort').style.display = corriendo ? '' : 'none';
+  $('#b-cerrar').style.display = corriendo ? 'none' : '';
   $('#b-pausa').textContent = j.estado==='pausado' ? '▶' : '⏸';
 
   // El paso actual es la última línea con contenido. El HUD del render ya
@@ -570,10 +603,15 @@ function pintaJob(){
   $('#job-paso').textContent = ultima;
   const m = ultima.match(/(\d{1,3}(?:\.\d)?)\s*%/);
   $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
+  // Una barra llena al 100% no dice nada que no diga ya la etiqueta "ok":
+  // en cuanto termina se va, y queda el resultado a secas.
+  $('#job-barra').parentElement.style.display = corriendo ? '' : 'none';
 
   // La mini repite lo que acaba de calcularse arriba, no lo recalcula: si
   // algún día cambia cómo se saca el porcentaje, cambia en un solo sitio.
-  hayTrabajo = true;
+  // La barra de abajo es para seguir el avance sin subir: terminado el
+  // trabajo no hay avance que seguir, así que desaparece.
+  hayTrabajo = corriendo;
   $('#mini-job').className = 'mini' + (j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : ''));
   $('#mini-estado').textContent = j.estado;
   $('#mini-estado').className = $('#job-estado').className;
@@ -1137,7 +1175,7 @@ function olvidarLoQueSeRenumero(){
 function firmaCola(){
   return [E.historias.length, E.historias.map(h=>h.n+h.titulo).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
-          (E.musica||[]).length].join('~');
+          (E.musica||[]).length, E.candidatos || 0].join('~');
 }
 /* El aviso de limpiar la cola sale en dos sitios —aquí y en Mantenimiento—
    y dice justo lo que se pierde, que es la numeración. Una sola copia para
@@ -1167,8 +1205,18 @@ function pintaCola(){
   const cajaPrevia = cont.querySelector('#caja-lista');
   const scrollPrevio = cajaPrevia ? cajaPrevia.scrollTop : 0;
 
+  // Los candidatos que trajeron los buscadores no son historias todavía:
+  // están en candidatos.json esperando a que Gemini les escriba el guion.
+  // Antes esto no se veía en ningún sitio, así que buscar en Reddit parecía
+  // no traer nada: la lista seguía enseñando las mismas de siempre.
+  const esperando = E.candidatos || 0;
   cont.innerHTML = `
     <h2>${h.length} historias listas para renderizar</h2>
+    ${!esperando ? '' : `<div class="aviso warn"><span>✍</span><div>
+      <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
+      YouTube no entra aquí hasta que Gemini los escribe.
+      <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
+        >✍ Escribir guiones</button></div></div></div>`}
     <p class="sub">La numeración se conserva aunque pidas solo algunas: la historia 7 siempre genera <code style="font:12px var(--mono)">07_…</code></p>
     <div class="list">
       <div class="list-head">
@@ -1193,6 +1241,8 @@ function pintaCola(){
         <div style="display:flex;gap:7px">
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
           <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
+          <button class="btn" title="Convierte en guion lo que encontraron los buscadores"
+            onclick="ejecutar('guiones')">✍ Escribir guiones</button>
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Mantenimiento"
             onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
