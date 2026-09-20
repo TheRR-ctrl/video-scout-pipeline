@@ -16,6 +16,7 @@ Uso:
   python previsualizar_estilos.py --short       # en vertical (1080x1920)
 
 Salida: en la carpeta de videos, subcarpeta "previsualizacion_estilos".
+Se miran desde el panel (pestaña Estilo), que es donde se decide.
 """
 import os
 import glob
@@ -70,9 +71,21 @@ def fondo_de_muestra(w, h, destino):
     return destino
 
 
-def render_preset(nombre, texto, es_short, carpeta, hacer_video=False):
+def presets_disponibles():
+    """Los del repo y los que el usuario guardó en config.json.
+
+    Un estilo hecho a mano es justo el que más falta hace ver al lado de los
+    otros: los del repo ya se saben cómo quedan.
+    """
+    propios = g.cargar_config(os.path.join(g.BASE_DIR, "config.json")).get("presets_propios") or {}
+    nombres = list(g.PRESETS_SUBTITULOS)
+    nombres += [n for n in propios if n not in g.PRESETS_SUBTITULOS]
+    return nombres, propios
+
+
+def render_preset(nombre, texto, es_short, carpeta, hacer_video=False, propios=None):
     """Devuelve (ruta_png, ruta_mp4_o_None) para un preset."""
-    g.CONFIG["subtitulos"] = g.resolver_subtitulos({}, nombre)
+    g.CONFIG["subtitulos"] = g.resolver_subtitulos({}, nombre, propios)
     subs = g._cfg_subs()
 
     w, h = (1080, 1920) if es_short else (1920, 1080)
@@ -158,12 +171,13 @@ def main():
     carpeta = os.path.join(g.CARPETA_SALIDA, "previsualizacion_estilos")
     os.makedirs(carpeta, exist_ok=True)
 
-    print(f"\nGenerando {len(g.PRESETS_SUBTITULOS)} previsualizaciones "
+    nombres, propios = presets_disponibles()
+    print(f"\nGenerando {len(nombres)} previsualizaciones "
           f"({'vertical' if args.short else 'horizontal'})...\n")
 
     pngs = []
-    for nombre in g.PRESETS_SUBTITULOS:
-        png, mp4 = render_preset(nombre, args.texto, args.short, carpeta, args.video)
+    for nombre in nombres:
+        png, mp4 = render_preset(nombre, args.texto, args.short, carpeta, args.video, propios)
         estado = "✅" if png else "❌"
         extra = " + clip" if mp4 else ""
         print(f"  {estado} {nombre}{extra}")
@@ -172,7 +186,8 @@ def main():
 
     hoja = hoja_de_contactos(pngs, os.path.join(carpeta, "_comparacion.png"), args.short)
 
-    print(f"\nListo. Ábrelo desde la galería:\n  {carpeta}")
+    print("\nListo. Se ven en el panel, pestaña Estilo, debajo del botón.")
+    print(f"También quedan como archivo en:\n  {carpeta}")
     if hoja:
         print(f"\nLa comparación de todos juntos:\n  {os.path.basename(hoja)}")
     print(

@@ -260,6 +260,19 @@
   .preset h4{margin:0;font:500 13.5px var(--mono)}
   .sw{width:14px;height:14px;border-radius:4px;border:1px solid var(--line);display:inline-block}
 
+  /* editor de estilos: una fila por ajuste, que a 412px no cabe otra cosa */
+  .campo{display:grid;grid-template-columns:1fr auto;gap:10px;align-items:center;
+    padding:10px 13px;border-bottom:1px solid var(--line)}
+  .campo:last-child{border-bottom:0}
+  .campo>label{font-size:13px}
+  .campo .m{font-size:11.5px}
+  .campo input[type=color]{width:38px;height:28px;padding:0;border:1px solid var(--line);
+    border-radius:6px;background:none}
+  .campo input[type=text],.campo select{min-width:132px}
+  .campo .slider{min-width:150px}
+  .paleta{display:flex;gap:6px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+  .paleta .quita{cursor:pointer;color:var(--ink-faint);font-size:15px;line-height:1}
+
   .slider{display:flex;align-items:center;gap:11px}
   .slider input[type=range]{flex-grow:1;accent-color:var(--accent);min-width:90px}
   .slider .v{font:11.5px var(--mono);color:var(--ink);width:42px;text-align:right}
@@ -1261,20 +1274,135 @@ const DESCR = {
   alto_contraste:'Bebas Neue, resalte rojo, menos palabras por frase.',
   palabras_clave:'Una palabra a la vez, algunas pintadas rotando. El del video de referencia.'
 };
-function firmaEstilo(){ return JSON.stringify(E.subtitulos); }
+/* El editor vive aquí y no en el DOM: mientras está abierto, lo que escribes
+   se queda en los inputs, y la firma solo cambia al abrirlo o cerrarlo. Así un
+   refrescar() de los que corren cada 1,5s no te borra lo que ibas poniendo. */
+let editorEstilo = null;   // null = cerrado; {base, nombre} = abierto
+
+function firmaEstilo(){
+  return [JSON.stringify(E.subtitulos), JSON.stringify(E.presets_propios||{}),
+          (E.previsualizaciones||[]).join(','),
+          editorEstilo ? 'editando:'+editorEstilo.base+':'+editorEstilo.nombre : ''].join('~');
+}
+
+/* Los valores con los que arranca el formulario: los del estilo que se está
+   copiando, ya resueltos (defaults -> preset), que es lo que se ve en pantalla. */
+function valoresDe(nombre){
+  const propio = (E.presets_propios||{})[nombre];
+  // El activo ya viene resuelto del servidor; de los demás solo llegan las
+  // claves que cambian, así que el resto se completa con el activo.
+  const base = Object.assign({}, E.subtitulos);
+  delete base.preset;
+  return nombre === (E.subtitulos.preset||'predeterminado') ? base
+       : Object.assign(base, propio || {});
+}
+
+function campoColor(clave, etiqueta, valor, nota){
+  return `<div class="campo"><label>${etiqueta}${nota?`<div class="m muted">${nota}</div>`:''}</label>
+    <input type="color" data-k="${clave}" value="${esc(valor)}"></div>`;
+}
+function campoRango(clave, etiqueta, valor, min, max, sufijo, nota){
+  return `<div class="campo"><label>${etiqueta}${nota?`<div class="m muted">${nota}</div>`:''}</label>
+    <div class="slider"><input type="range" data-k="${clave}" data-num="1" min="${min}" max="${max}" step="1" value="${valor}">
+      <span class="v">${valor}${sufijo||''}</span></div></div>`;
+}
+function campoSiNo(clave, etiqueta, valor, nota){
+  return `<div class="campo"><label>${etiqueta}${nota?`<div class="m muted">${nota}</div>`:''}</label>
+    <button class="btn sm" data-k="${clave}" data-bool="${valor?'1':'0'}">${valor?'sí':'no'}</button></div>`;
+}
+function campoLista(clave, etiqueta, valor, opciones, nota){
+  return `<div class="campo"><label>${etiqueta}${nota?`<div class="m muted">${nota}</div>`:''}</label>
+    <select class="btn sm" data-k="${clave}">${opciones.map(o=>
+      `<option value="${esc(o)}" ${o===valor?'selected':''}>${esc(o)}</option>`).join('')}</select></div>`;
+}
+
+function pintaEditorEstilo(){
+  const op = E.estilo_opciones || {estilos:[], repartos:[], fuentes:[]};
+  const v = valoresDe(editorEstilo.base);
+  const fuenteConocida = (op.fuentes||[]).includes(v.fuente);
+  const paleta = (v.colores_resalte||[]);
+  return `
+    <h3 class="sec">${editorEstilo.nuevo ? 'Estilo nuevo' : 'Editando «'+esc(editorEstilo.nombre)+'»'}</h3>
+    <p class="sub">Parte de «${esc(editorEstilo.base)}». Al guardarlo queda activo y se usa en el próximo render.</p>
+    <div class="list" id="editor-estilo">
+      <div class="campo"><label>Nombre<div class="m muted">minúsculas y guion bajo</div></label>
+        <input type="text" id="e-nombre" value="${esc(editorEstilo.nombre)}"
+               placeholder="mi_estilo" autocapitalize="none" spellcheck="false"></div>
+
+      ${campoLista('estilo','Tipo', v.estilo, op.estilos,
+        'frase_activa: frase con una palabra resaltada · relleno: karaoke · pop: una palabra sola')}
+
+      <div class="campo"><label>Fuente<div class="m muted">las cuatro vienen en el repo</div></label>
+        <select class="btn sm" data-k="fuente" id="e-fuente">
+          ${(op.fuentes||[]).map(f=>`<option value="${esc(f)}" ${f===v.fuente?'selected':''}>${esc(f)}</option>`).join('')}
+          <option value="__otra" ${fuenteConocida?'':'selected'}>otra (escribirla)</option>
+        </select></div>
+      <div class="campo" id="e-fuente-otra" style="${fuenteConocida?'display:none':''}">
+        <label>Nombre de la familia<div class="m muted">tal como la busca libass; si no existe, sustituye sola</div></label>
+        <input type="text" id="e-fuente-libre" value="${fuenteConocida?'':esc(v.fuente||'')}"
+               placeholder="Impact" spellcheck="false"></div>
+
+      ${campoColor('color_texto','Color del texto', v.color_texto)}
+      ${campoColor('color_activo','Color de la palabra activa', v.color_activo, 'solo si no hay paleta')}
+      ${campoColor('color_borde','Color del borde', v.color_borde)}
+
+      <div class="campo"><label>Paleta de resalte
+          <div class="m muted">con 2 o más, el color va rotando; vacía, se usa el de arriba</div></label>
+        <div class="paleta" id="e-paleta">
+          ${paleta.map((c,i)=>`<span><input type="color" data-paleta="1" value="${esc(c)}">
+            <span class="quita" data-quita="${i}">×</span></span>`).join('')}
+          <button class="btn sm" id="e-mas-color">＋</button></div></div>
+
+      ${campoSiNo('resaltar_solo_clave','Solo palabras con carga', v.resaltar_solo_clave,
+        'las de relleno («que», «la») no se pintan')}
+      ${campoRango('min_letras_resalte','Letras mínimas para pintar', v.min_letras_resalte, 1, 12)}
+
+      ${campoRango('palabras_por_frase_short','Palabras por frase (short)', v.palabras_por_frase_short, 1, 8, '',
+        v.estilo==='pop' ? 'con «pop» no se usa: siempre es una' : '')}
+      ${campoRango('palabras_por_frase_largo','Palabras por frase (largo)', v.palabras_por_frase_largo, 1, 10)}
+      ${campoRango('tamano_short','Tamaño en shorts', v.tamano_short, 40, 160, ' px')}
+      ${campoRango('tamano_largo','Tamaño en largos', v.tamano_largo, 40, 200, ' px')}
+      ${campoRango('escala_activa','Cuánto crece la activa', v.escala_activa, 100, 160, '%')}
+      ${campoRango('grosor_borde','Grosor del borde', v.grosor_borde, 0, 20)}
+      ${campoRango('sombra','Sombra', v.sombra, 0, 10)}
+
+      ${campoSiNo('mayusculas','Mayúsculas', v.mayusculas)}
+      ${campoSiNo('italica','Itálica', v.italica)}
+      ${campoLista('reparto_respaldo','Reparto del respaldo', v.reparto_respaldo, op.repartos,
+        'solo si edge-tts no da el tiempo por palabra')}
+    </div>
+    <div style="display:flex;gap:7px;margin-top:12px">
+      <button class="btn go" id="e-guardar">Guardar y activar</button>
+      <button class="btn" id="e-cancelar">Cancelar</button>
+    </div>`;
+}
+
 function pintaEstilo(){
   const s = E.subtitulos, act = s.preset || 'predeterminado';
   const paleta = (s.colores_resalte||[]);
+  const propios = Object.keys(E.presets_propios||{});
+  const todos = E.presets.concat(propios.filter(p=>!E.presets.includes(p)));
   $('#v-estilo').innerHTML = `
     <h2>Estilo de subtítulos</h2>
     <p class="sub">Cambiarlo escribe el preset en config.json. Aplica al próximo render, no a lo ya hecho.</p>
-    <div class="presets">${E.presets.map(p=>`
+    <div class="presets">${todos.map(p=>`
       <div class="preset ${p===act?'on':''}" data-p="${p}">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <h4>${p}</h4>${p===act?'<span class="pill acc">Activo</span>':''}
+          <h4>${p}</h4>${p===act?'<span class="pill acc">Activo</span>'
+            : (propios.includes(p)?'<span class="pill">tuyo</span>':'')}
         </div>
-        <div class="muted">${esc(DESCR[p]||'')}</div>
+        <div class="muted">${esc(DESCR[p]|| (propios.includes(p)?'Hecho por ti.':''))}</div>
+        ${propios.includes(p)?`<div style="display:flex;gap:6px;margin-top:2px">
+          <button class="btn sm" data-editar="${esc(p)}">✎</button>
+          <button class="btn sm" data-borrar="${esc(p)}">🗑</button></div>`:''}
       </div>`).join('')}</div>
+
+    ${editorEstilo ? pintaEditorEstilo() : `
+      <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px">
+        <div class="muted" style="flex-grow:1">Copia el activo y cámbiale lo que quieras: tipo, fuente,
+          colores, tamaños. Se guarda con nombre propio en config.json y sale en la comparación.</div>
+        <button class="btn go" id="b-estilo-nuevo">✎ Crear estilo</button>
+      </div>`}
 
     <h3 class="sec">Qué usa el activo</h3>
     <div class="list">
@@ -1294,17 +1422,116 @@ function pintaEstilo(){
 
     <h3 class="sec">Comparar sobre tu gameplay</h3>
     <div class="card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
-      <div class="muted" style="flex-grow:1">Renderiza el mismo momento con cada preset y deja una hoja de comparación en la galería.</div>
+      <div class="muted" style="flex-grow:1">Renderiza el mismo momento con cada estilo —los del repo y los tuyos—
+        y los enseña aquí abajo. También quedan como PNG en la carpeta de videos.</div>
       <button class="btn go" onclick="ejecutar('previsualizar')">Generar comparación</button>
-    </div>`;
+    </div>
+    ${(E.previsualizaciones||[]).length ? `
+      <div style="display:flex;flex-direction:column;gap:12px;margin-top:14px">
+        ${E.previsualizaciones.map(f=>`
+          <div>
+            <div class="m muted" style="margin-bottom:5px">${esc(f.replace(/\.png$/,'').replace(/^_/,''))}</div>
+            <img src="/previsualizacion/${encodeURIComponent(f)}" alt="${esc(f)}" loading="lazy"
+                 style="width:100%;border:1px solid var(--line);border-radius:9px;display:block">
+          </div>`).join('')}
+      </div>`
+      : `<div class="muted" style="margin-top:10px">Todavía no hay muestras. El botón tarda un
+         minuto y hace falta ffmpeg.</div>`}`;
 
   document.querySelectorAll('.preset').forEach(el=>{
-    el.onclick = async ()=>{
+    el.onclick = async (ev)=>{
+      // Los botones de ✎ y 🗑 viven dentro de la tarjeta: sin esto, tocarlos
+      // activaría además el preset, que no es lo que pediste.
+      if(ev.target.closest('[data-editar],[data-borrar]')) return;
       try{ await post('/api/preset',{preset:el.dataset.p});
         toast('Estilo: '+el.dataset.p); refrescar();
       }catch(e){ toast(e.message); }
     };
   });
+
+  document.querySelectorAll('[data-editar]').forEach(b=>{
+    b.onclick = ()=>{ const n = b.dataset.editar;
+      editorEstilo = {base:n, nombre:n, nuevo:false}; pintar(); };
+  });
+  document.querySelectorAll('[data-borrar]').forEach(b=>{
+    b.onclick = async ()=>{
+      const n = b.dataset.borrar;
+      if(!confirm('¿Borrar el estilo «'+n+'»?\n\nLos videos ya renderizados no cambian.')) return;
+      try{ const j = await post('/api/estilo/borrar',{nombre:n});
+        toast(j.volvio_al_predeterminado ? 'Borrado; vuelve el predeterminado' : 'Borrado: '+n);
+        refrescar();
+      }catch(e){ toast(e.message); }
+    };
+  });
+
+  const bNuevo = $('#b-estilo-nuevo');
+  if(bNuevo) bNuevo.onclick = ()=>{
+    const base = E.subtitulos.preset || 'predeterminado';
+    editorEstilo = {base, nombre:'', nuevo:true}; pintar();
+  };
+
+  if(editorEstilo) conectarEditorEstilo();
+}
+
+function conectarEditorEstilo(){
+  // Los rangos enseñan su número al moverlos; el resto se lee al guardar.
+  document.querySelectorAll('#editor-estilo input[type=range]').forEach(r=>{
+    const v = r.parentElement.querySelector('.v');
+    const sufijo = (v.textContent.match(/[^0-9]+$/)||[''])[0];
+    r.oninput = ()=>{ v.textContent = r.value + sufijo; };
+  });
+  document.querySelectorAll('#editor-estilo [data-bool]').forEach(b=>{
+    b.onclick = ()=>{ const ahora = b.dataset.bool === '1';
+      b.dataset.bool = ahora ? '0' : '1'; b.textContent = ahora ? 'no' : 'sí'; };
+  });
+
+  const selFuente = $('#e-fuente');
+  selFuente.onchange = ()=>{
+    $('#e-fuente-otra').style.display = selFuente.value === '__otra' ? '' : 'none';
+  };
+
+  $('#e-mas-color').onclick = ()=>{
+    const cont = $('#e-paleta');
+    if(cont.querySelectorAll('[data-paleta]').length >= 8) return toast('Ocho colores es el tope');
+    const hueco = document.createElement('span');
+    hueco.innerHTML = '<input type="color" data-paleta="1" value="'+
+      (E.subtitulos.color_activo||'#3BF07A')+'"> <span class="quita">×</span>';
+    hueco.querySelector('.quita').onclick = ()=> hueco.remove();
+    cont.insertBefore(hueco, $('#e-mas-color'));
+  };
+  document.querySelectorAll('#e-paleta .quita').forEach(x=>{
+    x.onclick = ()=> x.parentElement.remove();
+  });
+
+  $('#e-cancelar').onclick = ()=>{ editorEstilo = null; pintar(); };
+  $('#e-guardar').onclick = guardarEstilo;
+}
+
+function leerEditorEstilo(){
+  const valores = {};
+  document.querySelectorAll('#editor-estilo [data-k]').forEach(el=>{
+    const k = el.dataset.k;
+    if(el.dataset.bool !== undefined)      valores[k] = el.dataset.bool === '1';
+    else if(el.dataset.num !== undefined)  valores[k] = parseInt(el.value, 10);
+    else                                   valores[k] = el.value;
+  });
+  if(valores.fuente === '__otra') valores.fuente = ($('#e-fuente-libre').value||'').trim();
+  valores.colores_resalte = [...document.querySelectorAll('#e-paleta [data-paleta]')].map(i=>i.value);
+  return valores;
+}
+
+async function guardarEstilo(){
+  const nombre = ($('#e-nombre').value||'').trim().toLowerCase().replace(/\s+/g,'_');
+  if(!/^[a-z0-9_]{1,32}$/.test(nombre))
+    return toast('El nombre va en minúsculas, sin acentos ni espacios');
+  const valores = leerEditorEstilo();
+  if(!valores.fuente) return toast('Falta el nombre de la fuente');
+  try{
+    const j = await post('/api/estilo/guardar',{nombre, valores, activar:true});
+    editorEstilo = null;
+    toast('Estilo «'+j.nombre+'» guardado y activo');
+    refrescar();
+  }catch(e){ toast(e.message); }
 }
 
 /* =========================================================
@@ -2074,8 +2301,19 @@ function pintaAjustes(){
     </div>
 
     <h3 class="sec">Mantenimiento</h3>
-    <p class="sub">Lo que si no habría que escribir a mano en Termux. Debajo de cada uno está
-      la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <h4 style="margin:0;font:500 13px var(--mono)">Todo de una pasada</h4>
+        <button class="btn go sm" id="b-mantenimiento">Hacerlo</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Pone en la cola, en este orden:
+        <b>revisar los videos</b> (mide lo renderizado), <b>limpiar la cola</b>
+        (quita las historias que ya tienen video, guardando copia) y
+        <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
+        quitar cualquiera a mitad.</div>
+    </div>
+    <p class="sub">Y de uno en uno, lo que si no habría que escribir a mano en Termux. Debajo de cada uno
+      está la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
     <div class="list">${MANTENIMIENTO.map((t,i)=>`
       <div class="row" style="grid-template-columns:1fr auto">
         <div style="min-width:0">
@@ -2135,6 +2373,21 @@ function pintaAjustes(){
   $('#b-wifi').onclick = async ()=>{
     try{ const j = await post('/api/wifi',{solo_wifi: !E.solo_wifi});
       toast(j.solo_wifi ? 'Solo con WiFi' : 'Permite datos móviles'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#b-mantenimiento').onclick = async ()=>{
+    // El paso que toca archivos va nombrado en el aviso: limpiar la cola
+    // reescribe guion.txt (con copia), y eso no se pulsa a ciegas.
+    if(!confirm('Se pondrán en la cola:\n\n'
+      + '1. Revisar los videos renderizados\n'
+      + '2. Quitar de la cola lo ya grabado (reescribe guion.txt, con copia)\n'
+      + '3. Cambiar la música que ya sonó\n\n¿Seguimos?')) return;
+    try{
+      const j = await post('/api/mantenimiento',{});
+      const hechos = j.encolados.map(e=>e.nombre).join(', ');
+      toast(hechos ? 'En marcha: ' + hechos : 'No se pudo encolar nada');
+      (j.saltados||[]).forEach(sx=> toast('Se salta ' + sx.accion + ': ' + sx.motivo));
+      refrescar();
     }catch(e){ toast(e.message); }
   };
   $('#b-musica-auto').onclick = async ()=>{
