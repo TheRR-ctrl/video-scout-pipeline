@@ -59,9 +59,10 @@ app = Flask(__name__, static_folder=None)
 class Trabajo:
     """Un comando corriendo, con su salida en vivo.
 
-    Solo se permite uno a la vez: renderizar y publicar tocan los mismos
+    Solo se ejecuta uno a la vez: renderizar y publicar tocan los mismos
     archivos, y dos a la vez se pisarían. Además un teléfono no da para
-    dos ffmpeg simultáneos.
+    dos ffmpeg simultáneos. Lo que se pide mientras tanto no se rechaza:
+    espera en TRABAJO["cola"] y arranca solo cuando este termina.
     """
 
     def __init__(self, nombre, cmd):
@@ -98,6 +99,10 @@ class Trabajo:
         self.proc.wait()
         if self.estado not in ("abortado",):
             self.estado = "ok" if self.proc.returncode == 0 else "error"
+        # Encadena con lo que estuviera esperando. Va aquí, en el hilo que
+        # lee la salida, porque es el único sitio que se entera de que el
+        # proceso acabó: nadie garantiza que el panel esté mirando.
+        seguir_con_la_cola(self)
 
     def pausar(self):
         if self.proc and self.estado == "corriendo":
@@ -138,17 +143,94 @@ class Trabajo:
         }
 
 
-TRABAJO = {"actual": None}
+# "cola" son los que esperan turno; "hechos", los últimos terminados. Los
+# hechos existen porque con una cola el panel deja de estar mirando: si al
+# arrancar el siguiente se perdiera el anterior, una tanda de cinco dejaría
+# de contar cómo fueron los cuatro primeros.
+TRABAJO = {"actual": None, "cola": [], "hechos": []}
+TOPE_COLA = 20
+HECHOS_QUE_SE_RECUERDAN = 12
+
+# Un candado de verdad y no confiar en el GIL: a la cola la tocan el hilo de
+# Flask (cuando pulsas un botón) y el que lee la salida del proceso (cuando
+# termina), y entre mirar si hay algo corriendo y arrancar lo siguiente hay
+# sitio de sobra para que se crucen y arranquen dos.
+_CANDADO = threading.Lock()
+_SIGUIENTE_ID = [0]
 
 
-def lanzar(nombre, cmd):
-    actual = TRABAJO["actual"]
-    if actual and actual.estado in ("corriendo", "pausado"):
-        return None, f"Ya hay algo corriendo: {actual.nombre}"
+def _arrancar(nombre, cmd):
+    """Arranca ya. Quien llama tiene el candado."""
     t = Trabajo(nombre, cmd)
     t.arrancar()
     TRABAJO["actual"] = t
-    return t, None
+    return t
+
+
+def lanzar(nombre, cmd):
+    """Arranca el comando, o lo pone a la cola si hay algo corriendo.
+
+    Devuelve (trabajo, encolado, error): uno de los tres con valor y los
+    otros dos en None. "encolado" es la entrada que se quedó esperando, con
+    su id, para que el panel pueda quitarla luego.
+    """
+    with _CANDADO:
+        actual = TRABAJO["actual"]
+        if actual and actual.estado in ("corriendo", "pausado"):
+            if len(TRABAJO["cola"]) >= TOPE_COLA:
+                return None, None, f"Ya hay {TOPE_COLA} esperando; quita alguno antes."
+            _SIGUIENTE_ID[0] += 1
+            entrada = {"id": _SIGUIENTE_ID[0], "nombre": nombre, "cmd": cmd}
+            TRABAJO["cola"].append(entrada)
+            return None, dict(entrada, posicion=len(TRABAJO["cola"])), None
+        return _arrancar(nombre, cmd), None, None
+
+
+def seguir_con_la_cola(terminado):
+    """Apunta el que acaba de terminar y arranca el siguiente, si lo hay."""
+    with _CANDADO:
+        # Solo manda el trabajo que de verdad está en curso. Sin esto, un
+        # proceso viejo que tarde en morir (el SIGKILL de _rematar llega 4s
+        # después de abortar) podría arrancar la cola por segunda vez.
+        if TRABAJO["actual"] is not terminado:
+            return
+        hecho = {"nombre": terminado.nombre, "estado": terminado.estado,
+                 "segundos": int(time.time() - terminado.inicio)}
+        # De los que fallaron se guarda el final de la salida: es lo que hay
+        # que leer para saber por qué, y al arrancar el siguiente deja de
+        # estar a la vista.
+        if terminado.estado == "error":
+            hecho["lineas"] = terminado.como_dict()["lineas"][-20:]
+        TRABAJO["hechos"].append(hecho)
+        del TRABAJO["hechos"][:-HECHOS_QUE_SE_RECUERDAN]
+
+        if not TRABAJO["cola"]:
+            return
+        # Sacar de la cola y arrancar van dentro del mismo candado. Si se
+        # soltara entre las dos, un botón pulsado en ese hueco vería el
+        # trabajo anterior ya terminado, arrancaría el suyo, y acabarían
+        # dos procesos a la vez, que es justo lo que no cabe en el teléfono.
+        entrada = TRABAJO["cola"].pop(0)
+        _arrancar(entrada["nombre"], entrada["cmd"])
+
+
+def quitar_de_la_cola(id_entrada):
+    with _CANDADO:
+        antes = len(TRABAJO["cola"])
+        TRABAJO["cola"][:] = [e for e in TRABAJO["cola"] if e["id"] != id_entrada]
+        return antes - len(TRABAJO["cola"])
+
+
+def vaciar_la_cola():
+    with _CANDADO:
+        cuantos = len(TRABAJO["cola"])
+        TRABAJO["cola"].clear()
+        return cuantos
+
+
+def cola_como_lista():
+    with _CANDADO:
+        return [{"id": e["id"], "nombre": e["nombre"]} for e in TRABAJO["cola"]]
 
 
 # =========================================================
@@ -753,6 +835,8 @@ def api_estado():
         "tiktok": tiktok_resumen(),
         "canal": resumen_canal(),
         "trabajo": TRABAJO["actual"].como_dict() if TRABAJO["actual"] else None,
+        "cola": cola_como_lista(),
+        "hechos": list(TRABAJO["hechos"]),
     })
 
 
@@ -837,7 +921,7 @@ def api_ejecutar(accion):
             cmd += ["--fondo", str(d["fondo"])]
         if d.get("volumen_musica") is not None:
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
-        t, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando", cmd)
+        t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando", cmd)
     elif accion == "regenerar_metadata":
         # Volver a preguntarle a Gemini por UN video. --forzar porque el
         # botón solo aparece cuando ya la estás mirando: pedirlo ahí es
@@ -846,16 +930,38 @@ def api_ejecutar(accion):
         cmd = [sys.executable, "preparar_metadata.py", "--rehacer", "--forzar"]
         if d.get("numero") is not None:
             cmd += ["--solo", str(d["numero"])]
-        t, err = lanzar("Regenerando con Gemini", cmd)
+        t, encolado, err = lanzar("Regenerando con Gemini", cmd)
     elif accion in ACCIONES:
         nombre, cmd = ACCIONES[accion]
-        t, err = lanzar(nombre, cmd)
+        t, encolado, err = lanzar(nombre, cmd)
     else:
         return jsonify({"error": "Acción desconocida"}), 400
 
     if err:
         return jsonify({"error": err}), 409
+    if encolado:
+        return jsonify({"ok": True, "encolado": encolado})
     return jsonify({"ok": True, "trabajo": t.como_dict()})
+
+
+@app.post("/api/cola/<que>")
+def api_cola(que):
+    """Quita una entrada de la cola de espera, o la vacía entera.
+
+    No toca lo que ya está corriendo: para eso está /api/trabajo/abortar.
+    """
+    if que == "vaciar":
+        return jsonify({"ok": True, "quitados": vaciar_la_cola()})
+    if que == "quitar":
+        id_entrada = (request.json or {}).get("id")
+        if not isinstance(id_entrada, int):
+            return jsonify({"error": "Falta el id"}), 400
+        if not quitar_de_la_cola(id_entrada):
+            # Lo normal no es un error: se ha puesto a correr mientras
+            # mirabas la lista. El panel se entera al refrescar.
+            return jsonify({"ok": True, "quitados": 0})
+        return jsonify({"ok": True, "quitados": 1})
+    return jsonify({"error": "Acción desconocida"}), 400
 
 
 @app.post("/api/trabajo/<que>")
