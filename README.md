@@ -15,9 +15,22 @@ schedule (cron, Termux, or GitHub Actions).
    `--diagnostico` explains a scan that came back empty; `--estado` shows the
    queue. The default list is 36 subreddits across drama, difficult family,
    revenge, customer-facing work, unexplained encounters and comedy; a
-   subreddit that is gone or misspelled is skipped with a warning, it does
-   not break the run. There is a `RATE_LIMIT_SEG` pause between each one, so
-   the full list takes a few minutes.
+   subreddit that is gone or misspelled doesn't break the run — see below.
+
+   Subreddits are read in small groups, not one at a time: Reddit's public
+   syntax for a combined feed (`r/sub1+sub2+.../top/.rss`) puts several in a
+   single request, and each `<entry>` still carries its real subreddit in
+   `<category>`, so per-post attribution doesn't get lost. Reddit's rate
+   limit is per IP, not per subreddit, so this is what actually avoids 429s
+   at 36 subreddits — verified live: 36/36 read with 0 failures in ~2
+   minutes, versus ~7 minutes with occasional 429s one-request-per-subreddit.
+   Group size is `subreddits_por_tanda` (4 by default); a request's failure
+   is charged to every subreddit in its group, since none of them could be
+   checked that run. Larger groups mean fewer requests but a worse floor per
+   subreddit (Reddit returns the group's best posts overall, not N per
+   subreddit — bundling all 36 into one request left 15 of them with zero
+   results), so 4 is a deliberate balance, documented with the numbers in
+   `docs/repos_revisados.md`.
 2. **`youtube_scout.py`** — second source feeding the *same* queue. With a
    free `YOUTUBE_API_KEY` it searches by view count, so a three-year-old video
    with two million views is found (age is never a filter — only views are);
