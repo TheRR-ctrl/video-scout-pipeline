@@ -2206,7 +2206,7 @@ let secretosCache = [];
 function firmaAjustes(){
   return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto,
-          E.usar_chip_android, E.es_android,
+          E.usar_chip_android, E.es_android, JSON.stringify(E.fuentes),
           JSON.stringify(E.musica), secretosCache.length].join('~');
 }
 /* Las tareas de mantenimiento del panel. Cada una lleva su orden de Termux
@@ -2275,6 +2275,7 @@ const MANTENIMIENTO = [
 
 function pintaAjustes(){
   const m = E.material, cr = E.credenciales, aj = E.ajustes, pistas = E.musica || [];
+  const fu = E.fuentes || {youtube_canales:[], subreddits:[]};
   const pct = v => Math.round((v ?? 0) * 100);
 
   $('#v-ajustes').innerHTML = `
@@ -2389,6 +2390,35 @@ function pintaAjustes(){
           las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
             : 'Hace falta JAMENDO_CLIENT_ID en Ajustes → Claves.'}</div></div>
         <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
+      </div>
+    </div>
+
+    <h3 class="sec">Fuentes</h3>
+    <p class="sub" style="margin-top:-6px">Canales de YouTube y subreddits de Reddit que rastrean
+      <code style="font:11.5px var(--mono)">youtube_scout.py</code> y
+      <code style="font:11.5px var(--mono)">trend_scout.py</code>. Se guardan en <code>config_trends.json</code>.</p>
+    <div class="list">
+      ${fu.youtube_canales.map(c=>`
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div class="t" style="font:12.5px var(--mono);word-break:break-all">${esc(c)}</div>
+        <button class="btn sm" data-quitar-canal="${esc(c)}">🗑</button>
+      </div>`).join('')}
+      <div class="row" style="display:block">
+        <input id="fu-canal" placeholder="@handle, URL o channel_id" autocapitalize="off" autocomplete="off"
+               spellcheck="false" style="width:100%;margin-bottom:8px">
+        <button class="btn sm" id="b-fu-canal">Agregar canal</button>
+      </div>
+    </div>
+    <div class="list" style="margin-top:10px">
+      ${fu.subreddits.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div class="t" style="font:12.5px var(--mono)">r/${esc(s)}</div>
+        <button class="btn sm" data-quitar-sub="${esc(s)}">🗑</button>
+      </div>`).join('')}
+      <div class="row" style="display:block">
+        <input id="fu-sub" placeholder="nombre del subreddit, sin r/" autocapitalize="off" autocomplete="off"
+               spellcheck="false" style="width:100%;margin-bottom:8px">
+        <button class="btn sm" id="b-fu-sub">Agregar subreddit</button>
       </div>
     </div>
 
@@ -2508,6 +2538,34 @@ function pintaAjustes(){
                                  : 'Vuelve a renderizar por CPU (libx264)');
       E.usar_chip_android = j.usar_chip_android;
     }catch(e){ chkChip.checked = !val; toast(e.message); }
+  };
+  document.querySelectorAll('[data-quitar-canal]').forEach(b=>b.onclick = async ()=>{
+    try{ const j = await post('/api/fuentes/canal', {canal: b.dataset.quitarCanal, quitar: true});
+      toast('Quitado: ' + b.dataset.quitarCanal); E.fuentes.youtube_canales = j.youtube_canales; pintaAjustes();
+    }catch(e){ toast(e.message); }
+  });
+  document.querySelectorAll('[data-quitar-sub]').forEach(b=>b.onclick = async ()=>{
+    try{ const j = await post('/api/fuentes/subreddit', {subreddit: b.dataset.quitarSub, quitar: true});
+      toast('Quitado: r/' + b.dataset.quitarSub); E.fuentes.subreddits = j.subreddits; pintaAjustes();
+    }catch(e){ toast(e.message); }
+  });
+  const bFuCanal = $('#b-fu-canal');
+  if(bFuCanal) bFuCanal.onclick = async ()=>{
+    const campo = $('#fu-canal'), val = (campo.value || '').trim();
+    if(!val) return;
+    try{ const j = await post('/api/fuentes/canal', {canal: val});
+      toast(j.cambio ? 'Agregado: ' + val : 'Ya estaba en la lista');
+      E.fuentes.youtube_canales = j.youtube_canales; pintaAjustes();
+    }catch(e){ toast(e.message); }
+  };
+  const bFuSub = $('#b-fu-sub');
+  if(bFuSub) bFuSub.onclick = async ()=>{
+    const campo = $('#fu-sub'), val = (campo.value || '').trim();
+    if(!val) return;
+    try{ const j = await post('/api/fuentes/subreddit', {subreddit: val});
+      toast(j.cambio ? 'Agregado: r/' + val : 'Ya estaba en la lista');
+      E.fuentes.subreddits = j.subreddits; pintaAjustes();
+    }catch(e){ toast(e.message); }
   };
   pintaBotonesOir();
 }

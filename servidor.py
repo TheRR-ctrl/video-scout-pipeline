@@ -368,6 +368,23 @@ def cfg_actual():
     return gvm.cargar_config(RUTA_CONFIG)
 
 
+def fuentes_actuales():
+    """Canales de YouTube y subreddits configurados en config_trends.json.
+    Igual que apodos_ya_grabados: si algo falla se devuelve vacío en vez de
+    romper el panel, que aquí solo enseña."""
+    try:
+        import youtube_scout
+        canales = youtube_scout.canales_configurados()
+    except Exception:                              # noqa: BLE001 — informativo
+        canales = []
+    try:
+        import trend_scout
+        subreddits = trend_scout.subreddits_configurados()
+    except Exception:                              # noqa: BLE001 — informativo
+        subreddits = []
+    return {"youtube_canales": canales, "subreddits": subreddits}
+
+
 def apodos_ya_grabados():
     """Lo que ya tiene video, con el mismo criterio que limpiar_cola.py.
 
@@ -1099,6 +1116,7 @@ def api_estado():
         # trajo Reddit se quedan en candidatos.json sin que se note.
         "candidatos": len(cola.cargar_pendientes()),
         "hechos": list(TRABAJO["hechos"]),
+        "fuentes": fuentes_actuales(),
     })
 
 
@@ -1401,6 +1419,39 @@ def api_video_chip_android():
     cfg["video"] = video_cfg
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "usar_chip_android": video_cfg["usar_chip_android"]})
+
+
+@app.post("/api/fuentes/canal")
+def api_fuentes_canal():
+    """Agrega o quita un canal de YouTube de config_trends.json."""
+    import youtube_scout
+    datos = request.json or {}
+    canal = str(datos.get("canal", ""))
+    quitar = bool(datos.get("quitar", False))
+    try:
+        canales, cambio = (youtube_scout.quitar_canal if quitar else youtube_scout.agregar_canal)(canal)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        # agregar_canal comprueba el canal contra YouTube antes de guardarlo
+        # (resolver_channel_id): esto cubre tanto "ese canal no existe" como
+        # un fallo de red al comprobarlo.
+        return jsonify({"ok": False, "error": f"No se pudo comprobar el canal: {exc}"}), 400
+    return jsonify({"ok": True, "youtube_canales": canales, "cambio": cambio})
+
+
+@app.post("/api/fuentes/subreddit")
+def api_fuentes_subreddit():
+    """Agrega o quita un subreddit de config_trends.json."""
+    import trend_scout
+    datos = request.json or {}
+    nombre = str(datos.get("subreddit", ""))
+    quitar = bool(datos.get("quitar", False))
+    try:
+        subs, cambio = (trend_scout.quitar_subreddit if quitar else trend_scout.agregar_subreddit)(nombre)
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "subreddits": subs, "cambio": cambio})
 
 
 @app.post("/api/musica/auto")

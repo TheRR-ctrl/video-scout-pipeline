@@ -149,6 +149,16 @@ Configure channels, searches and thresholds in `config_trends.json` (see
 source off. Verify any `@handle` you add by opening it in a browser first — a
 handle that 404s silently wastes a run.
 
+Channels and subreddits can also be added or removed from the panel, in
+**Ajustes → Fuentes** — the panel checks a new channel against YouTube before
+saving it (same 404-protection as above), and removing an entry doesn't need
+that check. Adding or removing anything from that section, in either source,
+writes the *full* current list to `config_trends.json` (not just the one
+change), which means: the first time you touch either list from the panel,
+that list stops tracking future changes to the built-in defaults in
+`trend_scout.py`/`youtube_scout.py` — from then on it's entirely what's in
+your `config_trends.json`, same as if you'd edited the file by hand.
+
 ## Publishing beyond YouTube (TikTok)
 
 TikTok's Content Posting API has the same friction as Reddit's: unaudited
