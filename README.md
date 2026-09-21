@@ -198,6 +198,53 @@ built in). Never commit `config_trends.json`, `config.json`,
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
+## The panel as an app
+
+The review panel (`servidor.py`, served at `http://127.0.0.1:8770`) can live
+on the home screen in two ways. They stack — the second one includes the
+first.
+
+**Installed from Chrome (nothing to build).** The panel is a real PWA: a
+manifest plus a service worker with a `fetch` handler, which is what Chrome
+requires before it offers to install a page rather than just bookmark it.
+`127.0.0.1` counts as a secure context, so no HTTPS is needed. Open the panel
+and use **⋮ → Install app**. It gets its own icon, no browser chrome, and —
+because the service worker caches a small shell — a proper "the panel isn't
+running" screen instead of Chrome's dinosaur when `servidor.py` is off. That
+screen polls and walks you straight in the moment the server answers.
+
+The service worker deliberately caches almost nothing: only that offline
+screen and the icons. `index.html` is 150 KB and changes with every `git
+pull`, and `/api/`, `/video/`, `/audio/` and `/miniatura/` are live data —
+a cached panel talking to a newer API is worse than no app at all. See
+`web/sw.js`.
+
+**The APK (`android/`).** Same panel, one thing more, and it's the thing no
+web page can ever do: it starts the server for you. A page can't launch
+Python on your phone — no browser allows it, which is exactly what stops any
+website from running things on your device. An installed app can ask Termux
+to do it, through the `RUN_COMMAND` intent. So tapping the icon is the whole
+procedure, instead of "open Termux, type `panel`, switch apps".
+
+It's an `Activity` and a `WebView` with no dependencies — 19 KB. If the port
+already answers it just goes in (no matter who started the server); otherwise
+it asks Termux and waits; and if that fails it says which of the three things
+failed — Termux missing, permission missing, Termux refused — rather than
+showing a blank screen.
+
+Building it needs the Android SDK, which doesn't exist for Termux, so the
+**Compilar la app de Android** workflow builds it on the runner and leaves
+the `.apk` as an artifact (or as a release, which is far easier to grab from
+a phone). It's debug-signed: fine for an app you sideload onto your own
+phone, not something for a store.
+
+On the phone it needs one command, once: `bash instalar_panel.sh --app`. That
+creates the `panel-servidor` entry point the app calls and sets
+`allow-external-apps=true` in Termux. That line applies to *any* app holding
+the `RUN_COMMAND` permission, not just this one, which is why the installer
+won't set it without being asked. Details in
+**[android/README.md](android/README.md)**.
+
 ## Background video (`motor_fondo` in `config.json`)
 
 - `"cortes"` (default) — the original behaviour: random 6-12 s cuts from your

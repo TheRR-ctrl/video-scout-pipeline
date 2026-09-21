@@ -201,3 +201,90 @@ ve el RSS").
 
 **Licencia.** No aplica — es la misma API de Google que ya está en uso,
 dentro de la cuota gratuita ya contemplada.
+
+## 7. Convertir el panel en una app de Android — SE ADOPTÓ una técnica, se descartaron cuatro proyectos
+
+**El problema, dicho con precisión.** El panel ya se podía "agregar a
+pantalla de inicio" desde Chrome. Lo que faltaba no era el icono: era que
+tocar ese icono sirviera de algo con el servidor apagado. Y sobre todo,
+**arrancar `servidor.py`**, que es lo único que ninguna página web puede
+hacer — ningún navegador deja que una página lance un proceso, y es lo que
+impide que cualquier web ejecute cosas en tu teléfono.
+
+### Lo que se adoptó
+
+**El intent `RUN_COMMAND` de Termux**
+([wiki oficial de termux-app](https://github.com/termux/termux-app/wiki/RUN_COMMAND-Intent)).
+No es un repo ni una librería: es la puerta que Termux expone a propósito
+para que otra app le encargue un comando. Se le manda un intent a
+`com.termux/com.termux.app.RunCommandService` con la ruta del ejecutable y
+`RUN_COMMAND_BACKGROUND`, y Termux lo corre.
+
+- **Corre en Termux sin root.** Es literalmente Termux quien lo ejecuta.
+  Pide dos cosas y las dos son del usuario, no del código: el permiso
+  `com.termux.permission.RUN_COMMAND` (de los que Android pregunta en
+  caliente) y `allow-external-apps=true` en `~/.termux/termux.properties`.
+  Esa línea vale para **cualquier** app con ese permiso, así que
+  `instalar_panel.sh` no la pone sola: hace falta `--app`.
+- **Mantenimiento.** Unas 40 líneas de Java en `MainActivity.pedirArranque`.
+  Lo único que puede cambiar bajo los pies es el nombre del servicio de
+  Termux, que lleva años igual.
+- **Licencia.** No aplica: es la API pública de Termux (la app es GPLv3, pero
+  aquí no se usa ni una línea de su código — se le habla por intent).
+
+**Segundo requisito, y este no es de Android sino de Chrome:** una PWA solo
+es instalable de verdad si hay manifiesto **y** un service worker con
+manejador de `fetch`. Había manifiesto y no service worker, así que "agregar
+a pantalla de inicio" dejaba un marcador con barra de navegador. `127.0.0.1`
+cuenta como contexto seguro, así que no hace falta HTTPS —
+[MDN](https://developer.mozilla.org/en-US/docs/Web/Progressive_web_apps/Guides/Making_PWAs_installable).
+Implementado en `web/sw.js`.
+
+### Lo que se descartó, y por qué
+
+**PWABuilder / Bubblewrap (Google, Apache-2.0).** Es *la* forma oficial de
+empaquetar una PWA como APK, con una TWA (Trusted Web Activity). **No sirve
+aquí, y no por peso:** una TWA exige que el sitio esté en HTTPS y verifique
+su dominio con Digital Asset Links. `http://127.0.0.1:8770` no tiene dominio
+ni puede tener certificado, así que la verificación no existe. Aparte,
+Bubblewrap necesita Node y el SDK de Android, que en el teléfono no hay.
+
+**Plantillas de WebView con build en GitHub Actions** — `ASTRALLIBERTAD/web-app`,
+`gandil123/Android-WebviewWebapp-Template`, `GothwadTech/webview`. De aquí
+salió **la idea** (WebView + compilación en el runner, que es exactamente lo
+que hace `.github/workflows/apk.yml`), pero no el código: todas parten de que
+el frontend va *dentro* del APK, en `assets/`, y aquí el panel tiene que
+servirlo Python porque es una API viva, no HTML suelto. Y ninguna sabe nada
+de Termux, que es la única parte que costaba. Adoptar una plantilla habría
+sido adaptarla más de lo que costó escribir las ~300 líneas de
+`MainActivity.java`.
+
+**`shiaho777/web-to-app` (Unlicense).** El más tentador de los cuatro,
+porque compila APKs **en el propio teléfono**, sin PC ni SDK ni Node — que
+es la restricción de este proyecto. Se descarta por arquitectura, no por
+capricho: su modo "server-based app" mete el runtime y el servidor *dentro*
+del APK, en el sandbox de la app. Aquí eso significaría una segunda copia de
+Python y del pipeline entero, separada de la de Termux — que es la que tiene
+`pipeline_state/`, los cron de `instalar_cron.sh` y los secretos. Dos copias
+del proyecto en el mismo teléfono es peor problema que el que resuelve.
+Además nada de lo que se hace ahí queda en el repo: el APK saldría de tocar
+una app a mano, sin nada que revisar en un diff.
+
+**`termux/termux-gui` (GPL-3.0).** Deja que un programa de Termux dibuje
+widgets nativos de Android desde Python. Descartado sin dudarlo: obligaría a
+reescribir el panel entero —150 KB de HTML que ya funciona— en otro
+paradigma, y sumaría otro APK-plugin que instalar. Se gana una interfaz
+nativa que nadie ha pedido y se pierde la que hay.
+
+**`termux/termux-widget` — ya estaba y se queda.** `instalar_panel.sh` ya
+crea el atajo "🎬 Panel de videos". No compite con el APK: el widget arranca
+el servidor y abre Chrome; la app hace las dos cosas en una. Quien no quiera
+instalar un APK sigue teniendo el widget, y quien lo instale puede tener los
+dos — la app entra directa si el puerto ya contesta, lo arrancara quien lo
+arrancara.
+
+**Lo que no se puede comprobar desde aquí.** Que el APK compila lo dice el
+workflow en cada push, y se compiló antes de subirlo (SDK 35, AGP 8.7.3).
+Que Termux acepte el intent en un teléfono de verdad solo se ve instalándolo
+— es la misma trampa que `VERSION_CLI` de HyperFrames: sin Android delante,
+subir la versión es apostar.
