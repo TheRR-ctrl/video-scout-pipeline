@@ -2762,6 +2762,14 @@ setInterval(refrescar, 12000);
    wake lock. El margen del servidor es amplio porque Chrome ralentiza los
    temporizadores en segundo plano — cambiar de app un rato no lo apaga. */
 setInterval(()=>{ fetch('/api/latido',{method:'POST'}).catch(()=>{}); }, 20000);
+
+/* Service worker: es lo que convierte el panel en una app instalable de
+   verdad (Chrome no ofrece instalar una página sin uno) y lo que hace que
+   abrir el icono con el servidor apagado enseñe una pantalla propia en vez
+   del dinosaurio. No cachea el panel — ver web/sw.js. */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.register('/sw.js').catch(()=>{});
+}
 fetch('/api/latido',{method:'POST'}).catch(()=>{});
 
 // Actualizar a mano. El panel ya se refresca solo, pero tenerlo a mano
