@@ -54,6 +54,7 @@ from xml.etree import ElementTree as ET
 import cola      # cola de candidatos e historial compartidos con script_writer.py
 import secretos  # carga secretos.env si YOUTUBE_API_KEY no está en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
+import almacen   # escritura atómica de config_trends.json
 
 try:
     import requests
@@ -158,6 +159,111 @@ def cargar_config():
         with open(RUTA_CONFIG, "r", encoding="utf-8") as f:
             cfg.update(json.load(f))
     return cfg
+
+
+def canales_configurados():
+    """La lista de canales tal como queda en config_trends.json (o la de por
+    defecto si el archivo no la tocó). La usa el panel para pintarla."""
+    crudo = almacen.cargar(RUTA_CONFIG, {})
+    return list(crudo.get("youtube_canales", CONFIG_DEFAULT["youtube_canales"]))
+
+
+def _normalizar_canal(referencia):
+    referencia = (referencia or "").strip()
+    if not referencia:
+        raise ValueError("El canal no puede estar vacío.")
+    # URL completa o channel_id (UC...) se guardan tal cual; un handle o
+    # nombre suelto se normaliza con el @ que espera resolver_channel_id.
+    if referencia.startswith("http") or re.fullmatch(r"UC[A-Za-z0-9_-]{22}", referencia):
+        return referencia
+    if not referencia.startswith("@"):
+        referencia = "@" + referencia
+    return referencia
+
+
+def agregar_canal(referencia):
+    """Agrega un canal a config_trends.json, comprobando antes que existe de
+    verdad. Devuelve (lista, se_agregó).
+
+    Un @handle inventado (fácil de escribir mal desde el teclado del
+    teléfono) da 404 y hace perder una corrida entera de youtube_scout —
+    justo lo que dice el comentario de youtube_canales más arriba. Como
+    resolver_channel_id ya hace exactamente esta comprobación (y de paso deja
+    el channel_id en caché), se llama aquí antes de guardar en vez de
+    descubrir el 404 en la siguiente búsqueda. Revienta con RuntimeError si
+    el canal no existe.
+    """
+    referencia = _normalizar_canal(referencia)
+    resolver_channel_id(referencia)
+    crudo = almacen.cargar(RUTA_CONFIG, {})
+    canales = list(crudo.get("youtube_canales", CONFIG_DEFAULT["youtube_canales"]))
+    if referencia in canales:
+        return canales, False
+    canales.append(referencia)
+    crudo["youtube_canales"] = canales
+    almacen.guardar(RUTA_CONFIG, crudo)
+    return canales, True
+
+
+def quitar_canal(referencia):
+    """Quita un canal de config_trends.json. Devuelve (lista, se_quitó)."""
+    referencia = _normalizar_canal(referencia)
+    crudo = almacen.cargar(RUTA_CONFIG, {})
+    canales = list(crudo.get("youtube_canales", CONFIG_DEFAULT["youtube_canales"]))
+    if referencia not in canales:
+        return canales, False
+    canales.remove(referencia)
+    crudo["youtube_canales"] = canales
+    almacen.guardar(RUTA_CONFIG, crudo)
+    return canales, True
+
+
+def buscar_canales(consulta, maximo=5):
+    """Busca canales por nombre en YouTube. Devuelve una lista de
+    {channel_id, titulo, handle, miniatura} para elegir uno sin tener que
+    salir a copiar el @handle a mano desde el navegador.
+
+    Requiere YOUTUBE_API_KEY: el RSS no sabe buscar, solo leer un canal ya
+    identificado (igual que en escanear()/videos_por_api más arriba).
+    """
+    if not hay_api_key():
+        raise RuntimeError(
+            "Hace falta YOUTUBE_API_KEY para buscar canales por nombre "
+            "(sin ella, pega el @handle o la URL directamente)."
+        )
+    consulta = (consulta or "").strip()
+    if not consulta:
+        return []
+
+    servicio = _servicio_youtube()
+    resp = servicio.search().list(
+        part="snippet", type="channel", q=consulta,
+        maxResults=min(10, max(1, maximo)),
+        relevanceLanguage="es", regionCode="MX",
+    ).execute()
+    ids = [it["snippet"]["channelId"] for it in resp.get("items", [])
+           if it.get("snippet", {}).get("channelId")]
+    if not ids:
+        return []
+
+    # search.list no trae el @handle (customUrl) ni miniatura decente; hace
+    # falta channels.list aparte, igual que _detalles_de_videos con vistas.
+    detalles = servicio.channels().list(part="snippet", id=",".join(ids)).execute()
+    resultados = []
+    for item in detalles.get("items", []):
+        snip = item.get("snippet", {})
+        handle = snip.get("customUrl", "") or ""
+        if handle and not handle.startswith("@"):
+            handle = "@" + handle
+        resultados.append({
+            "channel_id": item["id"],
+            "titulo": snip.get("title", ""),
+            # Sin customUrl (canales viejos que no lo fijaron), se usa el
+            # channel_id: sigue siendo una referencia válida para agregar_canal.
+            "handle": handle or item["id"],
+            "miniatura": ((snip.get("thumbnails", {}) or {}).get("default", {}) or {}).get("url", ""),
+        })
+    return resultados
 
 
 def _cache_canales():

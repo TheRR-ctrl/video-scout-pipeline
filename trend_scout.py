@@ -39,8 +39,9 @@ import logging
 import argparse
 from xml.etree import ElementTree as ET
 
-import cola  # cola de candidatos e historial compartidos con script_writer.py
-import formato  # si ahora mismo tiene sentido buscar historias largas
+import cola      # cola de candidatos e historial compartidos con script_writer.py
+import formato   # si ahora mismo tiene sentido buscar historias largas
+import almacen   # escritura atómica de config_trends.json
 
 try:
     import requests
@@ -148,6 +149,85 @@ def cargar_config():
 
 cargar_historial = cola.cargar_historial
 guardar_historial = cola.guardar_historial
+
+
+def subreddits_configurados():
+    """La lista de subreddits tal como queda en config_trends.json (o la de
+    por defecto si el archivo no la tocó). La usa el panel para pintarla."""
+    crudo = almacen.cargar(RUTA_CONFIG, {})
+    return list(crudo.get("subreddits", CONFIG_DEFAULT["subreddits"]))
+
+
+_RE_SUBREDDIT = re.compile(r"^[A-Za-z0-9_]{3,21}$")
+
+
+def _normalizar_subreddit(nombre):
+    """Valida contra las reglas de nombre de Reddit (letras/números/guion
+    bajo, 3 a 21 caracteres). No es solo cosmético: este nombre va sin
+    escapar dentro de la URL del feed en obtener_posts_publicos, y algo como
+    "sub1+sub2" colaría un feed combinado que además rompe el conteo de rank
+    por subreddit que se explica en escanear()."""
+    nombre = (nombre or "").strip()
+    if nombre.lower().startswith("r/"):
+        nombre = nombre[2:]
+    if not _RE_SUBREDDIT.fullmatch(nombre):
+        raise ValueError(
+            "Ese no parece un nombre de subreddit válido (solo letras, números "
+            "y guion bajo, de 3 a 21 caracteres, sin \"r/\" ni espacios)."
+        )
+    return nombre
+
+
+def _verificar_subreddit_existe(nombre):
+    """Un GET liviano al RSS del subreddit, para no guardar un nombre mal
+    escrito sin darse cuenta — mismo espíritu que resolver_channel_id en
+    youtube_scout.py, pero sin caché: aquí se llama una sola vez, al agregar.
+
+    Reddit no tiene una vía de búsqueda pública sin bloqueo (ver el aviso al
+    principio del archivo), así que esto no busca por nombre, solo confirma
+    que el nombre exacto existe antes de guardarlo.
+
+    Un solo alta es una sola petición, sin problema. Varias seguidas sin
+    pausa sí pueden toparse con el 429 de RATE_LIMIT_SEG, y como un 429 se
+    deja pasar sin marcar error (ver arriba), ese subreddit se guarda SIN
+    haberse comprobado de verdad, justo cuando más falta hace.
+    """
+    resp = requests.get(f"https://www.reddit.com/r/{nombre}/top/.rss",
+                         params={"limit": 1}, headers={"User-Agent": _UA_NAVEGADOR}, timeout=10)
+    if resp.status_code == 404:
+        raise ValueError(f'El subreddit "r/{nombre}" no existe (404).')
+    if resp.status_code not in (403, 429):
+        # 403/429 es bloqueo o rate limit, no "no existe": no tiene sentido
+        # rechazar el alta por una causa ajena al nombre, así que se deja pasar.
+        resp.raise_for_status()
+
+
+def agregar_subreddit(nombre):
+    """Agrega un subreddit a config_trends.json, comprobando antes que
+    existe. Devuelve (lista, se_agregó)."""
+    nombre = _normalizar_subreddit(nombre)
+    crudo = almacen.cargar(RUTA_CONFIG, {})
+    subs = list(crudo.get("subreddits", CONFIG_DEFAULT["subreddits"]))
+    if nombre in subs:
+        return subs, False
+    _verificar_subreddit_existe(nombre)
+    subs.append(nombre)
+    crudo["subreddits"] = subs
+    almacen.guardar(RUTA_CONFIG, crudo)
+    return subs, True
+
+
+def quitar_subreddit(nombre):
+    """Quita un subreddit de config_trends.json. Devuelve (lista, se_quitó)."""
+    nombre = _normalizar_subreddit(nombre)
+    crudo = almacen.cargar(RUTA_CONFIG, {})
+    subs = list(crudo.get("subreddits", CONFIG_DEFAULT["subreddits"]))
+    if nombre not in subs:
+        return subs, False
+    subs.remove(nombre)
+    crudo["subreddits"] = subs
+    almacen.guardar(RUTA_CONFIG, crudo)
+    return subs, True
 
 
 _RE_CUERPO = re.compile(r"<!--\s*SC_OFF\s*-->(.*?)<!--\s*SC_ON\s*-->", re.DOTALL)

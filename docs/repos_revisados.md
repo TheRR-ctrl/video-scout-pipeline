@@ -173,3 +173,31 @@ datacenter; `yt-dlp` es la alternativa más robusta para sacar subtítulos
 `youtube-transcript-api` empieza a fallar, `yt-dlp` es el plan B natural.
 Queda instalado como herramienta suelta (`pkg install yt-dlp`) para usar a
 mano mientras tanto, sin tocar el scout.
+
+## 6. Buscar canales de YouTube por nombre desde el panel — SE ADOPTÓ (API ya usada en el proyecto)
+
+**Qué se encontró.** No hace falta un repo ni una técnica nueva: la misma
+YouTube Data API v3 que ya usa `videos_por_api` para `youtube_busquedas`
+(`search().list(part="snippet", ...)`) tiene un modo `type="channel"` que
+busca canales por texto en vez de videos. El nombre del canal (`customUrl`,
+el `@handle` público) solo sale de `channels().list`, no de `search().list`,
+así que hacen falta las dos llamadas — mismo patrón de dos pasos que
+`_detalles_de_videos` ya usa para las vistas.
+
+**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Fuentes, ver
+sesión de "canales/subreddits manuales") pedía copiar el `@handle` exacto
+desde el navegador — fácil de escribir mal desde el teclado del teléfono.
+Buscar por nombre y elegir de una lista quita ese paso.
+
+**Corre en Termux.** Sí — mismo cliente (`googleapiclient`) que ya usa el
+resto del archivo, cero dependencias nuevas.
+
+**Costo de mantenimiento.** Ninguno adicional. Eso sí, **requiere
+`YOUTUBE_API_KEY`** (igual que `youtube_busquedas`): sin clave, el botón de
+buscar no aparece en el panel y solo queda pegar el `@handle`/URL a mano,
+que es la vía que ya existía y la que de verdad usa este proyecto la
+mayoría del tiempo (ver la nota de `--diagnostico` sobre "sin clave solo se
+ve el RSS").
+
+**Licencia.** No aplica — es la misma API de Google que ya está en uso,
+dentro de la cuota gratuita ya contemplada.
