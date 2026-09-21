@@ -1100,6 +1100,7 @@ def api_estado():
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
+        "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
         "musica": pistas_musica(),
         "fondos": sorted(
             os.path.basename(f) for p in ("fondo_vertical*", "fondo_horizontal*", "fondo_gameplay*")
@@ -1421,6 +1422,22 @@ def api_video_chip_android():
     return jsonify({"ok": True, "usar_chip_android": video_cfg["usar_chip_android"]})
 
 
+@app.get("/api/fuentes/buscar_canal")
+def api_fuentes_buscar_canal():
+    """Busca canales de YouTube por nombre, para agregarlos sin copiar el
+    @handle a mano. Requiere YOUTUBE_API_KEY (mismo requisito que las
+    búsquedas por tema de youtube_scout.py)."""
+    import youtube_scout
+    consulta = (request.args.get("q") or "").strip()
+    if not consulta:
+        return jsonify({"ok": True, "resultados": []})
+    try:
+        resultados = youtube_scout.buscar_canales(consulta)
+    except Exception as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "resultados": resultados})
+
+
 @app.post("/api/fuentes/canal")
 def api_fuentes_canal():
     """Agrega o quita un canal de YouTube de config_trends.json."""
@@ -1451,6 +1468,10 @@ def api_fuentes_subreddit():
         subs, cambio = (trend_scout.quitar_subreddit if quitar else trend_scout.agregar_subreddit)(nombre)
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:
+        # agregar_subreddit comprueba el subreddit contra Reddit antes de
+        # guardarlo: esto cubre tanto "no existe" como un fallo de red.
+        return jsonify({"ok": False, "error": f"No se pudo comprobar el subreddit: {exc}"}), 400
     return jsonify({"ok": True, "subreddits": subs, "cambio": cambio})
 
 

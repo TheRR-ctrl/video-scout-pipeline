@@ -2203,10 +2203,12 @@ function pintaTiktok(){
    AJUSTES
    ========================================================= */
 let secretosCache = [];
+let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
 function firmaAjustes(){
   return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto,
-          E.usar_chip_android, E.es_android, JSON.stringify(E.fuentes),
+          E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
+          JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
 }
 /* Las tareas de mantenimiento del panel. Cada una lleva su orden de Termux
@@ -2403,7 +2405,27 @@ function pintaAjustes(){
         <div class="t" style="font:12.5px var(--mono);word-break:break-all">${esc(c)}</div>
         <button class="btn sm" data-quitar-canal="${esc(c)}">🗑</button>
       </div>`).join('')}
+      ${E.youtube_hay_clave ? `
       <div class="row" style="display:block">
+        <input id="fu-canal-q" placeholder="Buscar canal por nombre" autocapitalize="off" autocomplete="off"
+               spellcheck="false" style="width:100%;margin-bottom:8px">
+        <button class="btn sm" id="b-fu-canal-buscar">🔎 Buscar</button>
+        ${fuentesResultadosCanal === null ? '' : (fuentesResultadosCanal.length ? `
+        <div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+          ${fuentesResultadosCanal.map(r=>`
+          <div class="row" style="grid-template-columns:1fr auto">
+            <div style="min-width:0"><div class="t">${esc(r.titulo)}</div>
+              <div class="m" style="font:11px var(--mono)">${esc(r.handle)}</div></div>
+            <button class="btn sm" data-agregar-canal="${esc(r.handle)}">+ Agregar</button>
+          </div>`).join('')}
+        </div>` : `<div class="m" style="margin-top:8px">Sin resultados.</div>`)}
+      </div>` : `
+      <div class="row" style="display:block">
+        <div class="m">Buscar por nombre necesita una <code style="font:11.5px var(--mono)">YOUTUBE_API_KEY</code>
+          gratis (sección «Añadir una API nueva», más arriba). Mientras tanto, pega el @handle o la URL:</div>
+      </div>`}
+      <div class="row" style="display:block">
+        <div class="m" style="margin-bottom:6px">O pega el @handle, la URL o el channel_id directamente:</div>
         <input id="fu-canal" placeholder="@handle, URL o channel_id" autocapitalize="off" autocomplete="off"
                spellcheck="false" style="width:100%;margin-bottom:8px">
         <button class="btn sm" id="b-fu-canal">Agregar canal</button>
@@ -2416,6 +2438,8 @@ function pintaAjustes(){
         <button class="btn sm" data-quitar-sub="${esc(s)}">🗑</button>
       </div>`).join('')}
       <div class="row" style="display:block">
+        <div class="m" style="margin-bottom:6px">Reddit no tiene búsqueda pública sin bloqueo, así que aquí no
+          hay buscador: escribe el nombre exacto, sin «r/». Se comprueba que existe antes de guardarlo.</div>
         <input id="fu-sub" placeholder="nombre del subreddit, sin r/" autocapitalize="off" autocomplete="off"
                spellcheck="false" style="width:100%;margin-bottom:8px">
         <button class="btn sm" id="b-fu-sub">Agregar subreddit</button>
@@ -2540,13 +2564,30 @@ function pintaAjustes(){
     }catch(e){ chkChip.checked = !val; toast(e.message); }
   };
   document.querySelectorAll('[data-quitar-canal]').forEach(b=>b.onclick = async ()=>{
-    try{ const j = await post('/api/fuentes/canal', {canal: b.dataset.quitarCanal, quitar: true});
-      toast('Quitado: ' + b.dataset.quitarCanal); E.fuentes.youtube_canales = j.youtube_canales; pintaAjustes();
+    try{ await post('/api/fuentes/canal', {canal: b.dataset.quitarCanal, quitar: true});
+      toast('Quitado: ' + b.dataset.quitarCanal); refrescar();
     }catch(e){ toast(e.message); }
   });
   document.querySelectorAll('[data-quitar-sub]').forEach(b=>b.onclick = async ()=>{
-    try{ const j = await post('/api/fuentes/subreddit', {subreddit: b.dataset.quitarSub, quitar: true});
-      toast('Quitado: r/' + b.dataset.quitarSub); E.fuentes.subreddits = j.subreddits; pintaAjustes();
+    try{ await post('/api/fuentes/subreddit', {subreddit: b.dataset.quitarSub, quitar: true});
+      toast('Quitado: r/' + b.dataset.quitarSub); refrescar();
+    }catch(e){ toast(e.message); }
+  });
+  const bFuCanalBuscar = $('#b-fu-canal-buscar');
+  if(bFuCanalBuscar) bFuCanalBuscar.onclick = async ()=>{
+    const campo = $('#fu-canal-q'), val = (campo.value || '').trim();
+    if(!val) return;
+    bFuCanalBuscar.disabled = true; bFuCanalBuscar.textContent = 'Buscando…';
+    try{ const j = await api('/api/fuentes/buscar_canal?q=' + encodeURIComponent(val));
+      fuentesResultadosCanal = j.resultados || [];
+    }catch(e){ fuentesResultadosCanal = null; toast(e.message); }
+    bFuCanalBuscar.disabled = false; bFuCanalBuscar.textContent = '🔎 Buscar';
+    pintar();
+  };
+  document.querySelectorAll('[data-agregar-canal]').forEach(b=>b.onclick = async ()=>{
+    try{ const j = await post('/api/fuentes/canal', {canal: b.dataset.agregarCanal});
+      toast(j.cambio ? 'Agregado: ' + b.dataset.agregarCanal : 'Ya estaba en la lista');
+      fuentesResultadosCanal = null; refrescar();
     }catch(e){ toast(e.message); }
   });
   const bFuCanal = $('#b-fu-canal');
@@ -2555,7 +2596,7 @@ function pintaAjustes(){
     if(!val) return;
     try{ const j = await post('/api/fuentes/canal', {canal: val});
       toast(j.cambio ? 'Agregado: ' + val : 'Ya estaba en la lista');
-      E.fuentes.youtube_canales = j.youtube_canales; pintaAjustes();
+      refrescar();
     }catch(e){ toast(e.message); }
   };
   const bFuSub = $('#b-fu-sub');
@@ -2564,7 +2605,7 @@ function pintaAjustes(){
     if(!val) return;
     try{ const j = await post('/api/fuentes/subreddit', {subreddit: val});
       toast(j.cambio ? 'Agregado: r/' + val : 'Ya estaba en la lista');
-      E.fuentes.subreddits = j.subreddits; pintaAjustes();
+      refrescar();
     }catch(e){ toast(e.message); }
   };
   pintaBotonesOir();
