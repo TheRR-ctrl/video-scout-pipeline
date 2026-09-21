@@ -72,12 +72,16 @@ self.addEventListener("fetch", (e) => {
   if (CONCHA.includes(url.pathname) || url.pathname === "/manifest.webmanifest") {
     e.respondWith(
       caches.match(req).then((guardado) => {
-        const red = fetch(req).then((r) => {
-          if (r && r.ok) caches.open(CACHE).then((c) => c.put(req, r.clone()));
-          return r;
-        });
+        const red = fetch(req)
+          .then((r) => {
+            if (r && r.ok) caches.open(CACHE).then((c) => c.put(req, r.clone()));
+            return r;
+          })
+          // Sin red, lo guardado; y si tampoco hay nada guardado, un 503 en
+          // vez de dejar la promesa rechazada colgando en la consola.
+          .catch(() => guardado || new Response("", {status: 503}));
         return guardado || red;
-      }).catch(() => fetch(req))
+      })
     );
   }
 

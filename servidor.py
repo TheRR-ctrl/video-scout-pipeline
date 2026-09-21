@@ -1851,7 +1851,7 @@ def api_latido():
 
 @app.get("/api/ping")
 def api_ping():
-    """"¿Hay un panel vivo en este puerto?" y nada más.
+    """Responde "sí" y nada más: ¿hay un panel vivo en este puerto?
 
     Lo usan la pantalla de apagado (`web/apagado.html`) y la app de Android
     para saber cuándo entrar. Tiene que ser barato y sin efectos: a
