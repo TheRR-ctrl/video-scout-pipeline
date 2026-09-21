@@ -581,6 +581,110 @@ def medir_duracion_media(ruta_archivo):
     except Exception:
         return 0.0
 
+def medir_resolucion_media(ruta_archivo):
+    """(ancho, alto) del primer video del archivo, o None si no se pudo leer."""
+    try:
+        if not archivo_valido(ruta_archivo):
+            return None
+        res = ejecutar_comando(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height", "-of", "json", ruta_archivo],
+            "ffprobe",
+            timeout=5
+        )
+        stream = json.loads(res.stdout)["streams"][0]
+        return int(stream["width"]), int(stream["height"])
+    except Exception:
+        return None
+
+
+# Tope de "2K": por encima de esto un short no gana nitidez perceptible en la
+# pantalla de un teléfono, y sí pesa y tarda más render armarlo.
+_TOPE_ALTO_RENDER = 2560
+
+def elegir_resolucion_render(es_short):
+    """La resolución de salida para este video: la nativa del fondo que le
+    toque si es mayor a la de siempre (1080x1920 / 1920x1080) y la aguanta
+    sin pasarse de "2K", o la de siempre si el material no da para más.
+
+    HyperFrames genera su fondo en un lienzo fijo (`ASPECTOS` en
+    hyperframes_nucleo.py) y no aplica aquí: no hay nada que medir porque el
+    fondo no existe todavía cuando se decide esto."""
+    base = (1080, 1920) if es_short else (1920, 1080)
+    if CONFIG.get("motor_fondo") == "hyperframes":
+        return base
+
+    tope = (int(_TOPE_ALTO_RENDER * 9 / 16), _TOPE_ALTO_RENDER) if es_short \
+        else (_TOPE_ALTO_RENDER, int(_TOPE_ALTO_RENDER * 9 / 16))
+
+    exts = ('.webm', '.mp4', '.mkv', '.mov')
+    prefijo = "fondo_vertical" if es_short else "fondo_horizontal"
+    cands = [f for f in os.listdir('.') if f.endswith(exts)
+             and not f.startswith(('0', '1', '2', '3', 'temp_', 'fondo_ensamblado'))]
+    candidatos = ([f for f in cands if prefijo in f]
+                  or [f for f in cands if 'fondo' in f]
+                  or cands)
+    if not candidatos:
+        return base
+
+    # El lado largo (alto en vertical, ancho en horizontal) es lo único que
+    # hace falta comparar: la orientación ya la fija `es_short`, y el otro
+    # lado sale solo de mantener 9:16.
+    lado_base = base[1] if es_short else base[0]
+    lado_tope = tope[1] if es_short else tope[0]
+
+    lados_validos = []
+    for archivo in candidatos:
+        res = medir_resolucion_media(archivo)
+        if not res:
+            continue
+        w, h = res
+        # El video tiene que venir en la orientación correcta: un 16:9
+        # metido en un short ya se recorta al centro más abajo, y ese
+        # recorte deja mucho menos alto real del que el archivo declara.
+        if (h <= w) if es_short else (w <= h):
+            continue
+        lados_validos.append(min((h if es_short else w), lado_tope))
+
+    if not lados_validos:
+        return base
+
+    # El más chico de todos los que le pueden tocar a este video, no el más
+    # grande: `crear_fondo_multi_corte` corta de cualquiera de ellos para dar
+    # variedad, así que si UNO solo no llega a la resolución elegida, ese
+    # trozo del video sale escalado hacia arriba de mentira. Por eso el techo
+    # real es el candidato más flojo, y con max(base, ...) nunca se baja de
+    # lo de siempre aunque ese más flojo sea más chico que la base.
+    mejor_lado = max(lado_base, min(lados_validos))
+
+    if mejor_lado == lado_base:
+        return base
+    return _resolucion_par(mejor_lado, es_short)
+
+
+def _resolucion_par(lado_largo, es_short):
+    """(ancho, alto) a partir del lado largo, en 9:16 exacto y ambos lados
+    pares: libx264 y mediacodec rechazan yuv420p con un lado impar ("width
+    not divisible by 2"), y un lado largo cualquiera (p.ej. de un fondo de
+    2133 px de alto) puede dar un lado corto impar al calcularlo por 9/16."""
+    lado_largo -= lado_largo % 2
+    lado_corto = int(lado_largo * 9 / 16)
+    lado_corto -= lado_corto % 2
+    return (lado_corto, lado_largo) if es_short else (lado_largo, lado_corto)
+
+
+def _escalar_bitrate(texto, factor):
+    """"4M" a factor 1.78 -> "7.1M". Redondea a una décima; nunca por debajo
+    de 100K para no dejar un valor absurdo si algún cálculo diera factor 0."""
+    m = re.match(r"^\s*([\d.]+)\s*([kKmM]?)\s*$", str(texto))
+    if not m:
+        return str(texto)
+    valor, sufijo = float(m.group(1)), m.group(2).upper()
+    mult = 1_000_000 if sufijo == "M" else 1_000 if sufijo == "K" else 1
+    bits = max(100_000, valor * mult * factor)
+    return f"{bits / 1_000_000:.1f}M"
+
+
 def _peso_archivo(ruta):
     try:
         return os.path.getsize(ruta)
@@ -588,7 +692,8 @@ def _peso_archivo(ruta):
         return 0
 
 
-def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_index=1):
+def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_index=1,
+                             w_res=None, h_res=None):
     exts = ('.webm', '.mp4', '.mkv', '.mov')
     prefijo = "fondo_vertical" if es_short else "fondo_horizontal"
     cands = [f for f in os.listdir('.') if f.endswith(exts) and not f.startswith(('0','1','2','3','temp_','fondo_ensamblado'))]
@@ -638,7 +743,8 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
             print(f" ├─ ⚠️  Ningún fondo coincide con '{filtro_fondo}'; se usan todos.")
     if not vids_base: return None
 
-    w_res, h_res = (1080, 1920) if es_short else (1920, 1080)
+    if w_res is None or h_res is None:
+        w_res, h_res = (1080, 1920) if es_short else (1920, 1080)
     filtro = f"scale={w_res}:{h_res}:force_original_aspect_ratio=increase,crop={w_res}:{h_res},fps=30"
 
     acumulado = 0.0
@@ -1028,10 +1134,11 @@ def extraer_titulo_y_cuerpo(texto_raw):
     fuente_url, autor = extraer_fuente_y_autor(texto_raw)
     return voz_tit, voz_cue, pitch_cue, random.choice(["+15%", "+18%", "+20%"]), detectar_emocion_historia(texto_raw), tit, " ".join(lineas[1:]) if len(lineas) > 1 else tit, re.sub(r'[^\w\s-]', '', tit).strip().replace(' ', '_')[:120] or "Historia", fuente_url, autor
 
-def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_short=True):
-    if es_short: ancho, alto = 1080, 1920
-    else: ancho, alto = 1920, 1080
-    
+def crear_tarjeta_intro_impecable(titulo, output_png="tarjeta_intro.png", es_short=True,
+                                   ancho=None, alto=None):
+    if ancho is None or alto is None:
+        ancho, alto = (1080, 1920) if es_short else (1920, 1080)
+
     lienzo = Image.new('RGBA', (ancho, alto), (0, 0, 0, 0))
     plantillas_posibles = ["tarjeta_plantilla.png", "tarjeta_plantilla.jpg", "Tarjeta de inicio.png"]
     plantilla_encontrada = next((p for p in plantillas_posibles if os.path.exists(p)), None)
@@ -1241,10 +1348,21 @@ def listar_estilos():
     )
 
 
-def _header_ass(es_short):
+def _header_ass(es_short, w_render=None, h_render=None):
     subs = _cfg_subs()
     PlayResX, PlayResY = (1080, 1920) if es_short else (1920, 1080)
-    font_size = subs["tamano_short"] if es_short else subs["tamano_largo"]
+    # Los tamaños de fuente/borde/margen de config.json están pensados para
+    # ese lienzo de siempre. Si el video sale más grande porque el fondo lo
+    # permite (ver elegir_resolucion_render), hay que subirlos en la misma
+    # proporción o el texto se ve cada vez más chico cuanto más grande sea
+    # el video — PlayRes solo le dice a libass las coordenadas, no escala
+    # nada por sí solo cuando coincide 1:1 con el fotograma real, que es
+    # justo el caso aquí.
+    factor = 1.0
+    if w_render and h_render:
+        PlayResX, PlayResY = w_render, h_render
+        factor = PlayResY / 1920.0 if es_short else PlayResY / 1080.0
+    font_size = round((subs["tamano_short"] if es_short else subs["tamano_largo"]) * factor)
     palabras_por_grupo = (
         subs["palabras_por_frase_short"] if es_short else subs["palabras_por_frase_largo"]
     )
@@ -1280,7 +1398,8 @@ def _header_ass(es_short):
         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
         f"Style: Karaoke,{subs['fuente']},{font_size},{primary},{secondary},{c_borde},"
         f"&H80000000&,0,{1 if subs.get('italica') else 0},0,0,100,100,0,0,1,"
-        f"{subs['grosor_borde']},{subs['sombra']},5,60,60,0,1\n\n"
+        f"{max(1, round(subs['grosor_borde'] * factor))},{round(subs['sombra'] * factor)},"
+        f"5,{round(60 * factor)},{round(60 * factor)},0,1\n\n"
         "[Events]\n"
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
     )
@@ -1333,7 +1452,8 @@ def _plan_resalte(palabras, subs):
     return plan
 
 
-def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, es_short=True):
+def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, es_short=True,
+                                    w_render=None, h_render=None):
     """Arma el .ass de karaoke a partir del timing REAL por palabra que
     reporta edge-tts (evento WordBoundary), no de un SRT por oración
     repartido en partes iguales — eso causaba el desfase progresivo que se
@@ -1349,7 +1469,7 @@ def convertir_timing_a_karaoke_ass(palabras, ass_out_path, duracion_intro_sec, e
       - pop: una palabra a la vez, entrando con un rebote de escala.
     """
     subs = _cfg_subs()
-    header, palabras_por_grupo = _header_ass(es_short)
+    header, palabras_por_grupo = _header_ass(es_short, w_render, h_render)
     lineas_ass = [header]
 
     if not palabras:
@@ -1516,12 +1636,13 @@ def _repartir(trozos, total_cs, modo):
     return duraciones
 
 
-def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True):
+def convertir_srt_a_karaoke_ass(srt_in_path, ass_out_path, duracion_intro_sec, es_short=True,
+                                 w_render=None, h_render=None):
     """Respaldo si no se pudo capturar el timing real por palabra (ver
     convertir_timing_a_karaoke_ass): reparte cada bloque del SRT (por
     oración) en partes iguales entre sus palabras — aproximado, con algo
     de desfase en oraciones largas, pero mejor que nada."""
-    header, palabras_por_grupo = _header_ass(es_short)
+    header, palabras_por_grupo = _header_ass(es_short, w_render, h_render)
     reparto = _cfg_subs()["reparto_respaldo"]
 
     if not os.path.exists(srt_in_path):
@@ -1818,9 +1939,35 @@ def renderizar_una_historia(contenido, num=1):
         print(msg_formato[:term_cols - 1])
         
         # FASE 2: Fondo
+        #
+        # La resolución de salida se decide antes de cortar el fondo, no
+        # después: fondo, tarjeta y subtítulos tienen que salir todos del
+        # mismo tamaño para poder superponerse en la FASE 4. Por defecto es
+        # la de siempre (1080x1920 / 1920x1080); solo sube si el fondo que le
+        # toca a este video la aguanta de verdad, y nunca pasa de "2K" (ver
+        # elegir_resolucion_render).
+        w, h = elegir_resolucion_render(es_short)
         vid_fondo = (crear_fondo_hyperframes(dur_sec, es_short, gestor, num, emocion)
-                     or crear_fondo_multi_corte(dur_sec, es_short, gestor, num)
-                     or seleccionar_fondo_video(es_short))
+                     or crear_fondo_multi_corte(dur_sec, es_short, gestor, num, w_res=w, h_res=h))
+        if not vid_fondo:
+            # Último recurso: un solo archivo cualquiera, sin pasar por
+            # elegir_resolucion_render (que solo mira los `fondo_*` de
+            # siempre). Si ese archivo es más chico que la resolución ya
+            # decidida, hay que bajarla aquí — si no, la FASE 4 lo escala
+            # hacia arriba de mentira, exactamente lo que este cambio evita
+            # en el camino normal.
+            vid_fondo = seleccionar_fondo_video(es_short)
+            res_fallback = medir_resolucion_media(vid_fondo) if vid_fondo else None
+            if res_fallback:
+                wf, hf = res_fallback
+                # Si viene en la orientación que no es (un 16:9 en un short),
+                # el recorte al centro deja como techo real el lado corto
+                # del archivo, no el largo.
+                lado_disponible = min(wf, hf) if ((hf <= wf) if es_short else (wf <= hf)) \
+                    else (hf if es_short else wf)
+                lado_base = 1920 if es_short else 1080
+                if lado_disponible < max(h if es_short else w, lado_base):
+                    w, h = _resolucion_par(max(lado_disponible, lado_base), es_short)
         if not vid_fondo:
             raise RuntimeError("Sin fondo válido para este video.")
 
@@ -1829,26 +1976,25 @@ def renderizar_una_historia(contenido, num=1):
         def act_gra(p):
             bl = int(anch * p / 100)
             actualizar_hud([f"{txt_gra} [{p:5.1f}%] [{'█'*bl}{' '*(anch-bl)}]"])
-            
+
         act_gra(0.0)
         img_tar = gestor.registrar(f"tar_{num}.png")
-        crear_tarjeta_intro_impecable(tit, img_tar, es_short)
-        
+        crear_tarjeta_intro_impecable(tit, img_tar, es_short, ancho=w, alto=h)
+
         act_gra(33.3)
         a_loc = gestor.registrar(f"a_loc_{num}.m4a")
         subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", a_tit, "-i", a_cue, "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[aout]", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k", a_loc])
-        
+
         act_gra(66.6)
         s_ass = gestor.registrar(f"s_ass_{num}.ass")
         if palabras_cuerpo:
-            convertir_timing_a_karaoke_ass(palabras_cuerpo, s_ass, d_tit, es_short)
+            convertir_timing_a_karaoke_ass(palabras_cuerpo, s_ass, d_tit, es_short, w_render=w, h_render=h)
         else:
-            convertir_srt_a_karaoke_ass(s_raw, s_ass, d_tit, es_short)
+            convertir_srt_a_karaoke_ass(s_raw, s_ass, d_tit, es_short, w_render=w, h_render=h)
         act_gra(100.0)
         actualizar_hud([f"{txt_gra} [100.0%] [{'█'*anch}]"], True)
 
         # FASE 4: Render
-        w, h = (1080, 1920) if es_short else (1920, 1080)
         f_ass = s_ass.replace('\\', '\\\\').replace(':', '\\:')
         # fontsdir: sin esto libass busca la fuente en el sistema y, si no
         # está, la sustituye en silencio por otra (así es como "Montserrat
@@ -1966,15 +2112,24 @@ def renderizar_una_historia(contenido, num=1):
         #
         # mediacodec no tiene un modo tipo -crf: es bitrate fijo. 4M de tope
         # (con -maxrate/-bufsize para que no se dispare en escenas movidas)
-        # se acerca al peso que ya deja "-crf 23", para no reventar el umbral
-        # de 100 MB de recomprimir.py y acabar recomprimiendo por CPU cada
-        # video que se grabó con el chip. -pix_fmt yuv420p va explícito
-        # porque el chip, a diferencia de libx264, no siempre asume ese
-        # formato por defecto.
-        bitrate_chip = str(vid_cfg.get("bitrate_chip_android", "4M"))
+        # se acerca al peso que ya deja "-crf 23" a 1080x1920, para no
+        # reventar el umbral de 100 MB de recomprimir.py y acabar
+        # recomprimiendo por CPU cada video que se grabó con el chip.
+        # -pix_fmt yuv420p va explícito porque el chip, a diferencia de
+        # libx264, no siempre asume ese formato por defecto.
+        #
+        # Si esta tanda salió con más resolución que la de siempre (ver
+        # elegir_resolucion_render), un bitrate fijo pensado para 1080x1920
+        # se queda corto y sale peor de lo normal — más píxeles piden más
+        # bits para la misma calidad. El bitrate sube en la misma proporción
+        # que los píxeles, así que a más resolución también pesa más y puede
+        # cruzar ese umbral de 100 MB: es el trueque esperado, no un error.
+        factor_pixeles = (w * h) / (1080 * 1920)
+        bitrate_chip = _escalar_bitrate(vid_cfg.get("bitrate_chip_android", "4M"), factor_pixeles)
+        bufsize_chip = _escalar_bitrate(vid_cfg.get("bufsize_chip_android", "8M"), factor_pixeles)
         flags_chip_android = ["-c:v", "h264_mediacodec", "-pix_fmt", "yuv420p",
                                "-b:v", bitrate_chip, "-maxrate", bitrate_chip,
-                               "-bufsize", str(vid_cfg.get("bufsize_chip_android", "8M"))]
+                               "-bufsize", bufsize_chip]
         usar_chip_android = ES_ANDROID and bool(vid_cfg.get("usar_chip_android", False))
 
         txt_ren = " ├─ 🚀 [4/4] Render:"

@@ -89,7 +89,37 @@ así a propósito y no más alto: `recomprimir.py` marca como "que pesan de
 más" cualquier video de más de 100 MB, y con `duracion_max_short_sec` en
 180 s un bitrate constante mayor puede pasarse solo de ese umbral —
 disparando una recompresión por CPU después de cada render con el chip, que
-anula toda la ganancia de haberlo usado.
+anula toda la ganancia de haberlo usado. Ese bitrate sube en la misma
+proporción que la resolución elegida (ver más abajo): a más píxeles, más
+bits para no perder calidad, y por lo tanto más cerca de los 100 MB.
+
+## Resolución adaptativa: 2K si el fondo lo aguanta
+
+El render ya no está clavado en 1080x1920/1920x1080: si el fondo que le toca
+a un video en concreto es nativamente más grande, `elegir_resolucion_render`
+sube el lienzo entero (fondo, tarjeta de intro y subtítulos, que tienen que
+salir todos del mismo tamaño) hasta ahí, sin pasar de "2K"
+(`_TOPE_ALTO_RENDER`, hoy 2560 de lado largo). Hoy esto **no cambia nada en
+la práctica**: todo el material de fondo del proyecto —lo que genera
+HyperFrames, lo que baja `descargar_fondos.py`— nace en 1080p a propósito
+(ver `docs/repos_revisados.md`), así que la función siempre devuelve la
+resolución de siempre. Solo se activa el día que haya un fondo de verdad más
+grande en la carpeta.
+
+**Por qué escala hasta el más flojo de los fondos candidatos, no el más
+fuerte.** `crear_fondo_multi_corte` corta trozos de cualquiera de los
+archivos que le tocan a un video para dar variedad. Si de dos candidatos uno
+es 2K y el otro 1080p, y el lienzo se pone en 2K, el trozo cortado del
+archivo de 1080p sale escalado hacia arriba de mentira — lo mismo que ya se
+descartó para el bitrate del chip, pero en resolución. Por eso el objetivo
+real es el candidato más flojo del grupo, nunca el más fuerte.
+
+**Un video puede salir a una resolución y el interruptor de Ajustes no lo
+cambia.** Esto no tiene botón porque no hace falta uno: es puramente
+material — si no hay un fondo más grande que 1080p en la carpeta, el
+resultado es idéntico al de siempre. El interruptor del chip de Android
+sigue siendo independiente de esto (y el bitrate del chip, arriba, ya
+escala solo si algún día esto sí activa una resolución mayor).
 
 ## TikTok: la auditoría no se va a pasar
 
