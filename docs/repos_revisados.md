@@ -127,6 +127,16 @@ confirmarlo con un render de verdad en el teléfono: la ruta de CPU no se
 tocó, así que encender el interruptor es la única forma de que este código
 corra; apagado, el comportamiento es idéntico al de antes de este cambio.
 
+*(Nota agregada después: con la resolución adaptativa de `CLAUDE.md`
+—"Resolución adaptativa: 2K si el fondo lo aguanta"— este bitrate ya no es
+fijo, sube en la misma proporción que la resolución elegida para ese video.
+El riesgo de pasarse de los 100 MB de `recomprimir.py` no es solo del chip
+entonces: a "2K" también `-crf 23` por software pesa más que a 1080p, por
+las mismas razones. Hoy ninguno de los dos casos se activa —todo el material
+de fondo del proyecto nace en 1080p— pero el día que sí haya un fondo más
+grande, vale la pena revisar el peso real de un short completo antes de
+confiar en el umbral de siempre.)*
+
 **Para probarlo:** encender el interruptor en Ajustes, dejar correr un
 render normal, y comparar el resultado a ojo (colores, nitidez de los
 subtítulos) y el tiempo/batería que tardó frente a un render por CPU. Si el
