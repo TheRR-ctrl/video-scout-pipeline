@@ -258,6 +258,48 @@ the phone. And note the clip cache key does **not** include the CLI version —
 if you are bumping to fix a bad render, clear
 `pipeline_state/hyperframes_cache/` too, or the old clips keep being served.
 
+## Rendering: encoder and resolution
+
+Two independent knobs live under `"video"` in `config.json` (see
+`config.example.json`), both **off/at-default unless the material actually
+supports them** — flipping neither changes today's output at all.
+
+- **`usar_chip_android`** (default `false`) — on Android, try the phone's
+  hardware video encoder (`h264_mediacodec`, exposed because Termux's ffmpeg
+  is built with `--enable-mediacodec`) before falling back to software
+  `libx264`. Faster and easier on the battery when it works. Toggle it from
+  the panel (Ajustes → Render, only shown when the server detects Android)
+  rather than editing the file by hand — that's the fix if a phone's chip
+  renders badly. The automatic CPU fallback only catches a hard failure
+  (ffmpeg exits non-zero, or the file is empty); a chip that finishes fine
+  but produces wrong colors or broken frames won't be caught by the
+  pipeline — watch the first render with the switch on and flip it back off
+  if it looks wrong. `bitrate_chip_android` (default `4M`, with matching
+  `-maxrate`/`-bufsize`) scales with whatever resolution ends up being used
+  (see below), to keep quality consistent without a fixed bitrate silently
+  turning too low or too high.
+
+- **Adaptive resolution** — the render used to be hardcoded at
+  1080x1920/1920x1080. Now `elegir_resolucion_render()` probes the actual
+  background file(s) a given video will use with `ffprobe` and renders at
+  that native resolution instead, capped at "2K" (2560 px on the long edge).
+  It never upscales: when a video's background pool mixes a high-res clip
+  with a 1080p one, it targets the weaker of the two, since
+  `crear_fondo_multi_corte` may cut from either for variety. In practice
+  this is a no-op today — the project's own background sources (HyperFrames'
+  fixed canvas, and `descargar_fondos.py`, which explicitly asks Pexels for
+  the file closest to 1080x1920 **without exceeding it**) all top out at
+  1080p on purpose. It only engages once a genuinely higher-resolution
+  background file is added to the folder. There's no panel switch for this
+  one — it's a pure function of what's on disk, so there's nothing to
+  toggle.
+
+Both changes touch shared render code (background scaling, the intro card
+canvas, ASS subtitle sizing, the encoder flags) that can't be verified
+without an actual phone — the same reasoning `CLAUDE.md` applies to
+HyperFrames' `VERSION_CLI`. See `CLAUDE.md` for the failure modes worth
+remembering before touching this again.
+
 ## Subtitle style and fonts
 
 Subtitles are configured under `subtitulos` in `config.json` — nothing else
