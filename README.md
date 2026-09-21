@@ -417,8 +417,26 @@ the next run:
 
 ```cron
 # crontab -e
-# Generate a backlog: scout + script + render, twice a week
-0 6 * * 1,4 bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python pipeline.py --hasta video >> pipeline.log 2>&1'
+# Scout daily, at a different time each day. Cron has no notion of a random
+# schedule and a long `sleep` gets killed on Android, so this line fires every
+# half hour and buscar_diario.py checks whether today's drawn slot has arrived
+# (it usually exits immediately). The slot is drawn once a day inside a window
+# (09:00-22:30 by default, `busqueda_diaria_desde`/`_hasta`), and the plan
+# lives in pipeline_state/busqueda_diaria.json, so a phone that was off at
+# that hour still catches the day's scout on its first run after booting.
+# By default it only runs on WiFi (`busqueda_diaria_solo_wifi`): the full scan
+# is dozens of requests and mobile data costs money. `--ver` shows today's
+# slot, `--ahora` scouts right away.
+#
+# What the random time buys you: no fixed daily fingerprint, and the load is
+# spread out. What it does not buy you: it is not a way around rate limits.
+# The scout still reads public RSS with the same pause between requests, and
+# a 429 from reddit.com is a 429 at any hour — the fix is asking for less.
+*/30 * * * * bash -lc 'cd /path/to/video-scout-pipeline && python buscar_diario.py >> buscar.log 2>&1'
+
+# Generate a backlog from whatever the daily scout queued: script + render,
+# twice a week (--desde guion, since scouting now happens on its own)
+0 6 * * 1,4 bash -lc 'source ~/.pipeline_secrets && cd /path/to/video-scout-pipeline && python pipeline.py --desde guion --hasta video >> pipeline.log 2>&1'
 
 # Publish one video/day from the backlog — buffer_horas_revision in
 # publisher.py's config controls how many hours later it actually goes
