@@ -425,8 +425,15 @@ the next run:
 # lives in pipeline_state/busqueda_diaria.json, so a phone that was off at
 # that hour still catches the day's scout on its first run after booting.
 # By default it only runs on WiFi (`busqueda_diaria_solo_wifi`): the full scan
-# is dozens of requests and mobile data costs money. `--ver` shows today's
-# slot, `--ahora` scouts right away.
+# is dozens of requests and mobile data costs money. Detecting WiFi on Android
+# is the hard part: Termux:API does not exist in the Google Play build of
+# Termux, and Android 11 closed both `ip route` (netlink) and /sys/class/net
+# to ordinary apps. So it opens a UDP socket — which sends nothing — and reads
+# the local IP the system picked: 192.168.x / 172.16-31.x is a home router,
+# 100.64-127.x is a carrier CGNAT, and 10.x is used by both, so it does not
+# guess there. Mark those once with `--soy-wifi` / `--soy-datos`, which store
+# just the first three octets in pipeline_state/redes_conocidas.json.
+# `--ver` shows today's slot and what it concluded, `--ahora` scouts now.
 #
 # What the random time buys you: no fixed daily fingerprint, and the load is
 # spread out. What it does not buy you: it is not a way around rate limits.
