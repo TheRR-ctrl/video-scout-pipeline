@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Los mismos del panel (web/index.html), para que el arranque de la
+         app y la primera pintada no se vean de dos colores distintos. -->
+    <color name="suelo">#12151a</color>
+    <color name="acento">#4db4a8</color>
+</resources>

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="TemaPanel" parent="@android:style/Theme.DeviceDefault.NoActionBar">
+        <!-- El fondo de la ventana se pinta antes de que exista el WebView.
+             Con el color del panel, abrir la app no da un flash blanco. -->
+        <item name="android:windowBackground">@color/suelo</item>
+        <item name="android:statusBarColor">@color/suelo</item>
+        <item name="android:navigationBarColor">@color/suelo</item>
+    </style>
+</resources>

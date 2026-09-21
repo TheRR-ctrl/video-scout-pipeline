@@ -1,0 +1,83 @@
+name: Compilar la app de Android
+
+# El APK se compila aquí porque en el teléfono no hay dónde: el SDK de
+# Android no existe para Termux, y bajarlo son varios gigas que no caben ni
+# sirven. El runner lo compila en un par de minutos y devuelve el .apk.
+#
+# Qué sale de aquí: un APK firmado con la clave de depuración. Es la única
+# firma posible sin guardar un keystore en el repo, y basta para lo que es
+# esto — una app personal que se instala a mano en un teléfono, no algo que
+# vaya a Play Store. Android pedirá permiso para instalar "de orígenes
+# desconocidos" la primera vez.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publicar:
+        description: "Dejar el APK en una release (más fácil de bajar desde el móvil que el artifact, que viene en zip)"
+        required: false
+        default: false
+        type: boolean
+  push:
+    paths:
+      - "android/**"
+      - ".github/workflows/apk.yml"
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: write   # solo para la release opcional de abajo
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: SDK de Android
+        uses: android-actions/setup-android@v3
+        with:
+          # Las mismas versiones con las que se probó la compilación. Sin
+          # fijarlas, el runner elige lo que traiga ese mes y un día deja de
+          # compilar sin que nadie haya tocado nada.
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
+
+      - name: Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.14.3"
+
+      - name: Compilar
+        working-directory: android
+        run: gradle assembleDebug --no-daemon --console=plain
+
+      - name: Guardar el APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: mesa-de-revision-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+      # Bajar un artifact desde el móvil significa bajar un zip y
+      # descomprimirlo antes de poder instalar nada. Una release deja el
+      # .apk a un toque. Se hace solo si se pide.
+      - name: Publicar en la release 'apk'
+        if: ${{ inputs.publicar }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk mesa-de-revision.apk
+          gh release delete apk --yes --cleanup-tag || true
+          gh release create apk mesa-de-revision.apk \
+            --title "Mesa de Revisión (APK)" \
+            --prerelease \
+            --notes "APK de depuración compilado desde ${{ github.sha }}.
+
+          Instalación y qué hace falta en Termux: ver INSTALAR.md, sección
+          \"La app de Android\"."

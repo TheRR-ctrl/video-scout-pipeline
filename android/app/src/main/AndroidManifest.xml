@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Para hablar con 127.0.0.1. No sale nada de este teléfono. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Lo declara Termux y es de los que hay que pedir en caliente: es lo
+         que deja arrancar servidor.py sin abrir Termux a mano. Además del
+         permiso, Termux exige allow-external-apps=true en
+         ~/.termux/termux.properties — ver android/README.md. -->
+    <uses-permission android:name="com.termux.permission.RUN_COMMAND" />
+
+    <!-- Desde targetSdk 30 una app no ve las demás salvo que las nombre.
+         Sin esto, ni el intent llega a Termux ni podemos saber si está
+         instalado para decirlo en pantalla. -->
+    <queries>
+        <package android:name="com.termux" />
+    </queries>
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/red"
+        android:supportsRtl="true"
+        android:theme="@style/TemaPanel">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density">
+            <!-- configChanges: sin esto, girar el teléfono recrea la
+                 Activity y recarga el WebView. En medio de una revisión eso
+                 tira la pestaña, el scroll y el video a medio ver. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

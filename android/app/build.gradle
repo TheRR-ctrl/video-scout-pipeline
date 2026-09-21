@@ -1,0 +1,36 @@
+plugins {
+    id "com.android.application"
+}
+
+android {
+    namespace "com.mesaderevision.panel"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.mesaderevision.panel"
+        // 26 (Android 8) y no menos por dos razones que van juntas:
+        // startForegroundService —que es como se le habla al servicio de
+        // Termux— existe desde 26, y el icono adaptativo también. Por
+        // debajo habría que escribir dos caminos para algo que ningún
+        // teléfono con Termux usa ya.
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.1"
+    }
+
+    buildTypes {
+        // Solo debug: el APK se firma con la clave de depuración, que es la
+        // única que se puede usar sin guardar un keystore en el repo. Es una
+        // app personal que se instala a mano en un teléfono, no algo que vaya
+        // a una tienda.
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
