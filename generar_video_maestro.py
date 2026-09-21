@@ -1956,6 +1956,26 @@ def renderizar_una_historia(contenido, num=1):
         flags_cpu = ["-c:v", "libx264",
                      "-preset", str(vid_cfg.get("preset", "veryfast")),
                      "-crf", str(vid_cfg.get("crf", 23))]
+        # h264_mediacodec usa el chip de video del propio teléfono en vez de
+        # libx264 por software: en el Termux normal (compilado con
+        # --enable-mediacodec) sale más rápido y gasta menos batería, pero no
+        # se ha podido probar en un Android real desde aquí. Por eso empieza
+        # apagado: lo enciende el interruptor de Ajustes en el panel, y si el
+        # chip falla (modelo sin soporte, driver raro) esta misma tanda cae
+        # sola a libx264 sin que se pierda el render.
+        #
+        # mediacodec no tiene un modo tipo -crf: es bitrate fijo. 4M de tope
+        # (con -maxrate/-bufsize para que no se dispare en escenas movidas)
+        # se acerca al peso que ya deja "-crf 23", para no reventar el umbral
+        # de 100 MB de recomprimir.py y acabar recomprimiendo por CPU cada
+        # video que se grabó con el chip. -pix_fmt yuv420p va explícito
+        # porque el chip, a diferencia de libx264, no siempre asume ese
+        # formato por defecto.
+        bitrate_chip = str(vid_cfg.get("bitrate_chip_android", "4M"))
+        flags_chip_android = ["-c:v", "h264_mediacodec", "-pix_fmt", "yuv420p",
+                               "-b:v", bitrate_chip, "-maxrate", bitrate_chip,
+                               "-bufsize", str(vid_cfg.get("bufsize_chip_android", "8M"))]
+        usar_chip_android = ES_ANDROID and bool(vid_cfg.get("usar_chip_android", False))
 
         txt_ren = " ├─ 🚀 [4/4] Render:"
 
@@ -2004,13 +2024,26 @@ def renderizar_una_historia(contenido, num=1):
                 )
             return ok
 
-        exito_render = ejecutar_render(flags_cpu if ES_ANDROID else flags_gpu)
-        if not exito_render and not ES_ANDROID:
-            logger.warning(f"Render GPU falló para video {num}, reintentando con CPU (libx264).")
-            exito_render = ejecutar_render(flags_cpu)
+        if ES_ANDROID:
+            if usar_chip_android:
+                exito_render = ejecutar_render(flags_chip_android)
+                if not exito_render:
+                    logger.warning(
+                        f"Render con el chip de video (h264_mediacodec) falló para el video {num}, "
+                        "reintentando con CPU (libx264). Si vuelve a fallar en más videos, apaga el "
+                        "interruptor «Usar el chip de video» en Ajustes."
+                    )
+                    exito_render = ejecutar_render(flags_cpu)
+            else:
+                exito_render = ejecutar_render(flags_cpu)
+        else:
+            exito_render = ejecutar_render(flags_gpu)
+            if not exito_render:
+                logger.warning(f"Render GPU falló para video {num}, reintentando con CPU (libx264).")
+                exito_render = ejecutar_render(flags_cpu)
 
         if not exito_render:
-            raise RuntimeError("El render final falló tanto en GPU como en CPU.")
+            raise RuntimeError("El render final falló tanto en GPU/chip como en CPU.")
 
         actualizar_hud([f"{txt_ren} [100.0%] [{'█'*anch}]", ""], True)
         

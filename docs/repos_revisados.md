@@ -81,7 +81,7 @@ ofrece el `submaker` de la librería — sin la capa intermedia. Añadir
 (sincronizar audio a un SRT ajeno) que este proyecto no tiene: aquí el audio
 y el timing salen de la misma llamada a Edge TTS, no de piezas separadas.
 
-## 3. Codificación de video en Termux — SE ENCONTRÓ ALGO, no se toca sin probar en el teléfono
+## 3. Codificación de video en Termux — IMPLEMENTADO, apagado por omisión, falta probarlo en el teléfono
 
 **Qué se encontró.** El ffmpeg que empaqueta Termux trae
 `--enable-mediacodec`, que expone el chip de codificación de video de
@@ -90,23 +90,48 @@ codificación por software que usa hoy el proyecto (`libx264`), es
 sustancialmente más rápido y gasta menos batería — es la diferencia entre
 que el chip dedicado haga el trabajo o que lo haga la CPU a pulso.
 
-**Por qué no se toca.** `generar_video_maestro.py` hoy usa `libx264` en la
-ruta de CPU (la ruta `h264_nvenc`/CUDA que también tiene el código es para
-un runner con GPU, no para el teléfono — Android no tiene CUDA). Cambiar el
-códec de salida es tocar el corazón del render, y esta sesión no tiene un
-teléfono Android para comprobar que `h264_mediacodec` produce un video
-correcto con los filtros que ya se aplican (subtítulos quemados, overlays,
-espacio de color) — exactamente el mismo motivo por el que `CLAUDE.md` pide
-probar cualquier cambio de `VERSION_CLI` en una rama antes de tocar `main`:
-un render que "no se ve mal" desde aquí no se puede confirmar sin el
-teléfono.
+**Qué se implementó.** `generar_video_maestro.py` ahora arma
+`flags_chip_android` (`-c:v h264_mediacodec -b:v <bitrate>`) y, en Android,
+lo intenta primero cuando `CONFIG["video"]["usar_chip_android"]` está en
+`true`; si ese render falla (por el motivo que sea: modelo sin soporte,
+driver raro), la misma tanda cae sola a `libx264` sin perder el video. La
+clave vive en `config.json` bajo `"video"` (ver `config.example.json`) y por
+omisión está en `false`: el comportamiento de hoy no cambia para nadie que
+no toque nada. El panel (pestaña Ajustes → Render, solo visible cuando el
+servidor detecta que corre en Android) trae un interruptor deslizante para
+encenderlo o apagarlo sin tocar `config.json` a mano — pensado exactamente
+para el caso de que el chip falle tan seguido que no valga la pena ni
+intentarlo, tal como pidió el dueño del proyecto.
 
-**Si se quiere probar:** el candidato sería reemplazar `-c:v libx264` por
-`-c:v h264_mediacodec` en la ruta de CPU de `generar_video_maestro.py`,
-correr un render de verdad en el teléfono, y comparar el resultado a ojo
-(colores, nitidez de los subtítulos) y el tiempo/batería que tardó. Queda
-anotado aquí para cuando el dueño del proyecto quiera probarlo — no se firma
-como "listo" sin esa prueba.
+**Lo que falta, y por qué no se firma como "listo" sin ello.** Esta sesión
+no tiene un teléfono Android para comprobar que `h264_mediacodec` produce
+un video correcto con los filtros que ya se aplican (subtítulos quemados,
+overlays, espacio de color). Esto importa más de lo que parece: el respaldo
+a `libx264` solo salta si ffmpeg termina con error o deja un archivo vacío
+(`archivo_valido`). El fallo típico de un chip de hardware mal soportado es
+el contrario — termina bien, el archivo pesa lo normal, pero el video sale
+con colores raros o fotogramas rotos. Ese caso el pipeline **no lo detecta
+solo**: el interruptor de Ajustes es el único remedio, así que si un video
+sale mal a la vista, apagarlo ahí mismo — no esperar a que el pipeline se dé
+cuenta, porque no se va a dar cuenta.
+
+El bitrate por omisión (`4M`, con `-maxrate`/`-bufsize` a juego) se eligió
+para acercarse al peso que ya deja `-crf 23`, y no al `6M` que se probó
+primero: `recomprimir.py` marca como "que pesan de más" a partir de 100 MB,
+y con `duracion_max_short_sec` en 180 s un video a 6 Mbps constantes puede
+pasarse de ese umbral él solo — lo que dispararía una recompresión por CPU
+después de cada render con el chip, anulando la ganancia de velocidad y
+batería que es todo el punto de usarlo. Con `4M` un short de 180 s pesa como
+mucho ~90 MB, dentro del umbral. Aun así, el tamaño real hay que
+confirmarlo con un render de verdad en el teléfono: la ruta de CPU no se
+tocó, así que encender el interruptor es la única forma de que este código
+corra; apagado, el comportamiento es idéntico al de antes de este cambio.
+
+**Para probarlo:** encender el interruptor en Ajustes, dejar correr un
+render normal, y comparar el resultado a ojo (colores, nitidez de los
+subtítulos) y el tiempo/batería que tardó frente a un render por CPU. Si el
+video sale mal o el chip falla en varios videos seguidos, apagar el
+interruptor deja todo como estaba, sin tocar código.
 
 ## 4. Reintentos ante cuota de Gemini agotada — YA LO TENEMOS
 

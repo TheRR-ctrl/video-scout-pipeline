@@ -6,5 +6,14 @@
   "_motor_fondo_opciones": "cortes (corta tus propios videos de fondo) | hyperframes (genera el fondo con IA, sin videos propios)",
   "motor_fondo": "cortes",
   "duracion_max_composicion_seg": 45.0,
-  "reintentar_existentes": false
+  "reintentar_existentes": false,
+
+  "_video_comentario": "En Android, usar_chip_android prueba primero el chip de video del teléfono (h264_mediacodec) y solo cae a libx264 (preset/crf) si falla. Se enciende desde Ajustes en el panel, no hace falta tocar esto a mano.",
+  "video": {
+    "preset": "veryfast",
+    "crf": 23,
+    "usar_chip_android": false,
+    "bitrate_chip_android": "4M",
+    "bufsize_chip_android": "8M"
+  }
 }

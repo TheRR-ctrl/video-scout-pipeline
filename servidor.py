@@ -1079,6 +1079,8 @@ def api_estado():
             "fuentes": list(gvm.FUENTES_INCLUIDAS),
         },
         "solo_wifi": cfg.get("solo_wifi", True),
+        "es_android": gvm.ES_ANDROID,
+        "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "musica": pistas_musica(),
@@ -1385,6 +1387,20 @@ def api_wifi():
     cfg["solo_wifi"] = bool((request.json or {}).get("solo_wifi", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "solo_wifi": cfg["solo_wifi"]})
+
+
+@app.post("/api/video/chip_android")
+def api_video_chip_android():
+    """Enciende o apaga el chip de video del teléfono (h264_mediacodec) para
+    el próximo render. Si falla en un video concreto, ese mismo render ya
+    cae solo a libx264 (ver generar_video_maestro.py); este interruptor es
+    para cuando falla tan seguido que no vale la pena ni intentarlo."""
+    cfg = leer_json(RUTA_CONFIG, {})
+    video_cfg = dict(cfg.get("video") or {})
+    video_cfg["usar_chip_android"] = bool((request.json or {}).get("usar_chip_android", False))
+    cfg["video"] = video_cfg
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "usar_chip_android": video_cfg["usar_chip_android"]})
 
 
 @app.post("/api/musica/auto")
