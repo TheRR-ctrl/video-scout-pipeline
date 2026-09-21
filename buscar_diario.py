@@ -16,6 +16,16 @@ Lo que esto consigue y lo que no, para no confundirlo:
     misma identificación de siempre. Si Reddit devuelve 429, devuelve 429 a
     la hora que sea; el remedio es pedir menos, no esconderse mejor.
 
+Cómo se sabe si hay WiFi, que en Android es más difícil de lo que parece: en
+un Termux instalado desde Google Play, Termux:API no existe (la propia orden
+contesta que no está disponible ahí), y Android 11 cerró el netlink que usa
+`ip route` y la lectura de /sys/class/net. Las tres están comprobadas en el
+teléfono. Lo que queda es abrir un socket UDP, que no envía nada, y mirar qué
+IP local eligió el sistema: 192.168.x es el router de casa y 100.64-127.x es
+el CGNAT del operador. Para lo que no se puede deducir del rango —el 10.x lo
+usan los dos— están `--soy-wifi` y `--soy-datos`, que apuntan la red de una
+vez para siempre en pipeline_state/redes_conocidas.json.
+
 Cómo se engancha a cron: el crontab llama a este script cada media hora y casi
 siempre no hace nada y se va. No se duerme esperando la franja a propósito —
 un `sleep` de una hora en Android lo mata el sistema y la tanda no sale nunca.
@@ -33,6 +43,7 @@ import os
 import sys
 import json
 import random
+import socket
 import logging
 import argparse
 import subprocess
@@ -45,6 +56,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 logger = logging.getLogger("buscar_diario")
 
 RUTA_PLAN = os.path.join(cola.CARPETA_ESTADO, "busqueda_diaria.json")
+# Las redes que el dueño del proyecto marcó a mano con --soy-wifi / --soy-datos.
+# Solo guarda los tres primeros octetos de la IP local (192.168.1, por ejemplo):
+# no sale del teléfono, no dice dónde está nadie, y es lo único que hace falta
+# para distinguir el router de casa de la radio del operador.
+RUTA_REDES = os.path.join(cola.CARPETA_ESTADO, "redes_conocidas.json")
 
 # La ventana en la que puede caer la búsqueda. De madrugada no se busca: si
 # algo sale mal, el error se ve a una hora en la que se puede mirar el móvil.
@@ -162,9 +178,87 @@ def _wifi_por_ruta():
     return interfaz.startswith(("wlan", "ap", "eth"))
 
 
+def ip_de_salida():
+    """La IP local por la que saldría el tráfico, sin enviar nada ni pedir
+    permisos: un socket UDP «conectado» no manda un solo paquete, pero obliga
+    al sistema a elegir interfaz y eso ya se puede leer.
+
+    Es lo único que queda en un Termux de Google Play: ahí Termux:API no
+    existe, y Android 11 cerró tanto el netlink de `ip route` como
+    /sys/class/net. Comprobado en el teléfono, no deducido de la
+    documentación."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("1.1.1.1", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return None
+
+
+def prefijo_de(ip):
+    """192.168.1.34 → '192.168.1'. La parte que identifica a la red."""
+    trozos = (ip or "").split(".")
+    return ".".join(trozos[:3]) if len(trozos) == 4 else ""
+
+
+def cargar_redes():
+    try:
+        redes = almacen.cargar(RUTA_REDES, {})
+    except (json.JSONDecodeError, OSError):
+        return {}
+    return redes if isinstance(redes, dict) else {}
+
+
+def marcar_red(tipo):
+    """Apunta la red en la que se está ahora mismo como wifi o como datos."""
+    ip = ip_de_salida()
+    prefijo = prefijo_de(ip)
+    if not prefijo:
+        return None, None
+    redes = cargar_redes()
+    redes[prefijo] = tipo
+    almacen.guardar(RUTA_REDES, redes)
+    return prefijo, ip
+
+
+def _wifi_por_ip(ip=None, redes=None):
+    """Sin Termux:API y sin netlink, la IP local es lo que queda.
+
+    Lo aprendido manda: una red marcada con --soy-wifi o --soy-datos decide
+    sin discusión. Si no se conoce, se mira el rango:
+
+      192.168.x / 172.16-31.x  → red doméstica, es WiFi
+      100.64-127.x             → el CGNAT de un operador, son datos
+      10.x                     → lo usan los dos; no se decide
+
+    Adivinar mal aquí tiene dos precios distintos: decir «datos» cuando hay
+    WiFi solo retrasa la búsqueda media hora, decir «WiFi» cuando hay datos
+    gasta el plan. Por eso el 10.x se queda sin respuesta en vez de apostar.
+    """
+    ip = ip if ip is not None else ip_de_salida()
+    prefijo = prefijo_de(ip)
+    if not prefijo:
+        return None
+    redes = cargar_redes() if redes is None else redes
+    conocida = redes.get(prefijo)
+    if conocida:
+        return conocida == "wifi"
+    octetos = [int(o) for o in prefijo.split(".")]
+    if octetos[0] == 192 and octetos[1] == 168:
+        return True
+    if octetos[0] == 172 and 16 <= octetos[1] <= 31:
+        return True
+    if octetos[0] == 100 and 64 <= octetos[1] <= 127:
+        return False
+    return None
+
+
 def hay_wifi():
     """True, False, o None cuando no hay forma de saberlo desde aquí."""
-    for sonda in (_wifi_por_termux, _wifi_por_ruta):
+    for sonda in (_wifi_por_termux, _wifi_por_ruta, _wifi_por_ip):
         respuesta = sonda()
         if respuesta is not None:
             return respuesta
@@ -209,7 +303,21 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Busca historias una vez al día, a hora sorteada.")
     ap.add_argument("--ver", action="store_true", help="Enseña el plan de hoy y no busca.")
     ap.add_argument("--ahora", action="store_true", help="Busca ya, sin mirar la franja ni la red.")
+    ap.add_argument("--soy-wifi", action="store_true",
+                    help="Apunta la red en la que estás ahora como WiFi (hazlo una vez, en casa).")
+    ap.add_argument("--soy-datos", action="store_true",
+                    help="Apunta la red en la que estás ahora como datos móviles.")
     args = ap.parse_args(argv or [])
+
+    if args.soy_wifi or args.soy_datos:
+        tipo = "wifi" if args.soy_wifi else "datos"
+        prefijo, ip = marcar_red(tipo)
+        if not prefijo:
+            print(" No hay red ahora mismo: no se puede apuntar nada.")
+            return
+        print(f" Apuntado: la red {prefijo}.x es {tipo} (IP de este móvil: {ip})")
+        print(" A partir de ahora la búsqueda diaria lo sabrá sin preguntarle a nadie.")
+        return
 
     cfg = cargar_config()
     ahora = datetime.now()
@@ -225,8 +333,16 @@ def main(argv=None):
         if plan.get("agregados") is not None:
             print(f" Candidatos: {plan['agregados']} nuevo(s)")
         red = hay_wifi()
-        dice = {True: "sí", False: "no", None: "no se puede saber desde aquí"}[red]
-        print(f" WiFi      : {dice}")
+        ip = ip_de_salida()
+        prefijo = prefijo_de(ip)
+        conocida = cargar_redes().get(prefijo)
+        dice = {True: "sí", False: "no (datos móviles)", None: "no se puede saber desde aquí"}[red]
+        porque = (f"red {prefijo}.x apuntada como {conocida}" if conocida
+                  else f"por el rango de la IP ({ip})" if ip
+                  else "sin red")
+        print(f" WiFi      : {dice} — {porque}")
+        if red is None and ip:
+            print(f"             Si estás en WiFi ahora: python buscar_diario.py --soy-wifi")
         print(f" Cola      : {len(cola.cargar_pendientes())} candidato(s) esperando guion")
         return
 
@@ -249,8 +365,9 @@ def main(argv=None):
         guardar_plan(plan)
         if plan["esperas_sin_wifi"] in (1, 6, 12):
             logger.info("Tocaba buscar, pero no hay WiFi. Se reintenta en la siguiente pasada. "
-                        "(Para buscar también con datos: \"busqueda_diaria_solo_wifi\": false "
-                        "en config_trends.json)")
+                        "(Si esta red sí es WiFi: python buscar_diario.py --soy-wifi. Para "
+                        "buscar también con datos: \"busqueda_diaria_solo_wifi\": false en "
+                        "config_trends.json)")
         return
 
     logger.info("Toca la búsqueda del día.")

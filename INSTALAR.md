@@ -630,9 +630,36 @@ día en vez de perderla.
 que por omisión no sale con datos móviles: si a la hora sorteada no hay WiFi,
 espera y lo reintenta en la siguiente pasada; si el día acaba sin WiFi, esa
 búsqueda se pierde y mañana se sortea otra. Para buscar también con datos,
-`"busqueda_diaria_solo_wifi": false` en `config_trends.json`. En un teléfono
-sin **Termux:API** la red se mira por la ruta de salida (`ip route`); si
-tampoco se puede saber, busca igual — es preferible a no buscar nunca.
+`"busqueda_diaria_solo_wifi": false` en `config_trends.json`.
+
+Saber si hay WiFi en Android cuesta más de lo que parece, y esto está
+comprobado en el teléfono, no deducido de la documentación:
+
+- En un **Termux instalado desde Google Play, Termux:API no existe**. La orden
+  contesta *«Termux:API is not yet available on Google Play»*, y no hay
+  permiso que lo arregle. (En un Termux de F-Droid sí funciona, y entonces es
+  la vía que se usa.)
+- `ip route` muere con *Cannot bind netlink socket: Permission denied*, y
+  `/sys/class/net/wlan0/operstate` con *Permission denied*: Android 11 cerró
+  las dos para las apps normales.
+
+Así que la vía que queda es abrir un socket UDP —que no envía nada— y mirar
+qué IP local elige el sistema: `192.168.x` y `172.16-31.x` son el router de
+casa, `100.64-127.x` es el CGNAT de un operador. El `10.x` lo usan los dos, y
+ahí no se apuesta: equivocarse diciendo «datos» solo retrasa la búsqueda media
+hora, pero equivocarse diciendo «WiFi» gasta el plan.
+
+Para las redes que el rango no decide, se apuntan una vez y ya:
+
+```bash
+python buscar_diario.py --soy-wifi     # estando en el WiFi de casa
+python buscar_diario.py --soy-datos    # estando con datos móviles
+```
+
+Guarda solo los tres primeros octetos (`192.168.1`) en
+`pipeline_state/redes_conocidas.json`. No sale del teléfono y no dice dónde
+está nadie. Lo apuntado manda sobre el rango. Si aun así no se puede saber,
+busca igual — es preferible a no buscar nunca.
 
 Lo que la hora sorteada consigue y lo que no: quita el sello de "esto lo lanza
 una máquina todos los días a la misma hora" y reparte las visitas. No es una
