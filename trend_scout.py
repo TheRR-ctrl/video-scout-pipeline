@@ -55,10 +55,10 @@ RUTA_CONFIG = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_t
 RATE_LIMIT_SEG = 12.0  # pausa entre requests a reddit.com; el RSS es más estricto que el JSON con el rate limit
 
 CONFIG_DEFAULT = {
-    # Un subreddit que no existe o que se cerró no rompe nada: se salta con un
-    # aviso y la corrida sigue. Lo que cuesta es el tiempo — hay una pausa de
-    # RATE_LIMIT_SEG entre cada uno, así que la lista entera tarda unos
-    # minutos. Si alguno falla siempre, quítalo de config_trends.json.
+    # Un subreddit que no existe o que se cerró no rompe nada: si su grupo
+    # falla entero se salta con un aviso y la corrida sigue (ver
+    # subreddits_por_tanda más abajo, sobre por qué van en grupos y no uno a
+    # uno). Si alguno falla siempre, quítalo de config_trends.json.
     "subreddits": [
         # Drama / dilemas
         "AmItheAsshole",
@@ -107,6 +107,16 @@ CONFIG_DEFAULT = {
     ],
     "time_filter": "day",
     "limite_por_subreddit": 15,
+    # Cuántos subreddits van juntos en cada request. Reddit permite pedir
+    # varios de una vez con r/sub1+sub2+.../top/.rss (sintaxis pública y
+    # documentada, no un truco) y el límite de peticiones es por IP, no por
+    # subreddit: agrupar de a pocos baja las peticiones de 36 a menos de 10
+    # y con eso los 429 que se veían con una petición por subreddit. El precio
+    # es que ya no es "los N mejores DE CADA subreddit": dentro de un mismo
+    # grupo, Reddit devuelve los mejores del conjunto, así que un subreddit
+    # con posts de menos puntuación puede quedar tapado por otro del mismo
+    # grupo. Grupos pequeños (3-4) reparten mejor que uno solo con los 36.
+    "subreddits_por_tanda": 4,
     "min_palabras_texto": 80,
     "max_palabras_texto": 1800,
     "max_candidatos_salida": 20,
@@ -169,15 +179,33 @@ def _limpiar_contenido_html(contenido_crudo):
     return re.sub(r"\s+", " ", texto).strip()
 
 
-def obtener_posts_publicos(subreddit, cfg):
-    """Lee el feed RSS/Atom público 'top' de un subreddit (solo lectura)."""
-    url = f"https://www.reddit.com/r/{subreddit}/top/.rss"
-    params = {"t": cfg["time_filter"], "limit": cfg["limite_por_subreddit"]}
+def obtener_posts_publicos(grupo_subreddits, cfg):
+    """Lee el feed RSS/Atom público 'top' de un grupo de subreddits en una
+    sola petición (solo lectura): r/sub1+sub2+.../top/.rss.
+
+    Es sintaxis pública de Reddit, no un bypass — la misma que usa cualquiera
+    que arme un feed combinado a mano en reddit.com. Cada <entry> trae su
+    subreddit real en <category term="...">, así que la atribución por post
+    no se pierde por venir en un pedido conjunto.
+
+    El límite de la petición sube con el tamaño del grupo (grupos más grandes
+    piden más) para que un subreddit no se quede sin sitio solo por compartir
+    petición con otros — el tope real de Reddit son 100 resultados, más que
+    eso no da más.
+    """
+    url = f"https://www.reddit.com/r/{'+'.join(grupo_subreddits)}/top/.rss"
+    limite = min(100, cfg["limite_por_subreddit"] * len(grupo_subreddits))
+    params = {"t": cfg["time_filter"], "limit": limite}
     headers = {"User-Agent": _UA_NAVEGADOR}
 
     resp = requests.get(url, params=params, headers=headers, timeout=15)
     if resp.status_code == 429:
-        # Un solo reintento con una espera más larga antes de rendirse.
+        # Un solo reintento con una espera más larga antes de rendirse. Si
+        # sale bien, "0 fallados" en el reporte no dice que no hubo ningún
+        # 429 — solo que ninguno se quedó sin resolver. Se deja constancia
+        # aquí para que un bloqueo silencioso no se lea como que no pasó.
+        logger.info(f"429 de reddit.com en r/{'+'.join(grupo_subreddits)}, "
+                    f"reintentando en {RATE_LIMIT_SEG * 2:.0f}s...")
         time.sleep(RATE_LIMIT_SEG * 2)
         resp = requests.get(url, params=params, headers=headers, timeout=15)
     if resp.status_code in (429, 403):
@@ -194,9 +222,13 @@ def obtener_posts_publicos(subreddit, cfg):
         url_post = link_el.get("href") if link_el is not None else ""
         autor = entry.findtext("a:author/a:name", default="", namespaces=_NS) or ""
         autor = autor.replace("/u/", "").strip()
+        cat_el = entry.find("a:category", _NS)
+        # De qué subreddit vino este post en concreto, no el grupo entero.
+        subreddit_real = cat_el.get("term") if cat_el is not None else ""
 
         posts.append({
             "id": post_id,
+            "subreddit": subreddit_real,
             "titulo": titulo,
             "texto": texto,
             "url": url_post,
@@ -227,21 +259,38 @@ def escanear(cfg, contar=None):
     vistos = cargar_historial()
     en_cola = cola.ids_en_cola()
     candidatos = []
+    # rank_en_subreddit tiene que seguir siendo eso — la posición DENTRO de
+    # su propio subreddit, no dentro de la respuesta del grupo. Si se dejara
+    # como la posición en el feed combinado, el subreddit que domina el grupo
+    # (el de posts con más puntuación) se quedaría con los ranks 0, 1, 2...
+    # y el resto del grupo entraría siempre detrás — exactamente el mismo
+    # problema de "uno tapa a los demás" que se evitó al pedir, pero
+    # reapareciendo al elegir. Contarlo por subreddit real deshace eso: cada
+    # subreddit vuelve a competir por sus propios ranks bajos, igual que
+    # cuando se pedía uno a la vez.
+    rank_por_sub = {}
 
-    for i, nombre_sub in enumerate(cfg["subreddits"]):
+    subs = cfg["subreddits"]
+    tanda = max(1, cfg.get("subreddits_por_tanda", 1))
+    grupos = [subs[i:i + tanda] for i in range(0, len(subs), tanda)]
+
+    for i, grupo in enumerate(grupos):
         if i > 0:
             time.sleep(RATE_LIMIT_SEG)
 
-        logger.info(f"Escaneando r/{nombre_sub}...")
+        logger.info(f"Escaneando r/{'+'.join(grupo)}...")
         try:
-            posts = obtener_posts_publicos(nombre_sub, cfg)
+            posts = obtener_posts_publicos(grupo, cfg)
         except Exception as exc:
-            logger.warning(f"No se pudo leer r/{nombre_sub}: {exc}")
-            contar["subs_fallidos"] += 1
+            logger.warning(f"No se pudo leer el grupo r/{'+'.join(grupo)}: {exc}")
+            contar["subs_fallidos"] += len(grupo)
             continue
-        contar["subs_ok"] += 1
+        contar["subs_ok"] += len(grupo)
 
-        for rank, post in enumerate(posts):
+        for post in posts:
+            sub_real = post["subreddit"]
+            rank = rank_por_sub.get(sub_real, 0)
+            rank_por_sub[sub_real] = rank + 1
             contar["leidos"] += 1
             post_id = post["id"]
             if not post_id:
@@ -268,7 +317,7 @@ def escanear(cfg, contar=None):
             autor = post["autor"]
             candidatos.append({
                 "id": post_id,
-                "subreddit": nombre_sub,
+                "subreddit": post["subreddit"],
                 "titulo_original": post["titulo"],
                 "texto_original": texto,
                 # El feed RSS no trae score/num_comments; usamos la posición

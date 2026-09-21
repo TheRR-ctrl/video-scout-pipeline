@@ -252,6 +252,16 @@
   .fino.no{opacity:.45;cursor:not-allowed}
   .sangria{margin:8px 0 4px 24px;display:flex;flex-direction:column;gap:7px}
 
+  /* botón deslizante, para el interruptor de "usar chip de video" */
+  .switch{position:relative;display:inline-block;width:42px;height:24px;flex-shrink:0}
+  .switch input{opacity:0;width:0;height:0}
+  .switch .rail{position:absolute;inset:0;background:var(--line);border-radius:24px;
+    cursor:pointer;transition:background .15s}
+  .switch .rail::before{content:"";position:absolute;height:18px;width:18px;left:3px;bottom:3px;
+    background:#fff;border-radius:50%;transition:transform .15s}
+  .switch input:checked + .rail{background:var(--accent)}
+  .switch input:checked + .rail::before{transform:translateX(18px)}
+
   /* presets */
   .presets{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
   .preset{border:1px solid var(--line);border-radius:9px;background:var(--surface);
@@ -2196,6 +2206,7 @@ let secretosCache = [];
 function firmaAjustes(){
   return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto,
+          E.usar_chip_android, E.es_android,
           JSON.stringify(E.musica), secretosCache.length].join('~');
 }
 /* Las tareas de mantenimiento del panel. Cada una lleva su orden de Termux
@@ -2381,6 +2392,18 @@ function pintaAjustes(){
       </div>
     </div>
 
+    ${E.es_android ? `
+    <h3 class="sec">Render</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
+          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
+          apaga esto si falla demasiado seguido.</div></div>
+        <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
+          <span class="rail"></span></label>
+      </div>
+    </div>` : ''}
+
     <h3 class="sec">Mantenimiento</h3>
     <div class="card" style="margin-bottom:14px">
       <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -2476,6 +2499,15 @@ function pintaAjustes(){
       toast(j.auto ? 'La música se cambiará sola tras cada render'
                    : 'La música solo cambia cuando lo pidas'); refrescar();
     }catch(e){ toast(e.message); }
+  };
+  const chkChip = $('#chk-chip-android');
+  if(chkChip) chkChip.onchange = async ()=>{
+    const val = chkChip.checked;
+    try{ const j = await post('/api/video/chip_android', {usar_chip_android: val});
+      toast(j.usar_chip_android ? 'Se probará el chip de video en el próximo render'
+                                 : 'Vuelve a renderizar por CPU (libx264)');
+      E.usar_chip_android = j.usar_chip_android;
+    }catch(e){ chkChip.checked = !val; toast(e.message); }
   };
   pintaBotonesOir();
 }
