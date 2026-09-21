@@ -65,6 +65,32 @@ Y si el cambio de versión es para arreglar un render feo, hay que vaciar
 CLI dentro, así que los clips viejos se seguirían sirviendo y parecería que el
 cambio no hizo nada.
 
+## El chip de video de Android
+
+`generar_video_maestro.py` puede renderizar con `h264_mediacodec` — el chip
+de hardware del teléfono, que el ffmpeg de Termux expone porque está
+compilado con `--enable-mediacodec`. Más rápido y con menos batería que
+`libx264` por software. Vive apagado por omisión detrás de
+`CONFIG["video"]["usar_chip_android"]` en `config.json`, y se enciende o
+apaga desde el panel (Ajustes → Render, solo aparece en Android) sin tocar
+el archivo a mano.
+
+**El respaldo automático a CPU no cubre todo tipo de fallo.** Si
+`h264_mediacodec` falla con error o deja el archivo vacío, esa misma tanda
+cae sola a `libx264` — no hace falta que nadie se entere. Pero el fallo
+típico de un chip mal soportado es el contrario: ffmpeg termina bien, el
+archivo pesa lo normal, y el video sale con colores raros o rota. Eso el
+pipeline **no lo detecta solo**. Si un video con el chip encendido sale mal
+a la vista, el remedio es apagar el interruptor en Ajustes, no esperar a
+que el pipeline se dé cuenta.
+
+El bitrate por omisión (`4M`, con `-maxrate`/`-bufsize` a juego) está puesto
+así a propósito y no más alto: `recomprimir.py` marca como "que pesan de
+más" cualquier video de más de 100 MB, y con `duracion_max_short_sec` en
+180 s un bitrate constante mayor puede pasarse solo de ese umbral —
+disparando una recompresión por CPU después de cada render con el chip, que
+anula toda la ganancia de haberlo usado.
+
 ## TikTok: la auditoría no se va a pasar
 
 Cada cierto tiempo vuelve la idea de mandar la app a revisión para desbloquear
