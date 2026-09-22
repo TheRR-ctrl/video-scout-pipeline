@@ -84,6 +84,69 @@ Las dos fuentes llenan la misma cola y `pipeline.py` corre las dos. Para
 elegir canales de YouTube o apagar esa fuente, copia
 `config_trends.ejemplo.json` como `config_trends.json` y edítalo.
 
+### El panel como app, con icono propio
+
+Escribir `panel` en Termux funciona y va a seguir funcionando. Esto es para
+no tener que hacerlo.
+
+**Opción A — instalar el panel desde Chrome. No hay que compilar nada.**
+
+Con el panel abierto: **⋮ → Instalar app** (o "Agregar a pantalla de
+inicio"). Queda con su icono, sin barra de navegador, y —esto es lo que
+cambió— si lo abres con el servidor apagado ya no sale el dinosaurio de
+Chrome sino una pantalla que lo dice, deja el comando a un toque y **entra
+sola** en cuanto arrancas el panel desde Termux.
+
+Eso es todo. El servidor sigue arrancándolo tú.
+
+**Opción B — el APK. Arranca el servidor él solo.**
+
+Es lo único que una página web no puede hacer: ningún navegador deja que una
+página lance Python en tu teléfono. Una app instalada sí puede pedírselo a
+Termux. Con el APK, tocar el icono es todo el procedimiento.
+
+Tres pasos, una sola vez:
+
+1. **Preparar Termux:**
+
+   ```bash
+   bash instalar_panel.sh --app
+   ```
+
+   Deja el comando `panel-servidor` (que es `panel` sin abrir Chrome, porque
+   con la app el navegador es la propia app) y pone `allow-external-apps=true`
+   en `~/.termux/termux.properties`.
+
+   Esa línea **vale para cualquier app** que tenga el permiso
+   `com.termux.permission.RUN_COMMAND`, no solo para esta. Por eso no se pone
+   sola y hay que pedirla. Para deshacerlo, bórrala de ese archivo.
+
+2. **Conseguir el APK.** En el teléfono no se puede compilar: el SDK de
+   Android no existe para Termux. Lo compila GitHub:
+
+   - Pestaña **Actions** → workflow **Compilar la app de Android** → **Run
+     workflow**.
+   - Marca **publicar** si quieres el `.apk` suelto en una release. Desde el
+     móvil es bastante más cómodo que el artifact, que viene en zip y hay que
+     descomprimir.
+   - Baja el archivo y ábrelo. Android pedirá permiso para instalar de
+     "orígenes desconocidos" — es normal: el APK va firmado con la clave de
+     depuración, la única posible sin guardar un keystore en el repo.
+
+3. **Abrir la app.** La primera vez pedirá el permiso de Termux. Concédelo.
+
+A partir de ahí: tocas el icono, arranca el servidor solo y entra. Si algo
+falla, la propia app dice cuál de las tres cosas falló (falta Termux, falta
+el permiso, o Termux no aceptó la orden) y qué escribir para arreglarlo.
+
+Y si ya tenías el panel corriendo —por el widget, por el autoarranque, o
+porque lo escribiste a mano—, la app entra directa sin arrancar nada.
+
+**Qué no está probado.** Que el APK compila, sí. Que Termux acepte el encargo
+en tu teléfono concreto solo se ve al instalarlo; si no lo acepta, la
+pantalla de ayuda lo dice con esas palabras y `panel` en Termux sigue siendo
+el plan B de siempre.
+
 ### Vaciar la cola de lo ya grabado
 
 `guion.txt` guarda todo lo que Gemini escribió, y renderizar no borra nada de

@@ -1,0 +1,7 @@
+# Salida de Gradle. El APK se compila en el runner de GitHub Actions
+# (.github/workflows/apk.yml), nunca aquí: en el teléfono no hay SDK.
+build/
+.gradle/
+local.properties
+*.apk
+*.aab

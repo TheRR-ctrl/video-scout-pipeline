@@ -1,0 +1,6 @@
+// Sin dependencias de AndroidX a propósito: la app es una Activity y un
+// WebView, nada más. Cero librerías significa que una compilación que
+// funcionó hoy sigue funcionando dentro de un año sin tocar versiones.
+plugins {
+    id "com.android.application" version "8.7.3" apply false
+}

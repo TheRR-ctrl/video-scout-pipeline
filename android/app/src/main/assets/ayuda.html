@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mesa de Revisión</title>
+<!--
+  Lo que enseña la app cuando el panel todavía no está.
+
+  Va dentro del APK (assets/), así que se ve aunque no haya servidor, ni red,
+  ni Termux. Por eso no tiene ni una imagen ni un script externo.
+
+  No decide nada: MainActivity le dice en qué estado estamos llamando a
+  pintar('...'), y la página solo cambia el texto. Los botones tampoco hacen
+  nada por su cuenta — son enlaces mesa://… que la Activity intercepta. Así
+  la lógica vive en Java, donde se puede razonar, y no repartida entre los
+  dos sitios.
+-->
+<style>
+  :root{
+    --ground:#12151a; --surface:#1b2027; --surface-2:#232932; --line:#2e3540;
+    --ink:#eceef1; --ink-dim:#98a2ae; --ink-faint:#626c79;
+    --accent:#4db4a8; --accent-ink:#06211e;
+    --warn:#d9944a; --crit:#d96a5a;
+    --mono:ui-monospace,Menlo,Consolas,monospace;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font:15px/1.55 var(--body);-webkit-font-smoothing:antialiased;
+    min-height:100dvh;display:flex;align-items:center;justify-content:center;
+    padding:24px 18px calc(24px + env(safe-area-inset-bottom))}
+  .caja{width:100%;max-width:420px}
+  .marca{font:500 13px var(--mono);color:var(--ink-faint);margin-bottom:22px}
+  .marca b{color:var(--accent);font-weight:500}
+  .luz{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+  .punto{width:11px;height:11px;border-radius:50%;background:var(--warn);flex-shrink:0;
+    animation:late 1.1s ease-in-out infinite}
+  .punto.quieto{animation:none;background:var(--crit)}
+  @keyframes late{0%,100%{opacity:1}50%{opacity:.25}}
+  h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+  p{color:var(--ink-dim);font-size:13.5px;margin:10px 0 0}
+  code{font:12px var(--mono);color:var(--accent);word-break:break-all}
+  .btn{display:none;align-items:center;justify-content:center;width:100%;
+    font:500 14px var(--body);padding:13px 16px;border-radius:9px;
+    border:1px solid var(--line);color:var(--ink);background:var(--surface);
+    text-decoration:none;margin-top:10px}
+  .btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .btn.on{display:flex}
+  .pasos{margin-top:18px;padding:14px;background:var(--surface-2);
+    border:1px solid var(--line);border-radius:9px;font-size:13px;color:var(--ink-dim);
+    display:none}
+  .pasos.on{display:block}
+  .pasos ol{margin:0;padding-left:19px}
+  .pasos li{margin:7px 0}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="caja">
+  <div class="marca">mesa de <b>revisión</b></div>
+
+  <div class="luz"><span class="punto" id="punto"></span>
+    <h1 id="titulo">Buscando el panel…</h1></div>
+  <p id="detalle">Mirando si el servidor ya está corriendo en este teléfono.</p>
+
+  <div class="pasos" id="pasos"></div>
+
+  <a class="btn go" id="reintentar" href="mesa://reintentar">Reintentar</a>
+  <a class="btn" id="termux" href="mesa://termux">Abrir Termux</a>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+
+const ESTADOS = {
+  'buscando': {
+    titulo: 'Buscando el panel…',
+    detalle: 'Mirando si el servidor ya está corriendo en este teléfono.',
+    latiendo: true, botones: []
+  },
+  'arrancando': {
+    titulo: 'Arrancando el servidor…',
+    detalle: 'Se lo pedimos a Termux. Python tarda unos segundos en levantar; '
+           + 'la app entra sola en cuanto conteste.',
+    latiendo: true, botones: []
+  },
+  'sin-termux': {
+    titulo: 'Falta Termux',
+    detalle: 'Esta app es la cara del pipeline; quien corre el código es Termux, '
+           + 'y no está instalado.',
+    pasos: ['Instala Termux desde F-Droid o desde GitHub '
+          + '(el de Play Store está abandonado y no sirve).',
+            'Clona el repo y corre <code>bash instalar.sh</code>.',
+            'Luego <code>bash instalar_panel.sh</code>, que deja el comando '
+          + '<code>panel-servidor</code> que esta app llama.'],
+    botones: ['reintentar']
+  },
+  'sin-permiso': {
+    titulo: 'Falta el permiso',
+    detalle: 'Sin el permiso RUN_COMMAND de Termux, esta app no puede arrancar '
+           + 'el servidor. Puedes dárselo, o arrancarlo tú en Termux y volver.',
+    pasos: ['Concede el permiso cuando Android lo pregunte.',
+            'Si dijiste que no y ya no pregunta: Ajustes → Aplicaciones → '
+          + 'Mesa de Revisión → Permisos.'],
+    botones: ['reintentar', 'termux']
+  },
+  'sin-arranque': {
+    titulo: 'Termux no aceptó el encargo',
+    detalle: 'El permiso está, pero Termux rechazó la orden. Casi siempre es '
+           + 'una línea que falta en su configuración.',
+    pasos: ['En Termux: <code>echo "allow-external-apps=true" >> ~/.termux/termux.properties</code>',
+            'Luego <code>termux-reload-settings</code> (o cierra y abre Termux).',
+            'Vuelve aquí y reintenta.'],
+    botones: ['reintentar', 'termux']
+  },
+  'sin-respuesta': {
+    titulo: 'Se arrancó, pero nadie contesta',
+    detalle: 'Termux aceptó la orden y aun así nada responde en el puerto 8770. '
+           + 'Lo más probable es que falte el comando que esta app llama.',
+    pasos: ['En Termux, comprueba: <code>panel-servidor</code>',
+            'Si dice "command not found", corre <code>bash instalar_panel.sh</code> '
+          + 'en la carpeta del repo.',
+            'Si arranca pero da error, el error se lee ahí mismo.'],
+    botones: ['reintentar', 'termux']
+  },
+  'apagado': {
+    titulo: 'El panel se apagó',
+    detalle: 'servidor.py se apaga solo cuando nadie lo mira y no hay nada '
+           + 'corriendo, para soltar el wake lock. Es lo normal.',
+    botones: ['reintentar']
+  }
+};
+
+/* La llama MainActivity. Tiene que existir en window para que el
+   evaluateJavascript la encuentre. */
+window.pintar = function(clave){
+  const e = ESTADOS[clave] || ESTADOS['apagado'];
+  $('#titulo').textContent = e.titulo;
+  $('#detalle').textContent = e.detalle;
+  $('#punto').className = 'punto' + (e.latiendo ? '' : ' quieto');
+
+  const pasos = $('#pasos');
+  if(e.pasos && e.pasos.length){
+    pasos.innerHTML = '<ol>' + e.pasos.map(p => '<li>' + p + '</li>').join('') + '</ol>';
+    pasos.classList.add('on');
+  }else{
+    pasos.classList.remove('on');
+    pasos.innerHTML = '';
+  }
+
+  const quiere = e.botones || [];
+  for(const id of ['reintentar','termux']){
+    $('#' + id).classList.toggle('on', quiere.includes(id));
+  }
+};
+
+// El primer estado viene en el #hash, porque en esa primera carga todavía no
+// hay página a la que llamarle pintar().
+pintar((location.hash || '#buscando').slice(1));
+</script>
+</body>
+</html>

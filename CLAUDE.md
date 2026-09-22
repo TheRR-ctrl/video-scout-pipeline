@@ -121,6 +121,34 @@ resultado es idéntico al de siempre. El interruptor del chip de Android
 sigue siendo independiente de esto (y el bitrate del chip, arriba, ya
 escala solo si algún día esto sí activa una resolución mayor).
 
+## El panel como app: tres cosas que se rompen en silencio
+
+**El nombre `panel-servidor` es un contrato entre dos archivos.** El APK
+(`android/.../MainActivity.java`, constante `ARRANCADOR`) llama a un
+ejecutable con ese nombre exacto en `$PREFIX/bin`, y quien lo crea es
+`instalar_panel.sh`. Si se renombra en uno sin tocar el otro, la app compila
+igual, instala igual, y falla en el teléfono con "se arrancó pero nadie
+contesta" — que es lo más parecido a un fallo sin causa que hay aquí. Es a
+propósito que la ruta del repo no esté dentro del APK: así mover la carpeta
+no obliga a recompilar nada. El precio es este contrato, y por eso está
+escrito.
+
+**Probar el APK desde el teléfono no se puede**, igual que pasa con
+`VERSION_CLI` de HyperFrames. Que compila lo dice el workflow; que Termux
+acepte el intent `RUN_COMMAND` solo se ve instalándolo. Así que lo que falle
+ahí tiene que caer siempre en la pantalla de ayuda (`assets/ayuda.html`) con
+un estado que diga cuál de los tres pasos se rompió — nunca en una pantalla
+en blanco, que desde aquí es indistinguible de cualquier otra cosa.
+
+**El service worker no cachea el panel, y tiene que seguir sin hacerlo.**
+`web/sw.js` guarda solo `apagado.html` y los iconos. Meter ahí `index.html`
+parece una mejora obvia —arrancaría más rápido— y es la forma de romper el
+panel sin que nadie se entere: pesa 150 KB, cambia en cada `git pull`, y un
+panel viejo hablando con una API nueva falla de maneras que no se parecen a
+un problema de caché. Lo mismo con `/api/`, `/video/`, `/audio/` y
+`/miniatura/`: son datos vivos. Si algún día cambia lo que sí se guarda, hay
+que subir `CACHE` (`mesa-v1`) o los teléfonos seguirán sirviendo lo viejo.
+
 ## TikTok: la auditoría no se va a pasar
 
 Cada cierto tiempo vuelve la idea de mandar la app a revisión para desbloquear

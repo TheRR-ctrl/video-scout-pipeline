@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Mesa de Revisión</title>
+<link rel="icon" href="/icono-192.png">
+<meta name="theme-color" content="#12151a">
+<!--
+  Lo que ve la app instalada cuando el servidor no está corriendo.
+
+  No la sirve Flask —si Flask estuviera vivo no haría falta—: la guarda el
+  service worker en la caché al instalarse, y la saca cuando una navegación
+  al panel no llega a ninguna parte. Por eso no tiene imágenes ni scripts
+  externos: lo que no esté en este archivo, no se va a poder cargar.
+
+  Hace una sola cosa: reintentar. En cuanto `servidor.py` responde, entra
+  sola al panel. Así el camino real —abrir Termux, arrancar el panel, volver
+  a la app— no tiene ningún paso manual al final.
+-->
+<style>
+  :root{
+    --ground:#12151a; --surface:#1b2027; --surface-2:#232932; --line:#2e3540;
+    --ink:#eceef1; --ink-dim:#98a2ae; --ink-faint:#626c79;
+    --accent:#4db4a8; --accent-ink:#06211e;
+    --warn:#d9944a;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+    --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  }
+  @media (prefers-color-scheme:light){
+    :root{ --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8; --line:#d9dde2;
+      --ink:#191d23; --ink-dim:#5b6572; --ink-faint:#939ba6;
+      --accent:#1d7d72; --accent-ink:#fff; --warn:#9a6416; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);
+    font:15px/1.55 var(--body);-webkit-font-smoothing:antialiased;
+    min-height:100dvh;display:flex;align-items:center;justify-content:center;
+    padding:24px 18px calc(24px + env(safe-area-inset-bottom))}
+  .caja{width:100%;max-width:420px}
+  .marca{font:500 13px var(--mono);color:var(--ink-faint);margin-bottom:22px}
+  .marca b{color:var(--accent);font-weight:500}
+  .luz{display:flex;align-items:center;gap:11px;margin-bottom:6px}
+  .punto{width:11px;height:11px;border-radius:50%;background:var(--warn);flex-shrink:0;
+    animation:late 1.1s ease-in-out infinite}
+  .punto.vivo{background:var(--accent);animation:none}
+  @keyframes late{0%,100%{opacity:1}50%{opacity:.25}}
+  h1{font-size:19px;font-weight:600;margin:0;letter-spacing:-.01em}
+  p{color:var(--ink-dim);font-size:13.5px;margin:8px 0 0}
+  .btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;
+    font:500 14px var(--body);padding:13px 16px;border-radius:9px;cursor:pointer;
+    border:1px solid var(--line);color:var(--ink);background:var(--surface);
+    text-decoration:none;margin-top:10px}
+  .btn.go{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .cmd{display:flex;align-items:center;gap:9px;margin-top:16px;
+    background:var(--surface-2);border:1px solid var(--line);border-radius:9px;padding:11px 12px}
+  .cmd code{flex-grow:1;font:12.5px var(--mono);color:var(--ink);
+    overflow-x:auto;white-space:nowrap}
+  .cmd button{flex-shrink:0;font:500 12px var(--body);padding:7px 11px;border-radius:7px;
+    border:1px solid var(--line);background:var(--surface);color:var(--ink-dim);cursor:pointer}
+  .nota{margin-top:20px;padding-top:16px;border-top:1px solid var(--line);
+    font-size:12.5px;color:var(--ink-dim)}
+  .nota b{color:var(--ink);font-weight:600}
+  .nota code{font:11.5px var(--mono);color:var(--accent)}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="caja">
+  <div class="marca">mesa de <b>revisión</b></div>
+
+  <div class="luz"><span class="punto" id="punto"></span>
+    <h1 id="titulo">El panel no está corriendo</h1></div>
+  <p id="detalle">Nada responde en este teléfono. El servidor se arranca desde Termux.</p>
+
+  <a class="btn go" id="termux" href="intent://#Intent;package=com.termux;end">Abrir Termux</a>
+
+  <div class="cmd">
+    <code id="orden">panel</code>
+    <button id="copiar">Copiar</button>
+  </div>
+  <p>Escribe eso en Termux y vuelve aquí: esta pantalla entra sola en cuanto
+     el panel responda.</p>
+
+  <button class="btn" id="reintentar">Comprobar de nuevo</button>
+
+  <div class="nota">
+    <b>Para no escribirlo nunca:</b> corre una sola vez
+    <code>bash instalar_panel.sh --autoarranque</code> y el panel arrancará
+    al abrir Termux.
+    <p style="margin-top:9px">Con el APK instalado (ver <code>INSTALAR.md</code>)
+    ni eso hace falta: la app arranca el servidor ella sola al abrirse.</p>
+  </div>
+</div>
+
+<script>
+const $ = s => document.querySelector(s);
+let buscando = false;
+
+/* Aquí sí se puede usar fetch, al revés que en abrir_panel.html: esa página
+   se abre como archivo suelto y no tiene origen, así que tiene que sondear
+   con una <img>. Esta la sirve el service worker desde el origen del panel,
+   o sea que /api/ping es una petición del mismo origen y de paso distingue
+   "el puerto contesta" de "contesta este panel". */
+async function sondear(){
+  const corta = AbortSignal.timeout ? AbortSignal.timeout(2500) : undefined;
+  try{
+    const r = await fetch('/api/ping', {cache:'no-store', signal: corta});
+    return r.ok;
+  }catch(e){ return false; }
+}
+
+async function intentar(){
+  if(buscando) return;
+  buscando = true;
+  const vivo = await sondear();
+  buscando = false;
+  if(vivo){
+    $('#punto').className = 'punto vivo';
+    $('#titulo').textContent = 'Panel encontrado';
+    $('#detalle').textContent = 'Entrando…';
+    // Un respiro para que se vea que lo encontró, en vez de un salto seco.
+    // replace y no href: así el botón "atrás" no vuelve a esta pantalla.
+    setTimeout(() => location.replace('/'), 450);
+  }
+}
+
+$('#reintentar').onclick = intentar;
+$('#copiar').onclick = async () => {
+  try{
+    await navigator.clipboard.writeText($('#orden').textContent);
+    $('#copiar').textContent = '✓ Copiado';
+  }catch(e){
+    const r = document.createRange(); r.selectNode($('#orden'));
+    getSelection().removeAllRanges(); getSelection().addRange(r);
+    $('#copiar').textContent = 'Selecciona y copia';
+  }
+  setTimeout(() => $('#copiar').textContent = 'Copiar', 2200);
+};
+
+/* El botón de Termux es un intento honesto, no una garantía: el esquema
+   intent:// lo resuelve Chrome, y en una ventana instalada puede no llegar a
+   ninguna parte. Si no pasa nada al tocarlo, queda el comando de abajo. */
+$('#termux').onclick = () => { setTimeout(intentar, 1200); };
+
+intentar();
+setInterval(() => { if(!buscando) intentar(); }, 3000);
+</script>
+</body>
+</html>

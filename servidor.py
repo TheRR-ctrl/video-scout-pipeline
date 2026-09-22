@@ -1849,6 +1849,19 @@ def api_latido():
     return jsonify({"ok": True})
 
 
+@app.get("/api/ping")
+def api_ping():
+    """Responde "sí" y nada más: ¿hay un panel vivo en este puerto?
+
+    Lo usan la pantalla de apagado (`web/apagado.html`) y la app de Android
+    para saber cuándo entrar. Tiene que ser barato y sin efectos: a
+    diferencia de `/api/latido`, no toca el contador del vigilante — una
+    pantalla que sondea cada 3 segundos mantendría el servidor vivo para
+    siempre sin que nadie esté mirando el panel.
+    """
+    return jsonify({"ok": True, "panel": "mesa-de-revision"})
+
+
 @app.post("/api/apagar")
 def api_apagar():
     APAGAR["pedido"] = True
@@ -1874,12 +1887,23 @@ def vigilante(margen):
 @app.get("/manifest.webmanifest")
 def api_manifest():
     """Permite instalar el panel desde Chrome ("Agregar a pantalla de
-    inicio"): queda con su propio icono y abre sin barra de navegador."""
+    inicio"): queda con su propio icono y abre sin barra de navegador.
+
+    Instalable de verdad hace falta las dos cosas: este manifiesto y un
+    service worker con manejador de `fetch` (`/sw.js`). Con el manifiesto
+    solo, Chrome deja un marcador; con los dos, ofrece instalar la app.
+    127.0.0.1 cuenta como contexto seguro, así que no hace falta HTTPS.
+    """
     return jsonify({
+        "id": "/",
         "name": "Mesa de Revisión",
         "short_name": "Mesa",
+        "description": "Panel del pipeline de videos, en este teléfono.",
+        "lang": "es",
         "start_url": "/",
+        "scope": "/",
         "display": "standalone",
+        "orientation": "portrait",
         "background_color": "#12151a",
         "theme_color": "#12151a",
         "icons": [
@@ -1888,6 +1912,40 @@ def api_manifest():
              "purpose": "any maskable"},
         ],
     })
+
+
+@app.get("/sw.js")
+def api_service_worker():
+    """El service worker del panel.
+
+    Dos cabeceras que importan y no son decorativas:
+
+    - `Service-Worker-Allowed: /` junto con servirlo desde la raíz: así su
+      alcance es todo el panel y no solo un subdirectorio.
+    - `Cache-Control: no-cache`: si el navegador se guardara el propio
+      service worker, un `git pull` no llegaría nunca al teléfono. Tiene que
+      revalidarse en cada arranque.
+    """
+    ruta = os.path.join(WEB_DIR, "sw.js")
+    if not os.path.exists(ruta):
+        abort(404)
+    resp = send_file(ruta, mimetype="application/javascript")
+    resp.headers["Service-Worker-Allowed"] = "/"
+    resp.headers["Cache-Control"] = "no-cache"
+    return resp
+
+
+@app.get("/apagado.html")
+def api_apagado():
+    """La pantalla de "el panel no está corriendo".
+
+    Normalmente la sirve el service worker desde su caché, que es justo
+    cuando hace falta. Esta ruta existe para que pueda cachearla al
+    instalarse (y para poder mirarla con el panel encendido)."""
+    ruta = os.path.join(WEB_DIR, "apagado.html")
+    if not os.path.exists(ruta):
+        abort(404)
+    return send_file(ruta)
 
 
 @app.get("/icono-<int:tam>.png")
