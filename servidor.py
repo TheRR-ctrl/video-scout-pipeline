@@ -438,6 +438,15 @@ def apodos_ya_grabados():
 _FICHAS_HISTORIA = {}
 
 
+def _partes_posibles(bloque):
+    try:
+        import partir_historias
+        plan = partir_historias.analizar(bloque)
+    except Exception:                              # noqa: BLE001 — informativo
+        return 0
+    return (plan or {}).get("partes", 0)
+
+
 def _ficha_historia(bloque, gvm, apodo_de):
     ficha = _FICHAS_HISTORIA.get(bloque)
     if ficha is None:
@@ -456,6 +465,8 @@ def _ficha_historia(bloque, gvm, apodo_de):
             "duracion": f"{segs // 60}:{segs % 60:02d}",
             "palabras": palabras,
             "apodo": apodo_de(bloque) if apodo_de else None,
+            # Las que no caben en un short, para ofrecer partirlas en la Cola.
+            "partes": _partes_posibles(bloque),
         }
         _FICHAS_HISTORIA[bloque] = ficha
     return ficha
@@ -1176,6 +1187,7 @@ def api_estado():
         "es_android": gvm.ES_ANDROID,
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
+        "partir_auto": bool(cfg.get("partir_automatico", False)),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
         "musica": pistas_musica(),
@@ -1286,6 +1298,12 @@ def api_ejecutar(accion):
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando",
                                   cmd, luego="musica_rotar")
+    elif accion == "partir_una":
+        n = (request.json or {}).get("numero")
+        if not isinstance(n, int) or n < 1:
+            return jsonify({"error": "Falta el número de historia"}), 400
+        t, encolado, err = lanzar(f"Partiendo la historia {n}",
+                                  [sys.executable, "partir_historias.py", "--solo", str(n), "--si"])
     elif accion == "regenerar_metadata":
         # Volver a preguntarle a Gemini por UN video. --forzar porque el
         # botón solo aparece cuando ya la estás mirando: pedirlo ahí es
@@ -1317,6 +1335,11 @@ def api_ejecutar(accion):
 TANDA_MANTENIMIENTO = ["calidad", "limpiar_cola", "partir", "musica_rotar"]
 
 
+def _partir_automatico():
+    import partir_historias
+    return partir_historias.automatico()
+
+
 @app.post("/api/mantenimiento")
 def api_mantenimiento():
     """Encola de una vez las tareas de mantenimiento.
@@ -1331,6 +1354,10 @@ def api_mantenimiento():
         if accion == "musica_rotar" and not _toca_encadenar("musica_rotar"):
             saltados.append({"accion": accion, "motivo":
                              "sin JAMENDO_CLIENT_ID o con la rotación apagada"})
+            continue
+        if accion == "partir" and not _partir_automatico():
+            # Partir es decisión tuya salvo que actives el modo automático:
+            # la tanda no lo hace por su cuenta.
             continue
         nombre, cmd = ACCIONES[accion]
         tareas.append((nombre, cmd))
@@ -1563,6 +1590,15 @@ def api_musica_auto():
     cfg["musica_rotacion_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
+
+
+@app.post("/api/partir/auto")
+def api_partir_auto():
+    """Enciende o apaga el corte automático de las historias largas."""
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["partir_automatico"] = bool((request.json or {}).get("auto", False))
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "auto": cfg["partir_automatico"]})
 
 
 @app.post("/api/tiktok/marcar")

@@ -89,12 +89,14 @@ schedule (cron, Termux, or GitHub Actions).
    script is never padded or trimmed to hit a format.
 
    Long-form is gated, though (`formato.py`: until the channel reaches 500
-   subscribers), and a story that doesn't fit in a Short would otherwise just
-   wait in `guion.txt`. Instead **`partir_historias.py`** splits it into 2–4
-   consecutive Shorts titled "Parte N de M — …", each ending on "Sigue en la
-   parte N+1". `script_writer.py` splits new stories as it writes them; the
-   ones already queued are split from the panel (Ajustes → Mantenimiento, and
-   as a step of "Todo de una pasada"). The text is never rewritten: Gemini
+   subscribers), and a story that doesn't fit in a Short just waits in
+   `guion.txt`. **`partir_historias.py`** can split it into 2–4 consecutive
+   Shorts titled "Parte N de M — …", each ending on "Sigue en la parte N+1" —
+   but only when you decide: each long story in the panel's **Cola** tab gets
+   a «✂ Partir en N» button. Turning on *Partir solas las historias largas*
+   (Ajustes → Subida, `"partir_automatico": true`) makes `script_writer.py`
+   split new stories as it writes them and adds the step to "Todo de una
+   pasada"; it's off by default. The text is never rewritten: Gemini
    only picks *between which sentences* to cut, aiming for a cliffhanger, and
    without it the cut falls at equal lengths. The part marker goes at the
    *front* of the title, because the video's filename is the title cut at 120

@@ -480,6 +480,22 @@ function vigilarTarjeta(caja){
    arrancas cinco, sales, y al volver quieres ver cómo fueron los cuatro que
    ya pasaron. De los que fallaron se enseña el final de su salida, que es lo
    que hay que leer. */
+/* Las historias que no caben en un short. Partirlas es decisión tuya: aquí
+   se ofrece, historia por historia, y nada se parte solo salvo que actives
+   el modo automático en Ajustes → Subida. */
+function bloquePartibles(h){
+  const largas = h.filter(x => x.partes > 1 && !x.renderizada);
+  if(!largas.length) return '';
+  return `<div class="aviso"><span>✂</span><div>
+    <b>${largas.length === 1 ? 'Una historia es demasiado larga' : largas.length + ' historias son demasiado largas'}
+      para un short.</b> Mientras los videos largos estén bloqueados no se graban. Puedes
+    partirlas en varios shorts seguidos («Parte 1 de 3…»), sin cambiar el texto.
+    ${largas.map(x=>`<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+      <span style="flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.titulo)}</span>
+      <button class="btn sm" style="white-space:nowrap" data-partir="${x.n}" data-partes="${x.partes}">✂ Partir en ${x.partes}</button>
+    </div>`).join('')}</div></div>`;
+}
+
 function pintaColaTrabajos(){
   const cola = (E && E.cola) || [], hechos = (E && E.hechos) || [];
   const slot = $('#cola-slot');
@@ -1258,6 +1274,7 @@ function pintaCola(){
       recientes primero— para no gastar la cuota del día de una sentada.
       <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
         >✍ Escribir guiones</button></div></div></div>`}
+    ${bloquePartibles(h)}
     <p class="sub">La numeración se conserva aunque pidas solo algunas: la historia 7 siempre genera <code style="font:12px var(--mono)">07_…</code></p>
     <div class="list">
       <div class="list-head">
@@ -1341,6 +1358,11 @@ function pintaCola(){
       ? otraPistaDe(E.historias.find(x=>x.n==n).emocion, null) : '');
     if(!f) return toast('No hay pista que oír');
     oir(f, b);
+  });
+  cont.querySelectorAll('[data-partir]').forEach(b => b.onclick = ()=>{
+    if(!confirm(`¿Partir esta historia en ${b.dataset.partes} shorts seguidos?\n\nEl texto no cambia: solo se corta entre frases. `
+      + 'La original queda guardada entera en el historial.')) return;
+    ejecutar('partir_una', {numero: +b.dataset.partir});
   });
   $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintar(); };
   $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintar(); };
@@ -2213,7 +2235,7 @@ function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input]')) return firmas.ajustes;
   return [JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
-          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto,
+          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto,
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
@@ -2510,8 +2532,14 @@ function pintaAjustes(){
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Cambiar la música sola</div><div class="m">Después de cada tanda de renders, aparta
           las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
-            : 'Hace falta JAMENDO_CLIENT_ID en Ajustes → Claves.'}</div></div>
+            : 'Hace falta la clave de Jamendo (Conectar servicios, arriba).'}</div></div>
         <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Partir solas las historias largas</div><div class="m">Apagado, solo se parte la que
+          elijas con «✂ Partir» en la Cola. Encendido, las que no caben en un short se parten al
+          escribir el guion y en «Todo de una pasada».</div></div>
+        <button class="btn sm" id="b-partir-auto">${E.partir_auto?'activado':'desactivado'}</button>
       </div>
     </div>
 
@@ -2587,7 +2615,7 @@ function pintaAjustes(){
       <div class="muted" style="margin-top:8px">Pone en la cola, en este orden:
         <b>revisar los videos</b> (mide lo renderizado), <b>limpiar la cola</b>
         (quita las historias que ya tienen video, guardando copia),
-        <b>partir las historias largas</b> en varios shorts seguidos y
+        ${E.partir_auto ? '<b>partir las historias largas</b> en varios shorts seguidos y ' : ''}
         <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
         quitar cualquiera a mitad.</div>
     </div>
@@ -2661,14 +2689,20 @@ function pintaAjustes(){
     if(!confirm('Se pondrán en la cola:\n\n'
       + '1. Revisar los videos renderizados\n'
       + '2. Quitar de la cola lo ya grabado (reescribe guion.txt, con copia)\n'
-      + '3. Partir en varios shorts las historias demasiado largas (también con copia)\n'
-      + '4. Cambiar la música que ya sonó\n\n¿Seguimos?')) return;
+      + (E.partir_auto ? '3. Partir en varios shorts las historias demasiado largas (también con copia)\n' : '')
+      + (E.partir_auto ? '4' : '3') + '. Cambiar la música que ya sonó\n\n¿Seguimos?')) return;
     try{
       const j = await post('/api/mantenimiento',{});
       const hechos = j.encolados.map(e=>e.nombre).join(', ');
       toast(hechos ? 'En marcha: ' + hechos : 'No se pudo encolar nada');
       (j.saltados||[]).forEach(sx=> toast('Se salta ' + sx.accion + ': ' + sx.motivo));
       refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#b-partir-auto').onclick = async ()=>{
+    try{ const j = await post('/api/partir/auto',{auto: !E.partir_auto});
+      toast(j.auto ? 'Las historias largas se partirán solas'
+                   : 'Solo se parte lo que elijas en la Cola'); refrescar();
     }catch(e){ toast(e.message); }
   };
   $('#b-musica-auto').onclick = async ()=>{

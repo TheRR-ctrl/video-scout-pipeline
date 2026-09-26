@@ -8,12 +8,14 @@ formato.py, 48 shorts sumaron 29.000 vistas y 18 largos, 43. Así que en vez
 de aplazarla se parte en dos, tres o cuatro shorts, cada uno con
 "Parte N de M — " delante del título.
 
-Dos vías, con el mismo corte:
-  · script_writer.py la llama al escribir cada historia nueva: la que nace
-    larga entra en la cola ya partida.
-  · Este script, para las que ya estaban en la cola:
-      python partir_historias.py        # dice qué partiría, sin tocar nada
-      python partir_historias.py --si   # lo hace, guardando antes una copia
+Nada se parte solo salvo que lo pidas. Por omisión se decide a mano:
+      python partir_historias.py              # dice qué partiría, sin tocar nada
+      python partir_historias.py --si         # parte todas las largas de la cola
+      python partir_historias.py --solo 3 --si  # solo la historia 3
+  (en el panel: el botón «✂ Partir» de cada historia larga en la Cola.)
+Con "partir_automatico": true en config.json (Ajustes → Subida), además
+script_writer.py parte al escribirla la historia que nace larga, y la tanda
+de mantenimiento parte las que haya en la cola.
 
 El texto no se reescribe. Gemini solo elige ENTRE QUÉ FRASES se corta,
 buscando que cada parte acabe en suspenso; si falla, o no hay clave, se
@@ -295,10 +297,21 @@ def _largos_abiertos():
         return False
 
 
+def automatico():
+    """Si se parte sin preguntar. Apagado salvo que se encienda en Ajustes."""
+    return bool(almacen.leer(os.path.join(BASE_DIR, "config.json"), {}).get("partir_automatico", False))
+
+
 def partir_si_hace_falta(bloque, client=None):
-    """Para script_writer.py: el bloque tal cual, o sus partes."""
+    """Para script_writer.py: el bloque tal cual, o sus partes si el corte
+    automático está encendido."""
     plan = analizar(bloque)
     if not plan:
+        return [bloque]
+    if not automatico():
+        if plan.get("partes"):
+            logger.info(f"  {plan['palabras']} palabras: no cabe en un short. Queda entera; "
+                        f"para partirla, «✂ Partir» en la Cola del panel.")
         return [bloque]
     if plan.get("demasiado_larga"):
         logger.info(f"  Larga de más ({plan['palabras']} palabras, más de "
@@ -336,6 +349,7 @@ def _escribir_guion(bloques):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Parte en varios shorts las historias largas de la cola.")
     ap.add_argument("--si", action="store_true", help="Hacerlo de verdad.")
+    ap.add_argument("--solo", type=int, metavar="N", help="Solo la historia N de la cola.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
@@ -347,16 +361,23 @@ def main(argv=None):
         return 0
 
     if _largos_abiertos():
+        # Aquí lo decides tú, así que no se impide: solo se avisa.
         import formato
-        print(f"\n  Los largos están abiertos ({formato.politica()['motivo']}): una historia\n"
-              "  larga ya sale como video largo, no hace falta partirla.\n")
-        return 0
+        print(f"\n  Ojo: los largos están abiertos ({formato.politica()['motivo']}), así que\n"
+              "  esta historia también podría salir entera como video largo.")
 
     hechos = limpiar_cola.ya_renderizados()
     grabadas = {i for i, b in enumerate(bloques, 1) if limpiar_cola.apodo(b) in hechos}
     planes = {i: analizar(b) for i, b in enumerate(bloques, 1) if i not in grabadas}
     largas = {i: p for i, p in planes.items() if p and p.get("partes")}
     sin_arreglo = {i: p for i, p in planes.items() if p and p.get("demasiado_larga")}
+    if args.solo is not None:
+        if args.solo not in largas:
+            print(f"\n  La historia {args.solo} no se puede partir: no existe, ya tiene video "
+                  "o cabe en un short.\n")
+            return 1
+        largas = {args.solo: largas[args.solo]}
+        sin_arreglo = {}
 
     print(f"\n  {len(bloques)} historia(s) en la cola.\n")
     if sin_arreglo:
@@ -380,7 +401,8 @@ def main(argv=None):
               "  render las volvería a grabar.")
 
     if not args.si:
-        print("\n  Esto era el listado. Para hacerlo:  python partir_historias.py --si\n")
+        solo = f" --solo {args.solo}" if args.solo is not None else ""
+        print(f"\n  Esto era el listado. Para hacerlo:  python partir_historias.py{solo} --si\n")
         return 0
 
     client = _cliente_gemini()
