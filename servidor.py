@@ -401,6 +401,38 @@ def apodos_ya_grabados():
         return set()
 
 
+# Lo que se sabe de cada historia de la cola, por su texto. El panel pide el
+# estado cada segundo y medio, y decidir la voz de una historia recorre el
+# texto entero: con 60 en la cola eran ~120 ms de CPU por refresco en un PC,
+# varias veces más en el teléfono, con el panel simplemente abierto. Nada de
+# esto depende de otra cosa que el texto del bloque, así que se calcula una
+# vez por bloque; lo que sale de la cola se olvida en la siguiente vuelta.
+_FICHAS_HISTORIA = {}
+
+
+def _ficha_historia(bloque, gvm, apodo_de):
+    ficha = _FICHAS_HISTORIA.get(bloque)
+    if ficha is None:
+        lineas = [
+            l.strip() for l in bloque.splitlines()
+            if l.strip() and not l.strip().startswith(("#", "===", "📌", "🎙️"))
+        ]
+        palabras = len(" ".join(lineas[1:]).split()) if len(lineas) > 1 else 0
+        segs = int(palabras / 2.6)   # ritmo típico de la narración generada
+        ficha = {
+            "titulo": lineas[0] if lineas else "(sin título)",
+            "emocion": gvm.detectar_emocion_historia(bloque),
+            # La voz con la que se va a narrar. Verla antes de renderizar
+            # ahorra descubrir en el video ya hecho que salió la contraria.
+            "genero": gvm.decidir_genero_narrador(bloque),
+            "duracion": f"{segs // 60}:{segs % 60:02d}",
+            "palabras": palabras,
+            "apodo": apodo_de(bloque) if apodo_de else None,
+        }
+        _FICHAS_HISTORIA[bloque] = ficha
+    return ficha
+
+
 def historias_del_guion():
     if not os.path.exists(RUTA_GUION):
         return []
@@ -417,27 +449,16 @@ def historias_del_guion():
 
     out = []
     for i, b in enumerate(bloques, 1):
-        lineas = [
-            l.strip() for l in b.splitlines()
-            if l.strip() and not l.strip().startswith(("#", "===", "📌", "🎙️"))
-        ]
-        titulo = lineas[0] if lineas else "(sin título)"
-        palabras = len(" ".join(lineas[1:]).split()) if len(lineas) > 1 else 0
-        segs = int(palabras / 2.6)   # ritmo típico de la narración generada
-        out.append({
-            "n": i,
-            "titulo": titulo,
-            "emocion": gvm.detectar_emocion_historia(b),
-            # La voz con la que se va a narrar. Verla antes de renderizar
-            # ahorra descubrir en el video ya hecho que salió la contraria.
-            "genero": gvm.decidir_genero_narrador(b),
-            "duracion": f"{segs // 60}:{segs % 60:02d}",
-            "palabras": palabras,
-            # La cola enseña lo que falta por grabar. Lo ya grabado sigue en
-            # guion.txt (limpiar_cola es quien lo saca, y lo pasa al
-            # historial), pero en la lista solo estorba.
-            "renderizada": bool(apodo_de and apodo_de(b) in grabados),
-        })
+        ficha = dict(_ficha_historia(b, gvm, apodo_de))
+        apodo = ficha.pop("apodo")
+        # La cola enseña lo que falta por grabar. Lo ya grabado sigue en
+        # guion.txt (limpiar_cola es quien lo saca, y lo pasa al historial),
+        # pero en la lista solo estorba.
+        out.append({"n": i, **ficha, "renderizada": bool(apodo and apodo in grabados)})
+
+    vivos = set(bloques)
+    for b in [b for b in _FICHAS_HISTORIA if b not in vivos]:
+        del _FICHAS_HISTORIA[b]
     return out
 
 
@@ -906,7 +927,34 @@ def credenciales():
 # =========================================================
 # API
 # =========================================================
+# El resumen del canal compara cada video subido con todos los demás para
+# encontrar repetidos, y solo cambia cuando cambia algo en pipeline_state/ (o
+# el token, por los permisos). Se rehace entonces, o pasado un minuto, que es
+# lo que tarda en moverse la cuenta de días que usan las marcas.
+_RESUMEN_CANAL = {"firma": None, "cuando": 0.0, "datos": None}
+
+
+def _firma_estado():
+    try:
+        estado = max((e.stat().st_mtime for e in os.scandir(CARPETA_ESTADO)), default=0)
+    except OSError:
+        estado = 0
+    try:
+        token = os.path.getmtime(os.path.join(BASE_DIR, "youtube_token.json"))
+    except OSError:
+        token = 0
+    return (estado, token)
+
+
 def resumen_canal():
+    firma, ahora = _firma_estado(), time.time()
+    c = _RESUMEN_CANAL
+    if c["datos"] is None or c["firma"] != firma or ahora - c["cuando"] > 60:
+        c.update(datos=_resumen_canal(), firma=firma, cuando=ahora)
+    return c["datos"]
+
+
+def _resumen_canal():
     """Cómo le va al canal, sin tocar la red.
 
     Todo sale de archivos: las vistas de pipeline_state/vistas.json (las dejó

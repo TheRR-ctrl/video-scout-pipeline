@@ -56,11 +56,18 @@ ADJETIVOS = {
 }
 
 
+# Los acentos del español, ya separados de su letra por NFD. Quitarlos de
+# golpe con una expresión regular es mucho más rápido que mirar letra a
+# letra, y esto se pasa sobre historias enteras cada vez que se decide la voz.
+_DIACRITICOS = re.compile("[\u0300-\u036f]")
+
+
 def _sin_acentos(texto):
-    return "".join(
-        c for c in unicodedata.normalize("NFD", str(texto).lower())
-        if unicodedata.category(c) != "Mn"
-    )
+    t = _DIACRITICOS.sub("", unicodedata.normalize("NFD", str(texto).lower()))
+    # Otras marcas combinantes (otros alfabetos) casi nunca aparecen; si lo
+    # hacen, se quitan igual que antes, mirando solo las letras distintas.
+    raras = {c for c in set(t) if unicodedata.category(c) == "Mn"}
+    return "".join(c for c in t if c not in raras) if raras else t
 
 
 def puntuar_genero(texto):
