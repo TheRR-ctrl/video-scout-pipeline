@@ -19,6 +19,25 @@ Lo que hay que contar al proponerlo:
 Descartar algo también es un resultado válido; lo que no vale es no haber
 mirado.
 
+## Al terminar cada cambio: los comandos para actualizar el teléfono
+
+Pedido por el dueño del proyecto: **cada vez que se termine una
+actualización del código, cerrar con el bloque de Termux para ponerla en el
+teléfono**, listo para copiar y pegar, aunque sea el mismo de siempre. Lo
+normal:
+
+```bash
+cd ~/video-scout-pipeline && git pull
+pkill -f servidor.py; panel
+```
+
+(`panel` lo crea `instalar_panel.sh`; si se usa la app de Android, basta con
+cerrarla y volver a abrirla después del `git pull`.) Si el cambio trae algo
+más —una dependencia nueva (`pip install …`), volver a correr
+`instalar_panel.sh`, vaciar una caché—, va en el mismo bloque y en el orden
+en que hay que hacerlo. Y solo cuando el cambio ya esté en `main`: antes de
+mergear, `git pull` no trae nada.
+
 ## El contexto real
 
 Todo esto se maneja desde un teléfono Android con Termux, sin PC. Eso manda
