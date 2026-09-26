@@ -938,7 +938,8 @@ def credenciales():
         # archivo; el material que ya está en el teléfono no depende de
         # ninguna. Y lo que hayas añadido tú también es opcional por
         # definición: el proyecto de serie no lo usa.
-        opcional = (clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY", "PIXABAY_API_KEY")
+        opcional = (clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY", "PIXABAY_API_KEY",
+                              "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET")
                     or clave not in secretos.CLAVES_CONOCIDAS)
         out.append({"nombre": clave, "ok": tiene, "origen": origen,
                     "opcional": opcional})

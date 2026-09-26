@@ -2259,7 +2259,8 @@ function bloqueConectar(cr){
   const faltan = conectarCache.servicios.filter(s=>s.obligatoria && !s.puesta).length
                + conectarCache.autorizaciones.filter(a=>!a.ok && a.archivo==='youtube_token.json').length;
   const otras = (cr||[]).filter(c=>!conectarCache.servicios.some(s=>s.clave===c.nombre)
-                                && !conectarCache.autorizaciones.some(a=>a.archivo===c.nombre));
+                                && !conectarCache.autorizaciones.some(a=>a.archivo===c.nombre)
+                                && c.nombre !== 'client_secret.json');
   return `
     ${faltan ? `<div class="aviso warn"><span>▸</span><div>Falta${faltan>1?'n':''} ${faltan} para que el pipeline funcione solo.
       En cada una: saca la clave con el enlace, cópiala, vuelve aquí y pulsa «Pegar». Se prueba sola antes de guardarse.</div></div>` : ''}

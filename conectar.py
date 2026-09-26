@@ -78,7 +78,8 @@ SERVICIOS = {
 AUTORIZACIONES = {
     "youtube_token.json": {
         "nombre": "Subir a YouTube",
-        "para": "Permiso para subir videos a tu canal. Sin él no se publica nada.",
+        "para": "Permiso para subir videos a tu canal. Sin él no se publica nada. "
+                "La misma orden te pide antes el client_secret.json si falta.",
         "orden": "python generar_youtube_token.py",
     },
     "tiktok_token.json": {
