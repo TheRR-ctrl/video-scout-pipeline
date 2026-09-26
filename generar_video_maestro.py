@@ -17,6 +17,7 @@ from datetime import datetime, timedelta
 from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFont
 
+import almacen
 import hyperframes_broll
 import narrador   # género de quien narra: decide la voz del video
 
@@ -2317,13 +2318,10 @@ def guardar_resultado_lote(completados, fallidas, avisar=False):
         todos = sorted(conservados + completados,
                        key=lambda v: (v.get("numero") or 0, v.get("ruta") or ""))
 
-        tmp = ruta_resultado + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({
-                "completados": todos,
-                "fallidas": [{"numero": n, "error": e} for n, e in fallidas],
-            }, f, ensure_ascii=False, indent=2)
-        os.replace(tmp, ruta_resultado)
+        almacen.guardar(ruta_resultado, {
+            "completados": todos,
+            "fallidas": [{"numero": n, "error": e} for n, e in fallidas],
+        })
 
         if avisar and conservados:
             logger.info(f"resultado_lote.json: {len(conservados)} video(s) de corridas anteriores conservados.")

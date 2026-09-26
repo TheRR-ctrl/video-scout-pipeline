@@ -37,6 +37,7 @@ import logging
 import argparse
 from datetime import datetime
 
+import almacen
 import titulos
 
 logger = logging.getLogger("partir_historias")
@@ -329,10 +330,7 @@ def _cliente_gemini():
 
 
 def _escribir_guion(bloques):
-    tmp = RUTA_GUION + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(("\n" + SEPARADOR + "\n").join(bloques) + "\n")
-    os.replace(tmp, RUTA_GUION)
+    almacen.escribir_texto(RUTA_GUION, ("\n" + SEPARADOR + "\n").join(bloques) + "\n")
 
 
 def main(argv=None):

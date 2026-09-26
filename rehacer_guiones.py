@@ -52,6 +52,7 @@ from google.genai import types as genai_types
 from google.genai import errors as genai_errors
 
 import script_writer
+import almacen
 
 SEPARADOR = "\n\n===NUEVA_HISTORIA===\n"
 
@@ -188,8 +189,7 @@ def main():
             fallidas.append(i)
 
         # Se guarda en cada vuelta para que una caída no borre lo avanzado.
-        with open(script_writer.RUTA_GUION, "w", encoding="utf-8") as f:
-            f.write(SEPARADOR.join(bloques))
+        almacen.escribir_texto(script_writer.RUTA_GUION, SEPARADOR.join(bloques))
         time.sleep(1)
 
     logger.info(f"\n✅ Listo: {total - len(fallidas)}/{total} historia(s) en el formato actual.")

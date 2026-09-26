@@ -17,7 +17,8 @@ localhost y Chrome corre en el mismo dispositivo, sí lo alcanza aunque
 esté en otra app.
 """
 import os
-import json
+
+import almacen   # escritura atómica de las credenciales
 
 from google_auth_oauthlib.flow import InstalledAppFlow
 
@@ -71,9 +72,7 @@ def construir_client_secret_interactivo():
             "redirect_uris": ["http://localhost"],
         }
     }
-    with open(RUTA_CLIENT_SECRET, "w", encoding="utf-8") as f:
-        json.dump(datos, f, indent=2)
-    os.chmod(RUTA_CLIENT_SECRET, 0o600)
+    almacen.guardar(RUTA_CLIENT_SECRET, datos, privado=True)
     print(f"\n✅ {os.path.basename(RUTA_CLIENT_SECRET)} creado.\n")
 
 
@@ -85,8 +84,7 @@ def main():
     print("Abre este link en tu navegador (Chrome) y autoriza el acceso:\n")
     creds = flow.run_local_server(port=0, open_browser=False)
 
-    with open(RUTA_TOKEN, "w", encoding="utf-8") as f:
-        f.write(creds.to_json())
+    almacen.escribir_texto(RUTA_TOKEN, creds.to_json(), privado=True)
 
     print(f"✅ Token guardado en {RUTA_TOKEN}")
     print("   Copia el contenido de ese archivo al secret YOUTUBE_TOKEN en GitHub.")

@@ -26,11 +26,13 @@ import re
 import sys
 import glob
 import json
+import shutil
 import argparse
 import contextlib
 from datetime import datetime
 
 import publisher
+import almacen
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
@@ -157,9 +159,8 @@ def main(argv=None):
 
     sello = datetime.now().strftime("%Y%m%d-%H%M%S")
     respaldo = f"{RUTA_GUION}.bak-{sello}"
-    os.replace(RUTA_GUION, respaldo)
-    with open(RUTA_GUION, "w", encoding="utf-8") as f:
-        f.write(("\n" + SEPARADOR + "\n").join(b for _, b in quedan) + "\n")
+    shutil.copy2(RUTA_GUION, respaldo)
+    almacen.escribir_texto(RUTA_GUION, ("\n" + SEPARADOR + "\n").join(b for _, b in quedan) + "\n")
 
     print(f"\n   ✓ Las {len(fuera)} quitada(s) quedan en {os.path.basename(RUTA_HISTORIAL_GUION)}")
     print(f"   ✓ Copia de la cola anterior en {os.path.basename(respaldo)}")

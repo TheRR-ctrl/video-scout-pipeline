@@ -406,8 +406,9 @@ def obtener_servicio_youtube():
                 )
             flow = InstalledAppFlow.from_client_secrets_file(RUTA_CLIENT_SECRET, SCOPES)
             creds = flow.run_local_server(port=0)
-        with open(RUTA_TOKEN, "w", encoding="utf-8") as f:
-            f.write(creds.to_json())
+        # Se reescribe en cada renovación: atómico, y en 600 como el resto
+        # de credenciales.
+        almacen.escribir_texto(RUTA_TOKEN, creds.to_json(), privado=True)
 
     return build("youtube", "v3", credentials=creds)
 
