@@ -2223,6 +2223,14 @@ const MANTENIMIENTO = [
   {accion:'limpiar_cola', que:'Quitar de la cola lo ya grabado', cmd:'limpiar_cola.py --si',
    nota:'Deja copia de la cola anterior. Las que quedan se renumeran.',
    aviso:AVISO_LIMPIAR_COLA},
+  {accion:'ver_partir', que:'Ver historias demasiado largas', cmd:'partir_historias.py',
+   nota:'Las que no caben en un short y esperan a que se abran los largos.', boton:'Ver'},
+  {accion:'partir', que:'Partirlas en varios shorts', cmd:'partir_historias.py --si',
+   nota:'2 a 4 partes seguidas, cortadas en suspenso. Deja copia de la cola.', boton:'Partir',
+   aviso:'Parte en varios shorts las historias que no caben en uno.\n\n'
+     + 'Reescribe guion.txt (deja copia, y las originales enteras en el historial). '
+     + 'Si hay historias ya grabadas detrás de una larga, antes las quita de la cola, '
+     + 'igual que «Limpiar»: si no, al renumerarse se volverían a grabar.'},
   {accion:'ver_recomprimir', que:'Ver videos que pesan de más', cmd:'recomprimir.py',
    nota:'Los hechos antes de fijar el preset actual.'},
   {accion:'recomprimir', que:'Recomprimir esos videos', cmd:'recomprimir.py --si',
@@ -2466,7 +2474,8 @@ function pintaAjustes(){
       </div>
       <div class="muted" style="margin-top:8px">Pone en la cola, en este orden:
         <b>revisar los videos</b> (mide lo renderizado), <b>limpiar la cola</b>
-        (quita las historias que ya tienen video, guardando copia) y
+        (quita las historias que ya tienen video, guardando copia),
+        <b>partir las historias largas</b> en varios shorts seguidos y
         <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
         quitar cualquiera a mitad.</div>
     </div>
@@ -2539,7 +2548,8 @@ function pintaAjustes(){
     if(!confirm('Se pondrán en la cola:\n\n'
       + '1. Revisar los videos renderizados\n'
       + '2. Quitar de la cola lo ya grabado (reescribe guion.txt, con copia)\n'
-      + '3. Cambiar la música que ya sonó\n\n¿Seguimos?')) return;
+      + '3. Partir en varios shorts las historias demasiado largas (también con copia)\n'
+      + '4. Cambiar la música que ya sonó\n\n¿Seguimos?')) return;
     try{
       const j = await post('/api/mantenimiento',{});
       const hechos = j.encolados.map(e=>e.nombre).join(', ');

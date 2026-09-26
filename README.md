@@ -87,6 +87,22 @@ schedule (cron, Termux, or GitHub Actions).
    vs. long-form isn't decided up front: it falls out of the finished
    narration's real duration (`duracion_max_short_sec`, default 180 s), so the
    script is never padded or trimmed to hit a format.
+
+   Long-form is gated, though (`formato.py`: until the channel reaches 500
+   subscribers), and a story that doesn't fit in a Short would otherwise just
+   wait in `guion.txt`. Instead **`partir_historias.py`** splits it into 2–4
+   consecutive Shorts titled "Parte N de M — …", each ending on "Sigue en la
+   parte N+1". `script_writer.py` splits new stories as it writes them; the
+   ones already queued are split from the panel (Ajustes → Mantenimiento, and
+   as a step of "Todo de una pasada"). The text is never rewritten: Gemini
+   only picks *between which sentences* to cut, aiming for a cliffhanger, and
+   without it the cut falls at equal lengths. The part marker goes at the
+   *front* of the title, because the video's filename is the title cut at 120
+   characters and `limpiar_cola.py` matches by filename — at the end, the cut
+   would eat it and the three parts would look like one. For the same reason
+   `publisher.py` forces "(Parte N/M)" onto the YouTube title instead of
+   leaving it to Gemini: it skips any upload whose title is already on the
+   channel.
 5. **`publisher.py`** — runs a technical + content quality check (Gemini free
    tier, with an automatic fallback description/hashtags if that check
    fails), then uploads the video to YouTube as **private**, scheduled to go

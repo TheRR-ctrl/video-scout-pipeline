@@ -103,7 +103,7 @@ def _apodo_de_archivo(nombre):
     return re.sub(r"^\d+_", "", sin_ext)
 
 
-def archivar_en_historial(bloques, cuando=None):
+def archivar_en_historial(bloques, cuando=None, motivo="Quitada de la cola"):
     """Agrega al historial las historias que salen de la cola.
 
     Se agrega, nunca se reescribe: este archivo es lo único que queda de un
@@ -117,7 +117,7 @@ def archivar_en_historial(bloques, cuando=None):
         for b in bloques:
             if hay_algo:
                 f.write("\n" + SEPARADOR + "\n")
-            f.write(f"# Quitada de la cola: {cuando}\n{b}")
+            f.write(f"# {motivo}: {cuando}\n{b}")
             hay_algo = True
         f.write("\n")
     return len(bloques)
