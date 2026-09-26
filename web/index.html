@@ -2763,9 +2763,12 @@ document.querySelectorAll('.tabs button').forEach(b=>{
 });
 refrescar();
 // Mientras algo corre conviene ver el avance; si no, no hace falta insistir.
+// Con la pestaña oculta (pantalla apagada durante un render, otra app) no se
+// pide nada: nadie lo está mirando, y al volver se pone al día en el acto.
 setInterval(()=>{ const j=E&&E.trabajo;
-  if(j && (j.estado==='corriendo'||j.estado==='pausado')) refrescar(); }, 1500);
-setInterval(refrescar, 12000);
+  if(!document.hidden && j && (j.estado==='corriendo'||j.estado==='pausado')) refrescar(); }, 1500);
+setInterval(()=>{ if(!document.hidden) refrescar(); }, 12000);
+document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refrescar(); });
 
 /* Latido: mientras la pestaña esté abierta, el servidor sabe que sigues
    aquí. Si deja de llegar (cerraste el panel), se apaga solo y suelta el
