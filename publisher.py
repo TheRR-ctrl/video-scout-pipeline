@@ -28,7 +28,7 @@ import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 from titulos import (recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE,
-                     parte_de_titulo, con_parte)
+                     parte_de_titulo, con_parte, sin_marca_de_parte)
 
 from google import genai
 from google.genai import types as genai_types
@@ -338,6 +338,29 @@ def metadata_para(video, client, almacen):
     return metadata
 
 
+def en_orden_de_serie(videos):
+    """Las partes de una misma historia en su orden, sin mover nada más.
+
+    Se sube por número de historia, y el número es la posición en guion.txt,
+    que cambia con cada limpieza de la cola. Si la parte 1 se graba hoy y una
+    limpieza renumera antes de grabar las otras dos, esas pueden quedar con
+    un número menor y subirse antes. Aquí cada serie se reordena dentro de
+    los huecos que ya ocupaba, y todo lo demás se queda donde estaba.
+    """
+    huecos = {}
+    for pos, v in enumerate(videos):
+        parte = parte_de_titulo(v.get("titulo"))
+        if parte:
+            huecos.setdefault((sin_marca_de_parte(v["titulo"]), parte[1]), []).append(pos)
+    resultado = list(videos)
+    for posiciones in huecos.values():
+        en_orden = sorted((videos[p] for p in posiciones),
+                          key=lambda v: parte_de_titulo(v["titulo"])[0])
+        for p, v in zip(posiciones, en_orden):
+            resultado[p] = v
+    return resultado
+
+
 def metadata_de_respaldo(video):
     """Metadata genérica pero funcional, usada solo cuando revisar_y_generar_metadata
     falla (red, cuota de la API, etc.) — para no dejar el video sin subir por
@@ -610,7 +633,8 @@ def main(forzar_datos=False):
     almacen_metadata = cargar_json(RUTA_METADATA, {})
     rutas_ya_procesadas = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
 
-    pendientes = [v for v in completados if v["ruta"] not in rutas_ya_procesadas]
+    pendientes = en_orden_de_serie(
+        [v for v in completados if v["ruta"] not in rutas_ya_procesadas])
     if not pendientes:
         logger.info("Todos los videos completados ya fueron procesados anteriormente.")
         return

@@ -120,6 +120,11 @@ def parte_de_titulo(titulo):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
+def sin_marca_de_parte(titulo):
+    """El título de la historia, sin el "Parte N de M — " de delante."""
+    return _PARTE.sub("", titulo or "")
+
+
 def con_parte(titulo_youtube, parte, limite=LIMITE_YOUTUBE):
     """El título de YouTube con "(Parte N/M)" al final, sin que se corte.
 

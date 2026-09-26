@@ -102,7 +102,9 @@ schedule (cron, Termux, or GitHub Actions).
    would eat it and the three parts would look like one. For the same reason
    `publisher.py` forces "(Parte N/M)" onto the YouTube title instead of
    leaving it to Gemini: it skips any upload whose title is already on the
-   channel.
+   channel. It also puts each series back in order before uploading, since
+   the queue number a part was rendered under shifts with every cleanup, and
+   `relanzar.py` never re-queues a single part on its own.
 5. **`publisher.py`** — runs a technical + content quality check (Gemini free
    tier, with an automatic fallback description/hashtags if that check
    fails), then uploads the video to YouTube as **private**, scheduled to go

@@ -357,10 +357,16 @@ recorte no llegue — delante del título, o recortando antes de añadirla.
   grabar, porque reconoce lo hecho por "NN_Titulo.mp4". Por eso esa pasada
   quita antes lo ya grabado, igual que `limpiar_cola.py`, y en la tanda de
   mantenimiento va justo detrás de la limpieza.
-- **El orden de publicación sale solo.** Las partes quedan seguidas en la
-  cola y el publicador sube por número. Lo que no se controla es
-  `max_subidas_por_corrida`: con una subida al día, una serie de tres tarda
-  tres días en salir entera.
+- **El orden de publicación no salía solo.** El publicador sube por número
+  de historia, y ese número es la posición en `guion.txt`, que cambia con
+  cada limpieza: si la parte 1 se graba hoy y una limpieza renumera antes
+  de grabar las otras dos, esas pueden quedar con número menor y subirse
+  antes. `publisher.en_orden_de_serie` reordena cada serie dentro de los
+  huecos que ya ocupaba. Lo que no se controla es `max_subidas_por_corrida`:
+  con una subida al día, una serie de tres tarda tres días en salir entera.
+- **`relanzar.py` deja las partes en paz.** La revisión quincenal borra
+  los videos sin vistas y devuelve la historia a la cola; con una parte,
+  la 2 volvería a subirse sola después de la 3.
 
 ### Filtrar el material de stock por lo que dice su ficha — VIABLE, a medias
 
