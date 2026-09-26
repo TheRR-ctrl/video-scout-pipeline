@@ -216,6 +216,18 @@ built in). Never commit `config_trends.json`, `config.json`,
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
+The easier way, on the phone: **Ajustes → Conectar servicios** in the panel.
+Each service (Gemini, YouTube search, Pexels, Pixabay, Jamendo) has a card
+saying what it's for, a link to the page where you get the key and the
+steps there; back in the panel, **📋 Pegar** reads the clipboard and the key
+is tested against the service *before* it's saved (`conectar.py`), so a
+wrong key says so right away — and says whether it's the key or an API
+that isn't enabled — instead of failing on the next render. If the service
+can't be reached it's saved anyway, with a warning. Keys go to
+`secretos.env` (mode 600), never to the command line. Upload permissions
+(`youtube_token.json`) are OAuth grants that can't be given from the panel;
+the card shows the one Termux command to run.
+
 ## The panel as an app
 
 The review panel (`servidor.py`, served at `http://127.0.0.1:8770`) can live

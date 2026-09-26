@@ -1726,6 +1726,47 @@ def api_secreto_valor(nombre):
     return jsonify({"nombre": nombre, "valor": valor})
 
 
+@app.get("/api/conectar")
+def api_conectar():
+    """Cada servicio con su enlace y sus pasos, y si ya está puesto. Sin
+    valores: solo cuatro letras de cada punta, para reconocer cuál es."""
+    import conectar
+    servicios = []
+    for clave, s in conectar.SERVICIOS.items():
+        valor = os.environ.get(clave, "")
+        servicios.append({"clave": clave, **{k: s[k] for k in ("nombre", "para", "obligatoria", "url", "pasos")},
+                          "puesta": bool(valor),
+                          "pista": (valor[:4] + "…" + valor[-4:]) if len(valor) > 10 else ""})
+    permisos = [{"archivo": a, **p, "ok": os.path.exists(os.path.join(BASE_DIR, a))}
+                for a, p in conectar.AUTORIZACIONES.items()]
+    return jsonify({"servicios": servicios, "autorizaciones": permisos})
+
+
+@app.post("/api/conectar/<clave>")
+def api_conectar_guardar(clave):
+    """Prueba la clave contra su servicio y solo la guarda si no la rechaza.
+
+    Si no se pudo preguntar (sin red, cuota agotada) se guarda igual y se
+    dice: una clave buena no puede quedarse fuera por un corte de wifi.
+    """
+    import conectar
+    if clave not in conectar.SERVICIOS:
+        return jsonify({"error": "Servicio desconocido"}), 404
+    valor = ((request.json or {}).get("valor") or "").strip().strip('"').strip("'")
+    formato = conectar.revisar_formato(clave, valor)
+    if formato and formato[0] == "error":
+        return jsonify({"error": formato[1]}), 400
+    prueba = conectar.probar(clave, valor)
+    if not prueba["ok"]:
+        return jsonify({"error": prueba["mensaje"]}), 400
+    try:
+        secretos.guardar(clave, valor)
+    except (ValueError, OSError) as exc:
+        return jsonify({"error": f"No se pudo guardar: {exc}"}), 500
+    return jsonify({"ok": True, "comprobada": prueba["comprobada"], "mensaje": prueba["mensaje"],
+                    "aviso": formato[1] if formato else None})
+
+
 @app.post("/api/secretos/<nombre>")
 def api_secreto_guardar(nombre):
     """Guarda una clave en secretos.env desde el panel.

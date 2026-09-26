@@ -2203,14 +2203,130 @@ function pintaTiktok(){
    AJUSTES
    ========================================================= */
 let secretosCache = [];
+// Conectar servicios: lo que devuelve /api/conectar, qué tarjetas están
+// abiertas para cambiar la clave y lo que llevas pegado en cada una. El
+// borrador vive aquí y no solo en el <input> porque Ajustes se repinta entero
+// y te borraría la clave a medio pegar.
+let conectarCache = null, cxAbierto = new Set(), cxBorrador = {}, cxNota = {};
 let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
 function firmaAjustes(){
-  return [JSON.stringify(E.material), JSON.stringify(E.credenciales),
+  const foco = document.activeElement;
+  if(foco && foco.matches && foco.matches('[data-cx-input]')) return firmas.ajustes;
+  return [JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto,
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
 }
+/* Conectar servicios, guiado: para qué sirve cada clave, un enlace a la página
+   donde se saca, pegar con un toque, y se prueba contra el servicio antes de
+   guardarla. Lo que no es una clave sino un permiso de OAuth (subir a
+   YouTube) no se puede conceder desde aquí: se enseña la orden de Termux
+   para copiarla. */
+function bloqueConectar(cr){
+  if(!conectarCache) return `<div class="muted">Cargando…</div>`;
+  const tarjeta = s => {
+    // Abierta: la que falta y hace falta, o la que pediste abrir. Las
+    // opcionales sin poner salen plegadas, o la lista no se acaba nunca.
+    const abierto = cxAbierto.has(s.clave) || (!s.puesta && s.obligatoria);
+    const nota = cxNota[s.clave];
+    return `
+    <div class="row" style="display:block">
+      <div style="display:flex;gap:8px;align-items:center">
+        <b style="flex-grow:1">${esc(s.nombre)}</b>
+        <span class="pill ${s.puesta?'ok':(s.obligatoria?'crit':'idle')}">${s.puesta?'conectado':(s.obligatoria?'falta':'opcional')}</span>
+      </div>
+      <div class="m" style="margin-top:3px">${esc(s.para)}</div>
+      ${!abierto ? `
+        <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+          <code class="m" style="flex-grow:1;font:11.5px var(--mono)">${esc(s.pista)}</code>
+          <button class="btn sm" data-cx-cambiar="${esc(s.clave)}">${s.puesta ? 'Cambiar' : 'Conectar'}</button>
+        </div>` : `
+        <ol class="m" style="margin:8px 0 8px 18px;padding:0">${s.pasos.map(p=>`<li>${esc(p)}</li>`).join('')}</ol>
+        <a class="btn sm" href="${esc(s.url)}" target="_blank" rel="noopener">1 · Sacar la clave ↗</a>
+        <div style="display:flex;gap:6px;margin-top:8px">
+          <input data-cx-input="${esc(s.clave)}" placeholder="2 · Pega aquí la clave" autocomplete="off"
+                 spellcheck="false" autocapitalize="off" value="${esc(cxBorrador[s.clave]||'')}" style="flex-grow:1;min-width:0">
+          <button class="btn sm" data-cx-pegar="${esc(s.clave)}" title="Pegar del portapapeles">📋 Pegar</button>
+        </div>
+        <div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">
+          <button class="btn go sm" data-cx-guardar="${esc(s.clave)}">3 · Probar y guardar</button>
+          ${cxAbierto.has(s.clave) ? `<button class="btn sm" data-cx-cancelar="${esc(s.clave)}">${s.puesta ? 'Dejar la que está' : 'Ahora no'}</button>` : ''}
+        </div>`}
+      ${nota ? `<div class="m" style="margin-top:7px;color:var(--${nota.ok?'ok':'crit'})">${esc(nota.texto)}</div>` : ''}
+    </div>`;
+  };
+  const faltan = conectarCache.servicios.filter(s=>s.obligatoria && !s.puesta).length
+               + conectarCache.autorizaciones.filter(a=>!a.ok && a.archivo==='youtube_token.json').length;
+  const otras = (cr||[]).filter(c=>!conectarCache.servicios.some(s=>s.clave===c.nombre)
+                                && !conectarCache.autorizaciones.some(a=>a.archivo===c.nombre));
+  return `
+    ${faltan ? `<div class="aviso warn"><span>▸</span><div>Falta${faltan>1?'n':''} ${faltan} para que el pipeline funcione solo.
+      En cada una: saca la clave con el enlace, cópiala, vuelve aquí y pulsa «Pegar». Se prueba sola antes de guardarse.</div></div>` : ''}
+    <div class="list">${conectarCache.servicios.map(tarjeta).join('')}</div>
+    <div class="list" style="margin-top:10px">${conectarCache.autorizaciones.map(a=>`
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:8px;align-items:center">
+          <b style="flex-grow:1">${esc(a.nombre)}</b>
+          <span class="pill ${a.ok?'ok':(a.archivo==='youtube_token.json'?'crit':'idle')}">${a.ok?'autorizado':(a.archivo==='youtube_token.json'?'falta':'opcional')}</span>
+        </div>
+        <div class="m" style="margin-top:3px">${esc(a.para)}</div>
+        ${a.ok ? '' : `<div class="m" style="margin-top:7px">Es un permiso que se concede en el navegador, una sola vez. En Termux:</div>
+          <div style="display:flex;gap:6px;align-items:center;margin-top:5px">
+            <code style="flex-grow:1;font:12px var(--mono)">${esc(a.orden)}</code>
+            <button class="btn sm" data-cx-copiar="${esc(a.orden)}">Copiar</button>
+          </div>`}
+      </div>`).join('')}</div>
+    ${otras.length ? `<div class="list" style="margin-top:10px">${otras.map(c=>`
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div class="t" style="font:12.5px var(--mono)">${esc(c.nombre)}</div>
+        <span class="pill ${c.ok?'ok':(c.opcional?'idle':'crit')}">${c.ok?'ok':(c.opcional?'opcional':'falta')}</span>
+      </div>`).join('')}</div>` : ''}`;
+}
+
+async function conectarGuardar(clave){
+  const valor = (cxBorrador[clave] || '').trim();
+  if(!valor){ cxNota[clave] = {ok:false, texto:'Primero pega la clave.'}; pintar(); return; }
+  cxNota[clave] = {ok:true, texto:'Probándola con el servicio…'}; pintar();
+  try{
+    const r = await post('/api/conectar/' + encodeURIComponent(clave), {valor});
+    // Guardada: la clave sale del panel. No tiene por qué quedarse a la vista.
+    delete cxBorrador[clave]; cxAbierto.delete(clave);
+    cxNota[clave] = {ok:true, texto:'✓ ' + r.mensaje + (r.aviso ? ' ' + r.aviso : '')};
+    conectarCache = null; secretosCache = []; refrescar();
+  }catch(e){ cxNota[clave] = {ok:false, texto:'✗ ' + e.message}; pintar(); }
+}
+
+function enlazarConectar(){
+  document.querySelectorAll('[data-cx-input]').forEach(i => i.oninput = ()=>{
+    cxBorrador[i.dataset.cxInput] = i.value;
+  });
+  document.querySelectorAll('[data-cx-cambiar]').forEach(b => b.onclick = ()=>{
+    cxAbierto.add(b.dataset.cxCambiar); delete cxNota[b.dataset.cxCambiar]; pintar();
+  });
+  document.querySelectorAll('[data-cx-cancelar]').forEach(b => b.onclick = ()=>{
+    const k = b.dataset.cxCancelar; cxAbierto.delete(k); delete cxBorrador[k]; delete cxNota[k]; pintar();
+  });
+  document.querySelectorAll('[data-cx-guardar]').forEach(b => b.onclick = ()=> conectarGuardar(b.dataset.cxGuardar));
+  // Pegar y probar de un toque: es lo que se hace nueve de cada diez veces.
+  // Si el navegador no deja leer el portapapeles, se deja el campo listo
+  // para pegar a mano con una pulsación larga.
+  document.querySelectorAll('[data-cx-pegar]').forEach(b => b.onclick = async ()=>{
+    const k = b.dataset.cxPegar;
+    let texto = '';
+    try{ texto = (await navigator.clipboard.readText()).trim(); }catch(e){}
+    if(!texto){
+      const campo = document.querySelector(`[data-cx-input="${k}"]`);
+      if(campo) campo.focus();
+      toast('Mantén pulsado el campo y elige «Pegar»');
+      return;
+    }
+    cxBorrador[k] = texto;
+    conectarGuardar(k);
+  });
+  document.querySelectorAll('[data-cx-copiar]').forEach(b => b.onclick = ()=> copiarPie(b, b.dataset.cxCopiar));
+}
+
 /* Las tareas de mantenimiento del panel. Cada una lleva su orden de Termux
    escrita al lado a propósito: el panel no siempre está a mano —un cron que
    falla se mira por SSH— y así la lista sirve de chuleta además de botón.
@@ -2353,13 +2469,8 @@ function pintaAjustes(){
       al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
       «Re-enlazar material» y clasifícalas aquí.</div>`}
 
-    <h3 class="sec">Credenciales</h3>
-    <div class="list">${cr.map(c=>`
-      <div class="row" style="grid-template-columns:1fr auto">
-        <div><div class="t" style="font:12.5px var(--mono)">${esc(c.nombre)}</div>
-          ${c.origen?`<div class="m">desde ${esc(c.origen)}</div>`:''}</div>
-        <span class="pill ${c.ok?'ok':(c.opcional?'idle':'crit')}">${c.ok?'ok':(c.opcional?'opcional':'falta')}</span>
-      </div>`).join('')}</div>
+    <h3 class="sec">Conectar servicios</h3>
+    ${bloqueConectar(cr)}
 
     <h3 class="sec">Copiar a los Secrets de GitHub</h3>
     <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
@@ -2520,6 +2631,7 @@ function pintaAjustes(){
     if(t.aviso && !confirm(t.aviso)) return;
     ejecutar(t.accion);
   });
+  enlazarConectar();
   const bApi = $('#b-api-nueva');
   if(bApi) bApi.onclick = async ()=>{
     const nota = $('#api-nota');
@@ -2728,6 +2840,9 @@ async function refrescar(){
     // Los secretos van aparte: el valor no viaja aquí, solo si están puestos.
     if(vistaActual() === 'ajustes' && !secretosCache.length){
       try{ secretosCache = await api('/api/secretos'); }catch(e){}
+    }
+    if(vistaActual() === 'ajustes' && !conectarCache){
+      try{ conectarCache = await api('/api/conectar'); }catch(e){}
     }
     pintar();
   }

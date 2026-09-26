@@ -413,3 +413,22 @@ todo el rato. El comentario de `generar_video_maestro.py` junto al `amix`
 explica por qué esos niveles son los que son. Añadiría una etapa de filtro
 y un `asplit` a cada render en la CPU del teléfono para una diferencia que
 no se oye.
+
+## 9. Conectar servicios desde el panel — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Poner una clave era saberse el nombre exacto de la
+variable, buscar por tu cuenta la página donde se saca, pegarla a ciegas y
+enterarse en el siguiente render de que no servía.
+
+**Qué se encontró.** `jthop/flask-api-key` y parecidos resuelven otro
+problema: autenticar a quien llama a *tu* API. `akdinesh2003/API-Key-Validator`
+prueba claves de otros servicios (OpenAI, AWS…) en una aplicación aparte.
+Ninguno encaja en un panel que ya existe y tiene que leerse a 412 px.
+
+**Qué se hizo.** `conectar.py`, ~200 líneas sin dependencias nuevas
+(`requests` ya estaba): un catálogo con para qué sirve cada clave, su enlace
+y sus pasos, y una prueba real contra cada servicio con la llamada más barata
+que tiene. Reutiliza `secretos.revisar_clave_api` para reconocer las
+credenciales equivocadas (un client secret de OAuth pegado como clave, por
+ejemplo). El panel lo enseña en Ajustes → Conectar servicios. Corre en
+Termux sin nada más.
