@@ -2098,7 +2098,14 @@ def renderizar_una_historia(contenido, num=1):
             "-filter_complex", fc, "-map", "[vout]", "-map", "[aout]"
         ]
 
-        flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest", "-progress", "pipe:1"]
+        # -t además de -shortest: el fondo y la música entran en bucle infinito
+        # (-stream_loop -1), y -shortest no siempre se respeta cuando las
+        # salidas pasan por un filter_complex (con el ffmpeg 6.1 de Ubuntu el
+        # render seguía a "100%" y pasó de 1 GB). La duración de la locución
+        # ya se conoce, así que el video no puede pasarse de ella nunca, sea
+        # cual sea la versión de ffmpeg que traiga Termux mañana.
+        flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest",
+                               "-t", f"{dur_sec:.3f}", "-progress", "pipe:1"]
         flags_gpu = ["-hwaccel", "cuda", "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "19"]
         # "ultrafast" sin -crf comprime fatal: sale un vertical de dos minutos
         # de 400 MB, que tarda horas en subirse y que la app de TikTok ni
