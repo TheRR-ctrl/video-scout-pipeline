@@ -301,6 +301,9 @@
   .aviso{display:flex;gap:10px;align-items:flex-start;background:var(--surface);
     border:1px solid var(--line);border-left:3px solid var(--accent);
     border-radius:0 9px 9px 0;padding:12px 14px;margin-bottom:16px;font-size:13.5px}
+  /* Sin esto, un texto que no se puede partir (un título largo con
+     ellipsis) ensancha el aviso y con él toda la página. */
+  .aviso > div{min-width:0}
   .aviso.warn{border-left-color:var(--warn)}
   .aviso.crit{border-left-color:var(--crit)}
 
@@ -1301,8 +1304,8 @@ function pintaCola(){
           <span class="n">${String(x.n).padStart(2,'0')}</span>
           <span class="t">${x.renderizada ? '🎬 ' : ''}${esc(x.titulo)}</span>
           <span class="m">${esc(x.emocion).slice(0,5)}</span>
-          <span class="m" style="white-space:nowrap" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
-            >${x.genero==='femenino'?'voz ♀':'voz ♂'}</span>
+          <span class="m" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
+            >${x.genero==='femenino'?'♀':'♂'}</span>
           <span class="m">${x.duracion}</span>
         </label>`).join('')}</div>
       <div class="list-foot">
