@@ -74,6 +74,14 @@
   .tabs button.on{color:var(--accent);background:var(--accent-soft);border-bottom-color:var(--accent)}
   .tabs .c{font:11px var(--mono);background:var(--surface-2);padding:1px 5px;border-radius:4px}
   .tabs button.on .c{background:color-mix(in srgb,var(--accent) 22%,transparent)}
+  /* En el teléfono las siete no caben en una fila, y rodando de lado Ajustes
+     quedaba fuera de la vista: quien no sabe que hay más no las busca. En
+     dos filas se ven todas de un vistazo. */
+  @media (max-width:520px){
+    .tabs{flex-wrap:wrap;overflow:visible;row-gap:2px;scroll-snap-type:none}
+    .tabs.mas{-webkit-mask-image:none;mask-image:none}
+    .tabs button{padding:7px 9px}
+  }
 
   .view{display:none} .view.on{display:block}
   h2{font-size:16px;font-weight:600;margin:0 0 3px;letter-spacing:-.01em}
@@ -101,6 +109,8 @@
   .pill.acc{color:var(--accent);background:var(--accent-soft)}
 
   .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+  details.mas{margin-top:22px;border-top:1px solid var(--line);padding-top:6px}
+  details.mas > summary{cursor:pointer;font:600 15px var(--body);padding:10px 0;color:var(--ink)}
   .card.siguiente{border-color:var(--accent);border-left-width:4px;margin-bottom:14px}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
   .muted{font-size:12.5px;color:var(--ink-dim);line-height:1.45}
@@ -354,7 +364,7 @@
     <button data-v="revisar" class="on">Revisar <span class="c" id="c-rev">0</span></button>
     <button data-v="cola">Cola <span class="c" id="c-col">0</span></button>
     <button data-v="estilo">Estilo</button>
-    <button data-v="publicados">Publicados <span class="c" id="c-pub">0</span></button>
+    <button data-v="publicados">Subidos <span class="c" id="c-pub">0</span></button>
     <button data-v="canal">Canal <span class="c" id="c-can">0</span></button>
     <button data-v="tiktok">TikTok <span class="c" id="c-tk">0</span></button>
     <button data-v="ajustes">Ajustes</button>
@@ -699,7 +709,7 @@ function pintaTira(){
   firmaTiraActual = f;
 
   const enc = document.querySelector('#v-revisar h2');
-  if(enc) enc.textContent = `${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}`;
+  if(enc) enc.textContent = `${v.length} video${v.length>1?'s':''} grabado${v.length>1?'s':''}`;
   const ley = document.querySelector('#v-revisar .leyenda');
   if(ley) ley.outerHTML = leyendaSubidos(v);
 
@@ -750,7 +760,7 @@ function pintaRevisar(){
   const subidos = v.filter(x => x.subido).length;
 
   cont.innerHTML = `
-    <h2>${v.length} video${v.length>1?'s':''} renderizado${v.length>1?'s':''}</h2>
+    <h2>${v.length} video${v.length>1?'s':''} grabado${v.length>1?'s':''}</h2>
     <p class="sub">Míralo aquí mismo — el archivo está en este teléfono. Toca el video para pantalla completa.</p>
     ${leyendaSubidos(v)}
     <div class="thumbs">${miniaturas(v)}</div>
@@ -1247,7 +1257,9 @@ function pintaCola(){
       </div>`;
     return;
   }
-  if(!tocado && !seleccion.size) h.slice(0,3).forEach(x=>seleccion.add(x.n));
+  // De entrada, las tres primeras que se pueden grabar tal cual: una larga
+  // marcada por defecto se aplazaría al grabar sin producir nada.
+  if(!tocado && !seleccion.size) h.filter(x=>!x.larga).slice(0,3).forEach(x=>seleccion.add(x.n));
   const pistas = E.musica || [];
   const elegidas = h.filter(x=>seleccion.has(x.n));
 
@@ -1262,7 +1274,7 @@ function pintaCola(){
   // no traer nada: la lista seguía enseñando las mismas de siempre.
   const esperando = E.candidatos || 0;
   cont.innerHTML = `
-    <h2>${h.length} historias listas para renderizar</h2>
+    <h2>${h.length === 1 ? 'Una historia' : h.length + ' historias'} en la cola</h2>
     ${!grabadas ? '' : `<p class="sub">${verGrabadas
       ? `Se ven también las ${grabadas} que ya tienen video.`
       : `${grabadas} más ya tienen video y no se enseñan.`}
@@ -1275,10 +1287,9 @@ function pintaCola(){
       <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
         >✍ Escribir guiones</button></div></div></div>`}
     ${bloquePartibles(h)}
-    <p class="sub">La numeración se conserva aunque pidas solo algunas: la historia 7 siempre genera <code style="font:12px var(--mono)">07_…</code></p>
     <div class="list">
       <div class="list-head">
-        <div><b>Elige qué renderizar</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
+        <div><b>Elige cuáles grabar</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn sm" id="q-todas">Todas</button>
           <button class="btn sm" id="q-ning">Ninguna</button>
@@ -1290,28 +1301,28 @@ function pintaCola(){
           <span class="n">${String(x.n).padStart(2,'0')}</span>
           <span class="t">${x.renderizada ? '🎬 ' : ''}${esc(x.titulo)}</span>
           <span class="m">${esc(x.emocion).slice(0,5)}</span>
-          <span class="m" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
-            >${x.genero==='femenino'?'♀':'♂'}</span>
+          <span class="m" style="white-space:nowrap" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
+            >${x.genero==='femenino'?'voz ♀':'voz ♂'}</span>
           <span class="m">${x.duracion}</span>
         </label>`).join('')}</div>
       <div class="list-foot">
-        <code class="equiv" id="equiv"></code>
+        <code class="equiv" id="equiv" style="display:none"></code>
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
           <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
           <button class="btn" title="Convierte en guion lo que encontraron los buscadores"
             onclick="ejecutar('guiones')">✍ Escribir guiones</button>
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
-          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Mantenimiento"
+          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"
             onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
-          <button class="btn go" id="b-render">▶ Renderizar</button>
+          <button class="btn go" id="b-render">▶ Grabar</button>
         </div>
       </div>
     </div>
 
     <h3 class="sec">Música de cada una</h3>
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
-      Ve a <b>Ajustes → Música</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
+      Ve a <b>Ajustes → Música y fondos</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
     : !elegidas.length ? `<div class="aviso"><span>·</span><div>Selecciona historias arriba para elegirles música.</div></div>`
     : `<p class="sub">Por omisión sale una al azar de la emoción que detectó el guion. Si eliges
        una a mano, óyela antes — así no descubres que no pegaba después de esperar el render.
@@ -1335,7 +1346,7 @@ function pintaCola(){
     $('#cuenta').textContent = `${seleccion.size} de ${h.length} seleccionadas`;
     $('#equiv').textContent = seleccion.size ? '--historias '+rangoTexto() : 'nada seleccionado';
     const b = $('#b-render');
-    b.textContent = seleccion.size ? `▶ Renderizar ${seleccion.size}` : '▶ Renderizar';
+    b.textContent = seleccion.size ? `▶ Grabar ${seleccion.size}` : '▶ Grabar';
     b.disabled = !seleccion.size;
   };
   cont.querySelectorAll('.row.sel').forEach(r=>{
@@ -1684,7 +1695,7 @@ function pintaPublicados(){
   const p = E.publicados;
   const porBorrar = p.filter(x=>x.dias_restantes!==null && x.dias_restantes<=2 && !x.borrado_local);
   $('#v-publicados').innerHTML = `
-    <h2>Publicados</h2>
+    <h2>Subidos</h2>
     <p class="sub">Los archivos se quedan 7 días en el teléfono tras subirse, para que te dé tiempo de pasarlos a TikTok.</p>
     ${(()=>{ const mal = p.filter(x=>x.programado_ok === false).length;
       return mal ? `<div class="aviso crit"><span>⛔</span><div>
@@ -2229,6 +2240,7 @@ let secretosCache = [];
 // abiertas para cambiar la clave y lo que llevas pegado en cada una. El
 // borrador vive aquí y no solo en el <input> porque Ajustes se repinta entero
 // y te borraría la clave a medio pegar.
+let masOpciones = false;  // ¿«Más opciones» abierto en Ajustes?
 let conectarCache = null, cxAbierto = new Set(), cxBorrador = {}, cxNota = {};
 let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
 function firmaAjustes(){
@@ -2356,7 +2368,7 @@ function enlazarConectar(){
    Las que cambian algo van con aviso; las que solo miran, sin él. */
 const MANTENIMIENTO = [
   {accion:'estado_cola', que:'Ver la cola', cmd:'trend_scout.py --estado',
-   nota:'Cuántas historias hay escritas y sin renderizar.'},
+   nota:'Cuántas historias hay escritas y sin grabar.'},
   {accion:'ver_limpiar_cola', que:'Ver qué sobra en la cola', cmd:'limpiar_cola.py',
    nota:'Las historias de la cola que ya tienen video hecho.'},
   {accion:'limpiar_cola', que:'Quitar de la cola lo ya grabado', cmd:'limpiar_cola.py --si',
@@ -2429,30 +2441,45 @@ function pintaAjustes(){
 
   $('#v-ajustes').innerHTML = `
     <h2>Ajustes</h2>
-    <p class="sub">Material, mezcla, credenciales y lo que se actualiza de vez en cuando.</p>
+    <p class="sub">Lo que se usa arriba. Lo demás está plegado en «Más opciones», al final.</p>
 
-    <h3 class="sec">Mezcla de audio</h3>
+    <h3 class="sec">Conectar servicios</h3>
+    ${bloqueConectar(cr)}
+
+    <h3 class="sec">Subida</h3>
     <div class="list">
-      <div class="row" style="grid-template-columns:1fr 190px">
-        <div><div>Música de fondo</div><div class="m">se guarda al soltar</div></div>
-        <div class="slider"><input type="range" data-aj="volumen_musica" min="0" max="30" step="1" value="${pct(aj.volumen_musica)}">
-          <span class="v">${pct(aj.volumen_musica)}%</span></div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
+        <button class="btn sm" id="b-wifi">${E.solo_wifi?'activado':'desactivado'}</button>
       </div>
-      <div class="row" style="grid-template-columns:1fr 190px">
-        <div><div>Narración</div><div class="m">bájala solo si satura</div></div>
-        <div class="slider"><input type="range" data-aj="volumen_locucion" min="10" max="100" step="5" value="${pct(aj.volumen_locucion)}">
-          <span class="v">${pct(aj.volumen_locucion)}%</span></div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Cambiar la música sola</div><div class="m">Después de cada tanda de renders, aparta
+          las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
+            : 'Hace falta la clave de Jamendo (Conectar servicios, arriba).'}</div></div>
+        <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
       </div>
-      <div class="row" style="grid-template-columns:1fr 190px">
-        <div><div>Efecto de transición</div><div class="m">el golpe tras la tarjeta</div></div>
-        <div class="slider"><input type="range" data-aj="volumen_sonido_transicion" min="0" max="100" step="5" value="${pct(aj.volumen_sonido_transicion)}">
-          <span class="v">${pct(aj.volumen_sonido_transicion)}%</span></div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Partir solas las historias largas</div><div class="m">Apagado, solo se parte la que
+          elijas con «✂ Partir» en la Cola. Encendido, las que no caben en un short se parten al
+          escribir el guion y en «Todo de una pasada».</div></div>
+        <button class="btn sm" id="b-partir-auto">${E.partir_auto?'activado':'desactivado'}</button>
       </div>
     </div>
-    <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
-      Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
 
-    <h3 class="sec">Material</h3>
+    <h3 class="sec">Poner todo al día</h3>
+    <div class="card" style="margin-bottom:14px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <h4 style="margin:0;font:500 13px var(--mono)">Todo de una pasada</h4>
+        <button class="btn go sm" id="b-mantenimiento">Hacerlo</button>
+      </div>
+      <div class="muted" style="margin-top:8px">Pone en la cola, en este orden:
+        <b>revisar los videos</b> (mide lo renderizado), <b>limpiar la cola</b>
+        (quita las historias que ya tienen video, guardando copia),
+        ${E.partir_auto ? '<b>partir las historias largas</b> en varios shorts seguidos y ' : ''}
+        <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
+        quitar cualquiera a mitad.</div>
+    </div>
+    <h3 class="sec">Música y fondos</h3>
     <div class="grid2">
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
@@ -2492,56 +2519,30 @@ function pintaAjustes(){
       al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
       «Re-enlazar material» y clasifícalas aquí.</div>`}
 
-    <h3 class="sec">Conectar servicios</h3>
-    ${bloqueConectar(cr)}
-
-    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
-    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
-      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
-         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
-    <div class="list">${secretosCache.map(s=>`
-      <div class="row" style="grid-template-columns:1fr auto auto">
-        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
-          <div class="m">${esc(s.pista)}</div></div>
-        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
-        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
-          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
-          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
-      </div>`).join('')}</div>
-
-    <h3 class="sec">Añadir una API nueva</h3>
-    <div class="list"><div class="row" style="display:block">
-      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
-        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
-        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
-      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
-             spellcheck="false" style="width:100%;margin-bottom:6px">
-      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
-             style="width:100%;margin-bottom:8px">
-      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
-      <button class="btn sm" id="b-api-nueva">Guardar</button>
-      <div class="m" id="api-nota" style="margin-top:8px"></div>
-    </div></div>
-
-    <h3 class="sec">Subida</h3>
+    <details class="mas" id="mas-opciones" ${masOpciones ? 'open' : ''}>
+      <summary>Más opciones</summary>
+      <p class="sub">Para ajustar a fondo: mezcla, fuentes, render, claves de GitHub y cada
+        tarea de mantenimiento por separado. No hace falta tocarlas para el uso diario.</p>
+    <h3 class="sec">Mezcla de audio</h3>
     <div class="list">
-      <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
-        <button class="btn sm" id="b-wifi">${E.solo_wifi?'activado':'desactivado'}</button>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Música de fondo</div><div class="m">se guarda al soltar</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_musica" min="0" max="30" step="1" value="${pct(aj.volumen_musica)}">
+          <span class="v">${pct(aj.volumen_musica)}%</span></div>
       </div>
-      <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Cambiar la música sola</div><div class="m">Después de cada tanda de renders, aparta
-          las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
-            : 'Hace falta la clave de Jamendo (Conectar servicios, arriba).'}</div></div>
-        <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Narración</div><div class="m">bájala solo si satura</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_locucion" min="10" max="100" step="5" value="${pct(aj.volumen_locucion)}">
+          <span class="v">${pct(aj.volumen_locucion)}%</span></div>
       </div>
-      <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Partir solas las historias largas</div><div class="m">Apagado, solo se parte la que
-          elijas con «✂ Partir» en la Cola. Encendido, las que no caben en un short se parten al
-          escribir el guion y en «Todo de una pasada».</div></div>
-        <button class="btn sm" id="b-partir-auto">${E.partir_auto?'activado':'desactivado'}</button>
+      <div class="row" style="grid-template-columns:1fr 190px">
+        <div><div>Efecto de transición</div><div class="m">el golpe tras la tarjeta</div></div>
+        <div class="slider"><input type="range" data-aj="volumen_sonido_transicion" min="0" max="100" step="5" value="${pct(aj.volumen_sonido_transicion)}">
+          <span class="v">${pct(aj.volumen_sonido_transicion)}%</span></div>
       </div>
     </div>
+    <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
+      Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
 
     <h3 class="sec">Fuentes</h3>
     <p class="sub" style="margin-top:-6px">Canales de YouTube y subreddits de Reddit que rastrean
@@ -2606,19 +2607,35 @@ function pintaAjustes(){
       </div>
     </div>` : ''}
 
-    <h3 class="sec">Mantenimiento</h3>
-    <div class="card" style="margin-bottom:14px">
-      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-        <h4 style="margin:0;font:500 13px var(--mono)">Todo de una pasada</h4>
-        <button class="btn go sm" id="b-mantenimiento">Hacerlo</button>
-      </div>
-      <div class="muted" style="margin-top:8px">Pone en la cola, en este orden:
-        <b>revisar los videos</b> (mide lo renderizado), <b>limpiar la cola</b>
-        (quita las historias que ya tienen video, guardando copia),
-        ${E.partir_auto ? '<b>partir las historias largas</b> en varios shorts seguidos y ' : ''}
-        <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
-        quitar cualquiera a mitad.</div>
-    </div>
+    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
+    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
+      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
+         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
+    <div class="list">${secretosCache.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
+          <div class="m">${esc(s.pista)}</div></div>
+        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
+        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
+          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
+          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
+      </div>`).join('')}</div>
+
+    <h3 class="sec">Añadir una API nueva</h3>
+    <div class="list"><div class="row" style="display:block">
+      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
+        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
+        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
+      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
+             spellcheck="false" style="width:100%;margin-bottom:6px">
+      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
+             style="width:100%;margin-bottom:8px">
+      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
+      <button class="btn sm" id="b-api-nueva">Guardar</button>
+      <div class="m" id="api-nota" style="margin-top:8px"></div>
+    </div></div>
+
+    <h3 class="sec">Tareas sueltas</h3>
     <p class="sub">Y de uno en uno, lo que si no habría que escribir a mano en Termux. Debajo de cada uno
       está la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
     <div class="list">${MANTENIMIENTO.map((t,i)=>`
@@ -2634,7 +2651,8 @@ function pintaAjustes(){
       <code style="font:11.5px var(--mono)">mover_salida.py "&lt;carpeta&gt;"</code>, que necesita
       que le escribas la ruta nueva, y
       <code style="font:11.5px var(--mono)">tiktok_publisher.py --marcar-subidos</code>, que te va
-      preguntando cuáles marcar.</div>`;
+      preguntando cuáles marcar.</div>
+    </details>`;
 
   // Sliders: se muestra en vivo, se guarda al soltar (un POST por pixel
   // arrastrado reescribiría config.json decenas de veces por segundo).
@@ -2661,6 +2679,8 @@ function pintaAjustes(){
     ejecutar(t.accion);
   });
   enlazarConectar();
+  const mas = $('#mas-opciones');
+  if(mas) mas.ontoggle = ()=>{ masOpciones = mas.open; };
   const bApi = $('#b-api-nueva');
   if(bApi) bApi.onclick = async ()=>{
     const nota = $('#api-nota');
@@ -2853,12 +2873,14 @@ function pintar(){
   // musicaElegida, y tienen que estar ya limpias de números que cambiaron
   // de dueño.
   olvidarLoQueSeRenumero();
-  $('#c-rev').textContent = E.videos.length;
-  $('#c-col').textContent = E.historias.filter(h=>!h.renderizada).length;
-  $('#c-pub').textContent = E.publicados.length;
+  // Un contador en 0 no dice nada y ocupa sitio en la tira: se esconde.
+  const contador = (id, n) => { const c = $(id); c.textContent = n; c.style.display = n ? '' : 'none'; };
+  contador('#c-rev', E.videos.filter(x=>!x.publicado).length);
+  contador('#c-col', E.historias.filter(h=>!h.renderizada).length);
+  contador('#c-pub', E.publicados.length);
   // En Canal el número que importa es lo que la revisión se llevaría.
-  $('#c-can').textContent = E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0;
-  $('#c-tk').textContent = (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0;
+  contador('#c-can', E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0);
+  contador('#c-tk', (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0);
   pintaJob();
   pintaColaTrabajos();
   pintaPaso();

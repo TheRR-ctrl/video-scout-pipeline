@@ -170,7 +170,7 @@ source off. Verify any `@handle` you add by opening it in a browser first — a
 handle that 404s silently wastes a run.
 
 Channels and subreddits can also be added or removed from the panel, in
-**Ajustes → Fuentes** — the panel checks a new channel against YouTube before
+**Ajustes → Más opciones → Fuentes** — the panel checks a new channel against YouTube before
 saving it (same 404-protection as above), and a new subreddit against Reddit
 the same way (one request per add; a 429 is let through unverified rather
 than blocking the add, since Reddit's RSS rate limit is stricter than a
@@ -364,7 +364,7 @@ supports them** — flipping neither changes today's output at all.
   hardware video encoder (`h264_mediacodec`, exposed because Termux's ffmpeg
   is built with `--enable-mediacodec`) before falling back to software
   `libx264`. Faster and easier on the battery when it works. Toggle it from
-  the panel (Ajustes → Render, only shown when the server detects Android)
+  the panel (Ajustes → Más opciones → Render, only shown when the server detects Android)
   rather than editing the file by hand — that's the fix if a phone's chip
   renders badly. The automatic CPU fallback only catches a hard failure
   (ffmpeg exits non-zero, or the file is empty); a chip that finishes fine

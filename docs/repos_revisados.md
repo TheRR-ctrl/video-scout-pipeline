@@ -97,7 +97,7 @@ lo intenta primero cuando `CONFIG["video"]["usar_chip_android"]` está en
 driver raro), la misma tanda cae sola a `libx264` sin perder el video. La
 clave vive en `config.json` bajo `"video"` (ver `config.example.json`) y por
 omisión está en `false`: el comportamiento de hoy no cambia para nadie que
-no toque nada. El panel (pestaña Ajustes → Render, solo visible cuando el
+no toque nada. El panel (pestaña Ajustes → Más opciones → Render, solo visible cuando el
 servidor detecta que corre en Android) trae un interruptor deslizante para
 encenderlo o apagarlo sin tocar `config.json` a mano — pensado exactamente
 para el caso de que el chip falle tan seguido que no valga la pena ni
@@ -184,7 +184,7 @@ el `@handle` público) solo sale de `channels().list`, no de `search().list`,
 así que hacen falta las dos llamadas — mismo patrón de dos pasos que
 `_detalles_de_videos` ya usa para las vistas.
 
-**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Fuentes, ver
+**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Más opciones → Fuentes, ver
 sesión de "canales/subreddits manuales") pedía copiar el `@handle` exacto
 desde el navegador — fácil de escribir mal desde el teclado del teléfono.
 Buscar por nombre y elegir de una lista quita ese paso.
