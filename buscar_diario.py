@@ -342,7 +342,7 @@ def main(argv=None):
                   else "sin red")
         print(f" WiFi      : {dice} — {porque}")
         if red is None and ip:
-            print(f"             Si estás en WiFi ahora: python buscar_diario.py --soy-wifi")
+            print("             Si estás en WiFi ahora: python buscar_diario.py --soy-wifi")
         print(f" Cola      : {len(cola.cargar_pendientes())} candidato(s) esperando guion")
         return
 

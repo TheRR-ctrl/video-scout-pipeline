@@ -55,6 +55,7 @@ import subprocess
 import requests
 
 import secretos  # carga secretos.env si las claves no están en el entorno
+import almacen   # escritura atómica del token
 import publisher  # se reutilizan sus rutas de estado y su lectura del lote
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
@@ -129,12 +130,10 @@ def cargar_token():
 
 
 def guardar_token(token):
-    with open(RUTA_TOKEN, "w", encoding="utf-8") as f:
-        json.dump(token, f, indent=2)
-    try:
-        os.chmod(RUTA_TOKEN, 0o600)  # guarda credenciales
-    except OSError:
-        pass
+    # Atómico: TikTok cambia el refresh token en cada renovación, así que un
+    # archivo cortado a medias no se arregla renovando, obliga a autorizar
+    # la app otra vez.
+    almacen.guardar(RUTA_TOKEN, token, privado=True)
 
 
 def token_valido(token=None):

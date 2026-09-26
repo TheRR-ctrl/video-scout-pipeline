@@ -72,7 +72,7 @@ de hardware del teléfono, que el ffmpeg de Termux expone porque está
 compilado con `--enable-mediacodec`. Más rápido y con menos batería que
 `libx264` por software. Vive apagado por omisión detrás de
 `CONFIG["video"]["usar_chip_android"]` en `config.json`, y se enciende o
-apaga desde el panel (Ajustes → Render, solo aparece en Android) sin tocar
+apaga desde el panel (Ajustes → Más opciones → Render, solo aparece en Android) sin tocar
 el archivo a mano.
 
 **El respaldo automático a CPU no cubre todo tipo de fallo.** Si

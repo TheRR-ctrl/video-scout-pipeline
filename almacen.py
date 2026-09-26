@@ -19,15 +19,30 @@ import os
 import json
 
 
-def guardar(ruta, datos):
-    """Escritura atómica. Crea la carpeta si hace falta."""
+def escribir_texto(ruta, texto, privado=False):
+    """Escritura atómica de un archivo de texto. Crea la carpeta si hace falta.
+
+    privado=True deja el archivo en 600 ANTES de ponerlo en su sitio: con un
+    chmod después del os.replace habría un instante con la credencial legible
+    por cualquier app.
+    """
     carpeta = os.path.dirname(ruta)
     if carpeta:
         os.makedirs(carpeta, exist_ok=True)
     tmp = ruta + ".tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
+        f.write(texto)
+    if privado:
+        try:
+            os.chmod(tmp, 0o600)
+        except OSError:
+            pass
     os.replace(tmp, ruta)
+
+
+def guardar(ruta, datos, privado=False):
+    """Escritura atómica de un json."""
+    escribir_texto(ruta, json.dumps(datos, ensure_ascii=False, indent=2), privado)
 
 
 def cargar(ruta, por_defecto):

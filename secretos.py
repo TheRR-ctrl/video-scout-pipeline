@@ -108,14 +108,10 @@ def guardar(clave, valor, ruta=RUTA_SECRETOS):
               if ln.strip().partition("=")[0].strip() != clave]
     lineas.append(f"{clave}={valor}")
 
-    tmp = ruta + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write("\n".join(lineas).strip() + "\n")
-    os.replace(tmp, ruta)
-    try:
-        os.chmod(ruta, 0o600)  # el archivo guarda credenciales
-    except OSError:
-        pass
+    # Atómico y en 600 desde antes de estar en su sitio: con el chmod después
+    # había un instante con las claves legibles por cualquier app.
+    import almacen
+    almacen.escribir_texto(ruta, "\n".join(lineas).strip() + "\n", privado=True)
 
     os.environ[clave] = valor
     _DESDE_ARCHIVO.add(clave)

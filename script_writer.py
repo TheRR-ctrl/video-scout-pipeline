@@ -19,6 +19,7 @@ import secretos  # carga secretos.env si las claves no están en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 import narrador  # comprobar que el género declarado casa con el texto escrito
 import cola      # cola de candidatos e historial compartidos con trend_scout.py
+import almacen   # escritura atómica de guion.txt
 import partir_historias  # la historia que no cabe en un short entra ya partida
 
 from google import genai
@@ -556,12 +557,9 @@ def escribir_guion(bloques):
     if contenido_previo:
         nuevo_contenido = contenido_previo + separador + nuevo_contenido
 
-    # Archivo temporal y os.replace: si el proceso muere a media escritura, el
-    # guion.txt de antes sigue entero en vez de quedar cortado por la mitad.
-    tmp = RUTA_GUION + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(nuevo_contenido)
-    os.replace(tmp, RUTA_GUION)
+    # Atómico: si el proceso muere a media escritura, el guion.txt de antes
+    # sigue entero en vez de quedar cortado por la mitad.
+    almacen.escribir_texto(RUTA_GUION, nuevo_contenido)
 
 
 def main(argv=None):

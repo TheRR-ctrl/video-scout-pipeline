@@ -27,6 +27,7 @@ import subprocess
 import threading
 import unicodedata
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 try:
     from flask import Flask, Response, request, jsonify, send_file, abort
@@ -52,6 +53,33 @@ CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
 ES_TERMUX = "PREFIX" in os.environ or os.path.exists("/sdcard")
 
 app = Flask(__name__, static_folder=None)
+
+# Escuchar solo en 127.0.0.1 no basta en un teléfono: cualquier página que
+# abras en Chrome puede mandar peticiones a 127.0.0.1. No puede leer la
+# respuesta, pero la petición llega, y aquí hay botones que publican, borran
+# videos del canal o reescriben la cola sin necesitar cuerpo. Dos cierres:
+#
+#  · El Host tiene que ser este dispositivo. Una web que haga que su dominio
+#    resuelva a 127.0.0.1 (DNS rebinding) sí podría leer las respuestas —
+#    /api/secretos incluido—, pero su petición llega con su nombre en Host.
+#  · Lo que cambia algo no se acepta desde otro origen. El navegador pone la
+#    cabecera Origin en esas peticiones y la página no puede falsearla.
+#
+# Con --host 0.0.0.0 el Host puede ser la IP de la red local, así que ese
+# cierre se abre; el del origen se mantiene.
+HOSTS_LOCALES = {"127.0.0.1", "localhost", "::1"}
+SOLO_HOSTS_LOCALES = [True]
+
+
+@app.before_request
+def _solo_desde_el_panel():
+    host = urlsplit("//" + (request.host or "")).hostname or ""
+    if SOLO_HOSTS_LOCALES[0] and host not in HOSTS_LOCALES:
+        abort(403)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origen = request.headers.get("Origin")
+        if origen is not None and origen != request.host_url.rstrip("/"):
+            abort(403)
 
 
 # =========================================================
@@ -401,6 +429,51 @@ def apodos_ya_grabados():
         return set()
 
 
+# Lo que se sabe de cada historia de la cola, por su texto. El panel pide el
+# estado cada segundo y medio, y decidir la voz de una historia recorre el
+# texto entero: con 60 en la cola eran ~120 ms de CPU por refresco en un PC,
+# varias veces más en el teléfono, con el panel simplemente abierto. Nada de
+# esto depende de otra cosa que el texto del bloque, así que se calcula una
+# vez por bloque; lo que sale de la cola se olvida en la siguiente vuelta.
+_FICHAS_HISTORIA = {}
+
+
+def _plan_de_corte(bloque):
+    """(larga, partes): si no cabe en un short, y en cuántas partes saldría
+    (0 si no cabe ni partida en el máximo)."""
+    try:
+        import partir_historias
+        plan = partir_historias.analizar(bloque)
+    except Exception:                              # noqa: BLE001 — informativo
+        return False, 0
+    return bool(plan), (plan or {}).get("partes", 0)
+
+
+def _ficha_historia(bloque, gvm, apodo_de):
+    ficha = _FICHAS_HISTORIA.get(bloque)
+    if ficha is None:
+        lineas = [
+            l.strip() for l in bloque.splitlines()
+            if l.strip() and not l.strip().startswith(("#", "===", "📌", "🎙️"))
+        ]
+        palabras = len(" ".join(lineas[1:]).split()) if len(lineas) > 1 else 0
+        segs = int(palabras / 2.6)   # ritmo típico de la narración generada
+        ficha = {
+            "titulo": lineas[0] if lineas else "(sin título)",
+            "emocion": gvm.detectar_emocion_historia(bloque),
+            # La voz con la que se va a narrar. Verla antes de renderizar
+            # ahorra descubrir en el video ya hecho que salió la contraria.
+            "genero": gvm.decidir_genero_narrador(bloque),
+            "duracion": f"{segs // 60}:{segs % 60:02d}",
+            "palabras": palabras,
+            "apodo": apodo_de(bloque) if apodo_de else None,
+        }
+        # Las que no caben en un short, para ofrecer partirlas en la Cola.
+        ficha["larga"], ficha["partes"] = _plan_de_corte(bloque)
+        _FICHAS_HISTORIA[bloque] = ficha
+    return ficha
+
+
 def historias_del_guion():
     if not os.path.exists(RUTA_GUION):
         return []
@@ -417,27 +490,16 @@ def historias_del_guion():
 
     out = []
     for i, b in enumerate(bloques, 1):
-        lineas = [
-            l.strip() for l in b.splitlines()
-            if l.strip() and not l.strip().startswith(("#", "===", "📌", "🎙️"))
-        ]
-        titulo = lineas[0] if lineas else "(sin título)"
-        palabras = len(" ".join(lineas[1:]).split()) if len(lineas) > 1 else 0
-        segs = int(palabras / 2.6)   # ritmo típico de la narración generada
-        out.append({
-            "n": i,
-            "titulo": titulo,
-            "emocion": gvm.detectar_emocion_historia(b),
-            # La voz con la que se va a narrar. Verla antes de renderizar
-            # ahorra descubrir en el video ya hecho que salió la contraria.
-            "genero": gvm.decidir_genero_narrador(b),
-            "duracion": f"{segs // 60}:{segs % 60:02d}",
-            "palabras": palabras,
-            # La cola enseña lo que falta por grabar. Lo ya grabado sigue en
-            # guion.txt (limpiar_cola es quien lo saca, y lo pasa al
-            # historial), pero en la lista solo estorba.
-            "renderizada": bool(apodo_de and apodo_de(b) in grabados),
-        })
+        ficha = dict(_ficha_historia(b, gvm, apodo_de))
+        apodo = ficha.pop("apodo")
+        # La cola enseña lo que falta por grabar. Lo ya grabado sigue en
+        # guion.txt (limpiar_cola es quien lo saca, y lo pasa al historial),
+        # pero en la lista solo estorba.
+        out.append({"n": i, **ficha, "renderizada": bool(apodo and apodo in grabados)})
+
+    vivos = set(bloques)
+    for b in [b for b in _FICHAS_HISTORIA if b not in vivos]:
+        del _FICHAS_HISTORIA[b]
     return out
 
 
@@ -889,7 +951,8 @@ def credenciales():
         # archivo; el material que ya está en el teléfono no depende de
         # ninguna. Y lo que hayas añadido tú también es opcional por
         # definición: el proyecto de serie no lo usa.
-        opcional = (clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY", "PIXABAY_API_KEY")
+        opcional = (clave in ("JAMENDO_CLIENT_ID", "PEXELS_API_KEY", "PIXABAY_API_KEY",
+                              "TIKTOK_CLIENT_KEY", "TIKTOK_CLIENT_SECRET")
                     or clave not in secretos.CLAVES_CONOCIDAS)
         out.append({"nombre": clave, "ok": tiene, "origen": origen,
                     "opcional": opcional})
@@ -906,7 +969,82 @@ def credenciales():
 # =========================================================
 # API
 # =========================================================
+def siguiente_paso(credenciales, historias, videos, candidatos, trabajo):
+    """Lo que toca hacer ahora, para quien no se sabe el orden del pipeline.
+
+    Devuelve None mientras algo corre (ya se ve en su tarjeta). Si no, un
+    dict con el texto y lo que hace el botón: "accion" (una de ACCIONES, o
+    renderizar) o "ir" (una pestaña del panel).
+    """
+    if trabajo and trabajo.estado in ("corriendo", "pausado"):
+        return None
+    tiene = {c["nombre"]: c["ok"] for c in credenciales}
+    if not tiene.get("GEMINI_API_KEY"):
+        return {"titulo": "Conecta Gemini", "boton": "Conectar", "ir": "ajustes",
+                "detalle": "Es lo que escribe los guiones. Es gratis y lleva un minuto: "
+                           "sacas la clave con el enlace y la pegas."}
+
+    sin_revisar = [v for v in videos if not v.get("publicado")]
+    if sin_revisar and not tiene.get("youtube_token.json"):
+        return {"titulo": "Autoriza la subida a YouTube", "boton": "Ver cómo", "ir": "ajustes",
+                "detalle": f"Hay {len(sin_revisar)} video(s) listos, pero sin ese permiso no se "
+                           "pueden subir. Se concede una sola vez."}
+    if sin_revisar:
+        n = len(sin_revisar)
+        return {"titulo": f"Revisa {n} video{'s' if n > 1 else ''}", "boton": "Revisar", "ir": "revisar",
+                "detalle": "Míralos antes de que se suban. Si alguno no te convence, lo rehaces o lo borras."}
+
+    pendientes = [h for h in historias if not h.get("renderizada")]
+    caben = [h for h in pendientes if not h.get("larga")]
+    if caben:
+        n = len(caben)
+        return {"titulo": f"Graba {n} historia{'s' if n > 1 else ''}", "boton": "Grabar",
+                "accion": "renderizar", "historias": ",".join(str(h["n"]) for h in caben),
+                "detalle": "Convierte los guiones en video. Tarda unos minutos cada uno; "
+                           "puedes salir del panel mientras."}
+    partibles = [h for h in pendientes if h.get("partes", 0) > 1]
+    if partibles:
+        return {"titulo": "Hay historias demasiado largas", "boton": "Verlas", "ir": "cola",
+                "detalle": "No caben en un short y no se graban tal cual. Puedes partirlas "
+                           "en varios shorts seguidos desde la Cola."}
+    if candidatos:
+        return {"titulo": f"Escribe {candidatos} guion{'es' if candidatos > 1 else ''}",
+                "boton": "Escribir", "accion": "guiones",
+                "detalle": "Hay historias encontradas esperando. Gemini las convierte en guiones."}
+    return {"titulo": "Busca historias nuevas", "boton": "Buscar", "accion": "buscar",
+            "detalle": "Mira Reddit por historias que funcionen en un short."
+                       + (" Las que siguen en la cola no caben ni partidas; esperan a los largos."
+                          if pendientes else "")}
+
+
+# El resumen del canal compara cada video subido con todos los demás para
+# encontrar repetidos, y solo cambia cuando cambia algo en pipeline_state/ (o
+# el token, por los permisos). Se rehace entonces, o pasado un minuto, que es
+# lo que tarda en moverse la cuenta de días que usan las marcas.
+_RESUMEN_CANAL = {"firma": None, "cuando": 0.0, "datos": None}
+
+
+def _firma_estado():
+    try:
+        estado = max((e.stat().st_mtime for e in os.scandir(CARPETA_ESTADO)), default=0)
+    except OSError:
+        estado = 0
+    try:
+        token = os.path.getmtime(os.path.join(BASE_DIR, "youtube_token.json"))
+    except OSError:
+        token = 0
+    return (estado, token)
+
+
 def resumen_canal():
+    firma, ahora = _firma_estado(), time.time()
+    c = _RESUMEN_CANAL
+    if c["datos"] is None or c["firma"] != firma or ahora - c["cuando"] > 60:
+        c.update(datos=_resumen_canal(), firma=firma, cuando=ahora)
+    return c["datos"]
+
+
+def _resumen_canal():
     """Cómo le va al canal, sin tocar la red.
 
     Todo sale de archivos: las vistas de pipeline_state/vistas.json (las dejó
@@ -1046,6 +1184,8 @@ def tiktok_resumen():
 def api_estado():
     import generar_video_maestro as gvm
     cfg = cfg_actual()
+    historias, videos, cr = historias_del_guion(), videos_renderizados(), credenciales()
+    candidatos = len(cola.cargar_pendientes())
     publicados = leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), [])
 
     ahora = datetime.now(timezone.utc)
@@ -1077,11 +1217,11 @@ def api_estado():
         })
 
     return jsonify({
-        "historias": historias_del_guion(),
-        "videos": videos_renderizados(),
+        "historias": historias,
+        "videos": videos,
         "publicados": pubs,
         "material": material(),
-        "credenciales": credenciales(),
+        "credenciales": cr,
         "subtitulos": cfg["subtitulos"],
         "presets": list(gvm.PRESETS_SUBTITULOS.keys()),
         # Los estilos propios y con qué se arma el formulario del panel. Las
@@ -1099,6 +1239,7 @@ def api_estado():
         "es_android": gvm.ES_ANDROID,
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
+        "partir_auto": bool(cfg.get("partir_automatico", False)),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
         "musica": pistas_musica(),
@@ -1115,7 +1256,8 @@ def api_estado():
         # Lo que los buscadores dejaron esperando guion. Sin esto, el panel
         # enseña las historias de guion.txt y nada más: los candidatos que
         # trajo Reddit se quedan en candidatos.json sin que se note.
-        "candidatos": len(cola.cargar_pendientes()),
+        "candidatos": candidatos,
+        "siguiente": siguiente_paso(cr, historias, videos, candidatos, TRABAJO["actual"]),
         "hechos": list(TRABAJO["hechos"]),
         "fuentes": fuentes_actuales(),
     })
@@ -1209,6 +1351,12 @@ def api_ejecutar(accion):
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando",
                                   cmd, luego="musica_rotar")
+    elif accion == "partir_una":
+        n = (request.json or {}).get("numero")
+        if not isinstance(n, int) or n < 1:
+            return jsonify({"error": "Falta el número de historia"}), 400
+        t, encolado, err = lanzar(f"Partiendo la historia {n}",
+                                  [sys.executable, "partir_historias.py", "--solo", str(n), "--si"])
     elif accion == "regenerar_metadata":
         # Volver a preguntarle a Gemini por UN video. --forzar porque el
         # botón solo aparece cuando ya la estás mirando: pedirlo ahí es
@@ -1240,6 +1388,11 @@ def api_ejecutar(accion):
 TANDA_MANTENIMIENTO = ["calidad", "limpiar_cola", "partir", "musica_rotar"]
 
 
+def _partir_automatico():
+    import partir_historias
+    return partir_historias.automatico()
+
+
 @app.post("/api/mantenimiento")
 def api_mantenimiento():
     """Encola de una vez las tareas de mantenimiento.
@@ -1254,6 +1407,10 @@ def api_mantenimiento():
         if accion == "musica_rotar" and not _toca_encadenar("musica_rotar"):
             saltados.append({"accion": accion, "motivo":
                              "sin JAMENDO_CLIENT_ID o con la rotación apagada"})
+            continue
+        if accion == "partir" and not _partir_automatico():
+            # Partir es decisión tuya salvo que actives el modo automático:
+            # la tanda no lo hace por su cuenta.
             continue
         nombre, cmd = ACCIONES[accion]
         tareas.append((nombre, cmd))
@@ -1488,6 +1645,15 @@ def api_musica_auto():
     return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
 
 
+@app.post("/api/partir/auto")
+def api_partir_auto():
+    """Enciende o apaga el corte automático de las historias largas."""
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["partir_automatico"] = bool((request.json or {}).get("auto", False))
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "auto": cfg["partir_automatico"]})
+
+
 @app.post("/api/tiktok/marcar")
 def api_tiktok_marcar():
     """Da por subidos los videos que el usuario ya publicó a mano en TikTok."""
@@ -1648,6 +1814,47 @@ def api_secreto_valor(nombre):
             return jsonify({"error": f"{ref} no está configurada"}), 404
 
     return jsonify({"nombre": nombre, "valor": valor})
+
+
+@app.get("/api/conectar")
+def api_conectar():
+    """Cada servicio con su enlace y sus pasos, y si ya está puesto. Sin
+    valores: solo cuatro letras de cada punta, para reconocer cuál es."""
+    import conectar
+    servicios = []
+    for clave, s in conectar.SERVICIOS.items():
+        valor = os.environ.get(clave, "")
+        servicios.append({"clave": clave, **{k: s[k] for k in ("nombre", "para", "obligatoria", "url", "pasos")},
+                          "puesta": bool(valor),
+                          "pista": (valor[:4] + "…" + valor[-4:]) if len(valor) > 10 else ""})
+    permisos = [{"archivo": a, **p, "ok": os.path.exists(os.path.join(BASE_DIR, a))}
+                for a, p in conectar.AUTORIZACIONES.items()]
+    return jsonify({"servicios": servicios, "autorizaciones": permisos})
+
+
+@app.post("/api/conectar/<clave>")
+def api_conectar_guardar(clave):
+    """Prueba la clave contra su servicio y solo la guarda si no la rechaza.
+
+    Si no se pudo preguntar (sin red, cuota agotada) se guarda igual y se
+    dice: una clave buena no puede quedarse fuera por un corte de wifi.
+    """
+    import conectar
+    if clave not in conectar.SERVICIOS:
+        return jsonify({"error": "Servicio desconocido"}), 404
+    valor = ((request.json or {}).get("valor") or "").strip().strip('"').strip("'")
+    formato = conectar.revisar_formato(clave, valor)
+    if formato and formato[0] == "error":
+        return jsonify({"error": formato[1]}), 400
+    prueba = conectar.probar(clave, valor)
+    if not prueba["ok"]:
+        return jsonify({"error": prueba["mensaje"]}), 400
+    try:
+        secretos.guardar(clave, valor)
+    except (ValueError, OSError) as exc:
+        return jsonify({"error": f"No se pudo guardar: {exc}"}), 500
+    return jsonify({"ok": True, "comprobada": prueba["comprobada"], "mensaje": prueba["mensaje"],
+                    "aviso": formato[1] if formato else None})
 
 
 @app.post("/api/secretos/<nombre>")
@@ -1983,6 +2190,7 @@ def main():
     parser.add_argument("--abrir", action="store_true",
                         help="Abrir el navegador automáticamente al arrancar.")
     args = parser.parse_args()
+    SOLO_HOSTS_LOCALES[0] = args.host in ("127.0.0.1", "localhost", "::1")
 
     # Android suspende los procesos en segundo plano. Al cambiar de Termux a
     # Chrome el servidor se congela y el navegador ve "conexión rechazada",

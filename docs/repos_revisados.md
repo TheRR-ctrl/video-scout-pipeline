@@ -97,7 +97,7 @@ lo intenta primero cuando `CONFIG["video"]["usar_chip_android"]` está en
 driver raro), la misma tanda cae sola a `libx264` sin perder el video. La
 clave vive en `config.json` bajo `"video"` (ver `config.example.json`) y por
 omisión está en `false`: el comportamiento de hoy no cambia para nadie que
-no toque nada. El panel (pestaña Ajustes → Render, solo visible cuando el
+no toque nada. El panel (pestaña Ajustes → Más opciones → Render, solo visible cuando el
 servidor detecta que corre en Android) trae un interruptor deslizante para
 encenderlo o apagarlo sin tocar `config.json` a mano — pensado exactamente
 para el caso de que el chip falle tan seguido que no valga la pena ni
@@ -184,7 +184,7 @@ el `@handle` público) solo sale de `channels().list`, no de `search().list`,
 así que hacen falta las dos llamadas — mismo patrón de dos pasos que
 `_detalles_de_videos` ya usa para las vistas.
 
-**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Fuentes, ver
+**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Más opciones → Fuentes, ver
 sesión de "canales/subreddits manuales") pedía copiar el `@handle` exacto
 desde el navegador — fácil de escribir mal desde el teclado del teléfono.
 Buscar por nombre y elegir de una lista quita ese paso.
@@ -350,9 +350,12 @@ recorte no llegue — delante del título, o recortando antes de añadirla.
   de YouTube por su cuenta: el publicador no sube un video cuyo título ya
   está en el canal, y Gemini escribe títulos parecidos para las partes de
   una misma historia.
-- **Dos vías.** `script_writer.py` parte las historias nuevas al
-  escribirlas (se añaden al final de `guion.txt`, no renumeran nada). Las
-  que ya estaban en la cola se parten desde el panel, y ahí sí se
+- **Solo si el dueño lo decide.** Por omisión nada se parte solo: cada
+  historia larga tiene su botón «✂ Partir» en la Cola. El modo automático
+  (`partir_automatico`, apagado por omisión) hace que además
+  `script_writer.py` parta las nuevas al escribirlas (se añaden al final de
+  `guion.txt`, no renumeran nada) y que la tanda de mantenimiento parta las
+  de la cola. Partir las que ya estaban en la cola sí
   renumera: si detrás hay historias ya grabadas, el render las volvería a
   grabar, porque reconoce lo hecho por "NN_Titulo.mp4". Por eso esa pasada
   quita antes lo ya grabado, igual que `limpiar_cola.py`, y en la tanda de
@@ -413,3 +416,22 @@ todo el rato. El comentario de `generar_video_maestro.py` junto al `amix`
 explica por qué esos niveles son los que son. Añadiría una etapa de filtro
 y un `asplit` a cada render en la CPU del teléfono para una diferencia que
 no se oye.
+
+## 9. Conectar servicios desde el panel — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Poner una clave era saberse el nombre exacto de la
+variable, buscar por tu cuenta la página donde se saca, pegarla a ciegas y
+enterarse en el siguiente render de que no servía.
+
+**Qué se encontró.** `jthop/flask-api-key` y parecidos resuelven otro
+problema: autenticar a quien llama a *tu* API. `akdinesh2003/API-Key-Validator`
+prueba claves de otros servicios (OpenAI, AWS…) en una aplicación aparte.
+Ninguno encaja en un panel que ya existe y tiene que leerse a 412 px.
+
+**Qué se hizo.** `conectar.py`, ~200 líneas sin dependencias nuevas
+(`requests` ya estaba): un catálogo con para qué sirve cada clave, su enlace
+y sus pasos, y una prueba real contra cada servicio con la llamada más barata
+que tiene. Reutiliza `secretos.revisar_clave_api` para reconocer las
+credenciales equivocadas (un client secret de OAuth pegado como clave, por
+ejemplo). El panel lo enseña en Ajustes → Conectar servicios. Corre en
+Termux sin nada más.
