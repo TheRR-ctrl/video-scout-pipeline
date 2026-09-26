@@ -1984,7 +1984,13 @@ def renderizar_una_historia(contenido, num=1):
 
         act_gra(33.3)
         a_loc = gestor.registrar(f"a_loc_{num}.m4a")
-        subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", a_tit, "-i", a_cue, "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[aout]", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k", a_loc])
+        res_loc = subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-i", a_tit, "-i", a_cue, "-filter_complex", "[0:a][1:a]concat=n=2:v=0:a=1[aout]", "-map", "[aout]", "-c:a", "aac", "-b:a", "192k", a_loc],
+                                 capture_output=True, text=True, encoding="utf-8", errors="replace")
+        # Sin esto, un fallo aquí aparecía mucho después como un render final
+        # roto, que además se reintentaba entero por CPU antes de rendirse.
+        if res_loc.returncode != 0 or not archivo_valido(a_loc):
+            raise RuntimeError("No se pudo juntar la locución del título y la del cuerpo: "
+                               + ((res_loc.stderr or "").strip().splitlines() or ["sin detalle"])[-1])
 
         act_gra(66.6)
         s_ass = gestor.registrar(f"s_ass_{num}.ass")
@@ -2203,7 +2209,15 @@ def renderizar_una_historia(contenido, num=1):
 
         actualizar_hud([f"{txt_ren} [100.0%] [{'█'*anch}]", ""], True)
         
-        if ES_ANDROID: subprocess.run(["am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", f"file://{ruta_out}"], capture_output=True)
+        if ES_ANDROID:
+            # Solo para que salga en la galería. Va antes de dar el video por
+            # hecho, así que no puede ni colgarse ni tumbarlo: si fallara, un
+            # video terminado quedaría sin registrar y se volvería a grabar.
+            try:
+                subprocess.run(["am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                                "-d", f"file://{ruta_out}"], capture_output=True, timeout=20)
+            except (OSError, subprocess.TimeoutExpired) as exc:
+                logger.warning(f"No se avisó a la galería del video {num} ({exc}); el video está bien.")
         print(f"✅ ¡Video {num} completado!: {os.path.basename(ruta_out)}")
         logger.info(f"Video {num} completado: {ruta_out} ({dur_sec:.1f}s, {emocion})")
         return {
