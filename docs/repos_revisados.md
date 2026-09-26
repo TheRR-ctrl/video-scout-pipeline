@@ -288,3 +288,97 @@ workflow en cada push, y se compiló antes de subirlo (SDK 35, AGP 8.7.3).
 Que Termux acepte el intent en un teléfono de verdad solo se ve instalándolo
 — es la misma trampa que `VERSION_CLI` de HyperFrames: sin Android delante,
 subir la versión es apostar.
+
+## 8. Revisión de septiembre de 2026 — una idea que vale la pena, una a medias, una descartada
+
+Tres cosas salieron del uso real esta semana: una historia de 937 palabras
+que el log del teléfono marca como `Video 1 aplazado: ~6.0 min estimados`
+porque los largos siguen bloqueados (93 de 500 suscriptores, ver
+`formato.py`); una advertencia de YouTube por "seguridad infantil" causada
+por un clip de fondo de stock, no por la narración; y la duda de si la
+música debería bajar sola bajo la voz.
+
+### Partir historias largas en partes — LA IDEA SÍ, EL CÓDIGO NO (pendiente de decidir)
+
+**Qué se encontró.** `TerzicScript/shorts-flow` parte una historia en
+"Parte 1, Parte 2…" a partir de una duración objetivo;
+`Subset28/shorts-pipeline` tiene un `split --parts N`. Los dos parten el
+**video ya renderizado**, ninguno documenta cómo elige el punto de corte, y
+ninguno tiene archivo de licencia — así que su código no se puede tomar
+aunque se quisiera.
+
+**Corre en Termux.** `shorts-flow` no: depende de Kokoro y faster-whisper,
+que es torch. `shorts-pipeline` recomienda Docker. La idea, en cambio, no
+necesita nada nuevo.
+
+**Cómo encajaría aquí.** Partiendo el **texto antes del TTS**, no el video
+después: cortar un video a mitad de frase es peor que elegir el corte en el
+guion. Gemini ya hace algo parecido en `script_writer.py`
+(`segmentar_transcripcion`), pero con otro contrato: aquella separa
+anécdotas *distintas* de un podcast, esto partiría *una* historia en tramos
+seguidos terminados en suspenso. Se copiaría el patrón (prompt + esquema
+JSON), no la función.
+
+**Por qué vale la pena.** Los números del propio canal, en `formato.py`:
+48 shorts sumaron 29.000 vistas y 18 largos, 43. Hoy una historia larga se
+queda en `guion.txt` sin producir nada hasta los 500 suscriptores; partida
+en tres, saldría ya en el formato que funciona.
+
+**La restricción que decide el diseño.** El nombre del archivo sale del
+título (`n_arch`, recortado a 120 caracteres) y `limpiar_cola.py` empareja
+por ese nombre sin el número delante. Si las partes solo se distinguen por
+un "(Parte 2 de 3)" al final de un título largo, el recorte se lo come, las
+tres partes quedan con el mismo apodo, y al grabarse la primera la limpieza
+borraría las otras dos de la cola. La marca de parte tiene que ir donde el
+recorte no llegue — delante del título, o recortando antes de añadirla.
+
+**Mantenimiento.** Un prompt y un esquema nuevos en `script_writer.py`, y
+el orden de publicación (la parte 2 no puede salir antes que la 1). Es una
+decisión de contenido además de código, así que queda planteada al dueño
+del proyecto antes de escribir nada.
+
+### Filtrar el material de stock por lo que dice su ficha — VIABLE, a medias
+
+**Qué se encontró.** Los servicios de detección de menores en imagen
+(Sightengine y parecidos) son APIs de pago en la nube, y las herramientas
+libres de detección de caras (OpenScrub y similares) piden GPU. Nada de eso
+cabe aquí.
+
+**Lo que sí hay, sin coste.** Las dos fuentes describen cada clip en texto:
+Pixabay devuelve un campo `tags` ("girl, driving, truck"), y en la
+respuesta de búsqueda de Pexels la `url` de la página lleva un slug
+descriptivo (`https://www.pexels.com/video/video-of-forest-1448735/`); su
+campo `tags` viene vacío. Ese slug ya se guarda hoy, como `pagina`, en
+`pipeline_state/fondos_atribucion.json`. Rechazar al buscar los clips cuya
+ficha nombra personas (child, kid, girl, boy, baby, teen, woman, man,
+people, driver…) son unas veinte líneas en `descargar_fondos.py`, sin
+dependencias, y el mismo filtro pasado sobre `fondos_atribucion.json`
+señalaría los clips ya descargados que habría que borrar del teléfono.
+
+**Por qué "a medias".** Es un filtro por palabras sobre lo que escribió
+quien subió el clip, no una revisión de la imagen: un clip titulado
+"woman driving" puede mostrar a una menor, y uno sin personas en el título
+puede tenerlas. Reduce el riesgo, no lo elimina. Para las fichas antiguas
+de Pixabay, `fondos_atribucion.json` no guardó los `tags`, así que la
+revisión retroactiva solo cubre bien lo que vino de Pexels.
+
+**Lo que ya se hizo.** El PR que quitó del tema `carretera` las búsquedas
+que devolvían gente al volante ataca la causa directa; esto sería la red
+por debajo, para cualquier tema.
+
+**Licencia.** No aplica — son las mismas APIs que ya se usan, dentro de sus
+términos.
+
+### Bajar la música bajo la voz con `sidechaincompress` — DESCARTADO
+
+**Qué se encontró.** Es un filtro que trae ffmpeg de serie, así que
+correría en Termux, y varios proyectos lo usan (umbral ≈0.02–0.05, ratio
+8–10, ataque 50 ms, liberación 400–500 ms), siempre con `asplit=2` sobre la
+voz para usarla a la vez de llave y de mezcla.
+
+**Por qué no.** Aquí no hay nada que bajar: la música va a `volumen_musica`
+0.04 contra la locución a 0.5, con `normalize=0` — diez veces por debajo
+todo el rato. El comentario de `generar_video_maestro.py` junto al `amix`
+explica por qué esos niveles son los que son. Añadiría una etapa de filtro
+y un `asplit` a cada render en la CPU del teléfono para una diferencia que
+no se oye.
