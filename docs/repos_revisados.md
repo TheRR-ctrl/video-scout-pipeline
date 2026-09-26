@@ -298,7 +298,7 @@ porque los largos siguen bloqueados (93 de 500 suscriptores, ver
 por un clip de fondo de stock, no por la narración; y la duda de si la
 música debería bajar sola bajo la voz.
 
-### Partir historias largas en partes — LA IDEA SÍ, EL CÓDIGO NO (pendiente de decidir)
+### Partir historias largas en partes — SE ADOPTÓ LA IDEA, NO EL CÓDIGO
 
 **Qué se encontró.** `TerzicScript/shorts-flow` parte una historia en
 "Parte 1, Parte 2…" a partir de una duración objetivo;
@@ -332,10 +332,41 @@ tres partes quedan con el mismo apodo, y al grabarse la primera la limpieza
 borraría las otras dos de la cola. La marca de parte tiene que ir donde el
 recorte no llegue — delante del título, o recortando antes de añadirla.
 
-**Mantenimiento.** Un prompt y un esquema nuevos en `script_writer.py`, y
-el orden de publicación (la parte 2 no puede salir antes que la 1). Es una
-decisión de contenido además de código, así que queda planteada al dueño
-del proyecto antes de escribir nada.
+**Cómo quedó.** El dueño del proyecto eligió hacerlo, y vive en
+`partir_historias.py`:
+
+- **Gemini no reescribe, solo elige dónde cortar.** Recibe las frases
+  numeradas con las palabras acumuladas y devuelve los números de frase
+  donde termina cada parte, buscando el suspenso. Si falla, no hay clave o
+  los cortes no cumplen los límites, se corta a partes iguales. Lo que se
+  publica es palabra por palabra lo que ya estaba escrito.
+- **Cuándo se parte.** Cuando el cuerpo pasa de lo que cabe en un short
+  (`DURACION_MAX_SHORT_SEC` × `PALABRAS_POR_SEGUNDO`, 468 palabras con 180 s)
+  y los largos están bloqueados. Cada parte llena como mucho el 80%, para
+  el título leído y el error de la estimación. Más de cuatro partes ya no
+  se parte: espera a los largos.
+- **La marca de parte va delante del título** ("Parte 2 de 3 — …"), por la
+  restricción de arriba, y `publisher.py` pone "(Parte 2/3)" en el título
+  de YouTube por su cuenta: el publicador no sube un video cuyo título ya
+  está en el canal, y Gemini escribe títulos parecidos para las partes de
+  una misma historia.
+- **Dos vías.** `script_writer.py` parte las historias nuevas al
+  escribirlas (se añaden al final de `guion.txt`, no renumeran nada). Las
+  que ya estaban en la cola se parten desde el panel, y ahí sí se
+  renumera: si detrás hay historias ya grabadas, el render las volvería a
+  grabar, porque reconoce lo hecho por "NN_Titulo.mp4". Por eso esa pasada
+  quita antes lo ya grabado, igual que `limpiar_cola.py`, y en la tanda de
+  mantenimiento va justo detrás de la limpieza.
+- **El orden de publicación no salía solo.** El publicador sube por número
+  de historia, y ese número es la posición en `guion.txt`, que cambia con
+  cada limpieza: si la parte 1 se graba hoy y una limpieza renumera antes
+  de grabar las otras dos, esas pueden quedar con número menor y subirse
+  antes. `publisher.en_orden_de_serie` reordena cada serie dentro de los
+  huecos que ya ocupaba. Lo que no se controla es `max_subidas_por_corrida`:
+  con una subida al día, una serie de tres tarda tres días en salir entera.
+- **`relanzar.py` deja las partes en paz.** La revisión quincenal borra
+  los videos sin vistas y devuelve la historia a la cola; con una parte,
+  la 2 volvería a subirse sola después de la 3.
 
 ### Filtrar el material de stock por lo que dice su ficha — VIABLE, a medias
 

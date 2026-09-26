@@ -27,7 +27,8 @@ from datetime import datetime, timedelta, timezone
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
-from titulos import recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE
+from titulos import (recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE,
+                     parte_de_titulo, con_parte, sin_marca_de_parte)
 
 from google import genai
 from google.genai import types as genai_types
@@ -236,19 +237,34 @@ def revisar_y_generar_metadata(client, titulo, cuerpo):
     ser la red de seguridad, no el camino normal.
     """
     prompt = f"Título/hook: {titulo}\n\nCuerpo:\n{cuerpo[:3000]}"
+    limite = LIMITE_YOUTUBE
+
+    # Una historia partida (ver partir_historias.py): sin avisar, una parte
+    # que empieza o acaba a mitad puede parecerle un texto roto. Y el
+    # "(Parte N/M)" lo pone con_parte al final, no Gemini, así que su título
+    # tiene que dejarle sitio.
+    parte = parte_de_titulo(titulo)
+    if parte:
+        limite -= largo_youtube(f"(Parte {parte[0]}/{parte[1]})") + 1
+        prompt = (
+            f"Es la parte {parte[0]} de {parte[1]} de una historia publicada en varios "
+            f"shorts seguidos: que empiece o acabe a mitad es a propósito, no un texto "
+            f"roto. No pongas «Parte» en el título: se añade solo, y el título entero "
+            f"no puede pasar de {limite} caracteres.\n\n{prompt}"
+        )
 
     for intento in range(1, INTENTOS_TITULO + 1):
         metadata = _pedir_metadata(client, prompt)
         propuesto = limpiar_titulo(metadata.get("titulo_youtube", ""))
         largo = largo_youtube(propuesto)
 
-        if largo <= LIMITE_YOUTUBE:
-            metadata["titulo_youtube"] = propuesto
+        if largo <= limite:
+            metadata["titulo_youtube"] = con_parte(propuesto, parte)
             if intento > 1:
                 logger.info(f"  Título dentro del límite al intento {intento}: {largo} caracteres.")
             return metadata
 
-        sobran = largo - LIMITE_YOUTUBE
+        sobran = largo - limite
         logger.warning(
             f"  Intento {intento}: el título tiene {largo} caracteres, "
             f"{sobran} de más. Pidiendo uno más corto."
@@ -257,13 +273,15 @@ def revisar_y_generar_metadata(client, titulo, cuerpo):
             # Se agotaron los reintentos: se devuelve tal cual y el recorte
             # por palabras se encarga. Nunca se sube un título largo.
             logger.warning("  Gemini no consiguió acortarlo; se recortará por palabras.")
+            if parte:
+                metadata["titulo_youtube"] = con_parte(propuesto, parte)
             return metadata
 
         prompt = (
             f"{prompt}\n\n"
             f"--- CORRECCIÓN ---\n"
             f"El título que propusiste tiene {largo} caracteres y el máximo son "
-            f"{LIMITE_YOUTUBE}: te sobran {sobran}.\n"
+            f"{limite}: te sobran {sobran}.\n"
             f"Era: «{propuesto}»\n"
             f"Reescríbelo entero para que quepa, apuntando a 70-90 caracteres. No lo "
             f"cortes ni le pongas puntos suspensivos: quita o resume lo menos importante "
@@ -320,6 +338,29 @@ def metadata_para(video, client, almacen):
     return metadata
 
 
+def en_orden_de_serie(videos):
+    """Las partes de una misma historia en su orden, sin mover nada más.
+
+    Se sube por número de historia, y el número es la posición en guion.txt,
+    que cambia con cada limpieza de la cola. Si la parte 1 se graba hoy y una
+    limpieza renumera antes de grabar las otras dos, esas pueden quedar con
+    un número menor y subirse antes. Aquí cada serie se reordena dentro de
+    los huecos que ya ocupaba, y todo lo demás se queda donde estaba.
+    """
+    huecos = {}
+    for pos, v in enumerate(videos):
+        parte = parte_de_titulo(v.get("titulo"))
+        if parte:
+            huecos.setdefault((sin_marca_de_parte(v["titulo"]), parte[1]), []).append(pos)
+    resultado = list(videos)
+    for posiciones in huecos.values():
+        en_orden = sorted((videos[p] for p in posiciones),
+                          key=lambda v: parte_de_titulo(v["titulo"])[0])
+        for p, v in zip(posiciones, en_orden):
+            resultado[p] = v
+    return resultado
+
+
 def metadata_de_respaldo(video):
     """Metadata genérica pero funcional, usada solo cuando revisar_y_generar_metadata
     falla (red, cuota de la API, etc.) — para no dejar el video sin subir por
@@ -327,10 +368,12 @@ def metadata_de_respaldo(video):
     contenido de Gemini, solo cubre su ausencia: el técnico ya pasó antes."""
     emocion = video.get("emocion", "drama")
     hashtags = HASHTAGS_DE_RESPALDO_POR_EMOCION.get(emocion, ["historias"]) + ["reddit", "shorts"]
+    titulo = video.get("titulo") or "Historia de Reddit"
+    parte = parte_de_titulo(titulo)
     return {
         "aprobado": True,
         "motivo_rechazo": "",
-        "titulo_youtube": recortar_titulo(video.get("titulo") or "Historia de Reddit"),
+        "titulo_youtube": con_parte(titulo, parte) if parte else recortar_titulo(titulo),
         "descripcion_youtube": (
             "Historia real adaptada de Reddit, narrada en español.\n\n"
             "¿Tú qué hubieras hecho? Cuéntamelo en los comentarios 👇"
@@ -590,7 +633,8 @@ def main(forzar_datos=False):
     almacen_metadata = cargar_json(RUTA_METADATA, {})
     rutas_ya_procesadas = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
 
-    pendientes = [v for v in completados if v["ruta"] not in rutas_ya_procesadas]
+    pendientes = en_orden_de_serie(
+        [v for v in completados if v["ruta"] not in rutas_ya_procesadas])
     if not pendientes:
         logger.info("Todos los videos completados ya fueron procesados anteriormente.")
         return

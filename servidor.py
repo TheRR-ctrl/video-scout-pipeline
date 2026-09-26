@@ -1161,6 +1161,8 @@ ACCIONES = {
     "probar_clave_gemini": ("Probando la clave de Gemini", [sys.executable, "script_writer.py", "--probar-clave"]),
     "ver_limpiar_cola": ("Viendo qué sobra en la cola", [sys.executable, "limpiar_cola.py"]),
     "limpiar_cola": ("Quitando de la cola lo ya grabado", [sys.executable, "limpiar_cola.py", "--si"]),
+    "ver_partir": ("Buscando historias demasiado largas", [sys.executable, "partir_historias.py"]),
+    "partir": ("Partiendo historias largas en shorts", [sys.executable, "partir_historias.py", "--si"]),
     "ver_recomprimir": ("Buscando videos que pesan de más", [sys.executable, "recomprimir.py"]),
     "recomprimir": ("Recomprimiendo videos", [sys.executable, "recomprimir.py", "--si"]),
     "recomprimir_limpiar": ("Borrando temporales de recompresión", [sys.executable, "recomprimir.py", "--limpiar"]),
@@ -1231,9 +1233,11 @@ def api_ejecutar(accion):
 
 # La tanda de mantenimiento: lo que hay que hacer de vez en cuando y que, por
 # separado, se olvida. Van en este orden a propósito — medir antes de tocar
-# nada, limpiar la cola después (usa lo medido para saber qué está grabado) y
-# rotar la música al final, que es lo único que baja megas.
-TANDA_MANTENIMIENTO = ["calidad", "limpiar_cola", "musica_rotar"]
+# nada, limpiar la cola después (usa lo medido para saber qué está grabado),
+# partir las historias largas justo detrás (con la cola recién limpia, meter
+# partes no renumera nada ya grabado) y rotar la música al final, que es lo
+# único que baja megas.
+TANDA_MANTENIMIENTO = ["calidad", "limpiar_cola", "partir", "musica_rotar"]
 
 
 @app.post("/api/mantenimiento")
