@@ -27,6 +27,7 @@ import subprocess
 import threading
 import unicodedata
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 
 try:
     from flask import Flask, Response, request, jsonify, send_file, abort
@@ -52,6 +53,33 @@ CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
 ES_TERMUX = "PREFIX" in os.environ or os.path.exists("/sdcard")
 
 app = Flask(__name__, static_folder=None)
+
+# Escuchar solo en 127.0.0.1 no basta en un teléfono: cualquier página que
+# abras en Chrome puede mandar peticiones a 127.0.0.1. No puede leer la
+# respuesta, pero la petición llega, y aquí hay botones que publican, borran
+# videos del canal o reescriben la cola sin necesitar cuerpo. Dos cierres:
+#
+#  · El Host tiene que ser este dispositivo. Una web que haga que su dominio
+#    resuelva a 127.0.0.1 (DNS rebinding) sí podría leer las respuestas —
+#    /api/secretos incluido—, pero su petición llega con su nombre en Host.
+#  · Lo que cambia algo no se acepta desde otro origen. El navegador pone la
+#    cabecera Origin en esas peticiones y la página no puede falsearla.
+#
+# Con --host 0.0.0.0 el Host puede ser la IP de la red local, así que ese
+# cierre se abre; el del origen se mantiene.
+HOSTS_LOCALES = {"127.0.0.1", "localhost", "::1"}
+SOLO_HOSTS_LOCALES = [True]
+
+
+@app.before_request
+def _solo_desde_el_panel():
+    host = urlsplit("//" + (request.host or "")).hostname or ""
+    if SOLO_HOSTS_LOCALES[0] and host not in HOSTS_LOCALES:
+        abort(403)
+    if request.method not in ("GET", "HEAD", "OPTIONS"):
+        origen = request.headers.get("Origin")
+        if origen is not None and origen != request.host_url.rstrip("/"):
+            abort(403)
 
 
 # =========================================================
@@ -2031,6 +2059,7 @@ def main():
     parser.add_argument("--abrir", action="store_true",
                         help="Abrir el navegador automáticamente al arrancar.")
     args = parser.parse_args()
+    SOLO_HOSTS_LOCALES[0] = args.host in ("127.0.0.1", "localhost", "::1")
 
     # Android suspende los procesos en segundo plano. Al cambiar de Termux a
     # Chrome el servidor se congela y el navegador ve "conexión rechazada",
