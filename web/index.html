@@ -101,6 +101,7 @@
   .pill.acc{color:var(--accent);background:var(--accent-soft)}
 
   .card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px}
+  .card.siguiente{border-color:var(--accent);border-left-width:4px;margin-bottom:14px}
   .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:9px}
   .muted{font-size:12.5px;color:var(--ink-dim);line-height:1.45}
   code.cmd{display:block;font:11.5px var(--mono);background:var(--surface-2);
@@ -361,6 +362,7 @@
 </div></div>
 
 <div class="wrap">
+  <div id="paso-slot"></div>
   <div id="job-slot"></div>
   <div id="cola-slot"></div>
 
@@ -737,10 +739,8 @@ function pintaRevisar(){
   if(!v.length){
     cont.innerHTML = `
       <h2>Nada que revisar todavía</h2>
-      <p class="sub">Cuando renderices, cada video aparece aquí para verlo y aprobarlo antes de que se suba.</p>
-      <div class="aviso"><span>▸</span><div>Empieza por uno solo para ver cómo quedó el estilo:
-        <div style="margin-top:9px"><button class="btn go" onclick="ejecutar('renderizar',{historias:'1'})">▶ Renderizar la historia 1</button></div>
-      </div></div>`;
+      <p class="sub">Cuando se grabe un video, aparece aquí para que lo veas y lo apruebes antes de
+        que se suba. Lo que toca hacer ahora está en la tarjeta de arriba.</p>`;
     return;
   }
   if(elegido >= v.length) elegido = 0;
@@ -2861,12 +2861,51 @@ function pintar(){
   $('#c-tk').textContent = (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0;
   pintaJob();
   pintaColaTrabajos();
+  pintaPaso();
 
   const v = vistaActual();
   const [firma, pinta] = VISTAS[v];
   const f = firma();
   if(firmas[v] !== f){ firmas[v] = f; pinta(); }
   if(v === 'revisar') pintaTira();
+}
+
+/* El siguiente paso, para quien no se sabe el orden del pipeline. Lo decide
+   el servidor (siguiente_paso en servidor.py); aquí solo se pinta. Va en su
+   propio hueco, fuera de las pestañas, con su propia firma: dentro de
+   Revisar se quedaría congelado, porque esa vista no se repinta mientras no
+   cambien los videos. Sale en Revisar y en Cola, que es donde se empieza. */
+let firmaPaso = null;
+function pintaPaso(){
+  const s = E && E.siguiente, v = vistaActual();
+  const visible = s && (v === 'revisar' || v === 'cola');
+  const f = visible ? JSON.stringify(s) + v : '';
+  if(f === firmaPaso) return;
+  firmaPaso = f;
+  const slot = $('#paso-slot');
+  if(!visible){ slot.innerHTML = ''; return; }
+  slot.innerHTML = `
+    <div class="card siguiente">
+      <div class="kicker">Siguiente paso</div>
+      <div style="display:flex;gap:10px;align-items:center;margin-top:4px">
+        <b style="flex-grow:1;font-size:16px">${esc(s.titulo)}</b>
+        <button class="btn go" id="b-paso" style="white-space:nowrap">${esc(s.boton)} →</button>
+      </div>
+      <div style="margin-top:6px;font-size:13.5px;color:var(--ink-dim)">${esc(s.detalle)}</div>
+    </div>`;
+  $('#b-paso').onclick = ()=>{
+    if(s.accion === 'renderizar') return ejecutar('renderizar', {historias: s.historias});
+    if(s.accion) return ejecutar(s.accion);
+    if(s.ir) irA(s.ir);
+  };
+}
+// Cambiar de pestaña desde un botón, llevando también la tira de pestañas:
+// en un teléfono Ajustes queda fuera de la vista, a la derecha.
+function irA(vista){
+  const b = document.querySelector(`.tabs button[data-v="${vista}"]`);
+  if(!b) return;
+  b.click();
+  window.scrollTo({top:0, behavior:'smooth'});
 }
 
 async function refrescar(){

@@ -438,13 +438,15 @@ def apodos_ya_grabados():
 _FICHAS_HISTORIA = {}
 
 
-def _partes_posibles(bloque):
+def _plan_de_corte(bloque):
+    """(larga, partes): si no cabe en un short, y en cuántas partes saldría
+    (0 si no cabe ni partida en el máximo)."""
     try:
         import partir_historias
         plan = partir_historias.analizar(bloque)
     except Exception:                              # noqa: BLE001 — informativo
-        return 0
-    return (plan or {}).get("partes", 0)
+        return False, 0
+    return bool(plan), (plan or {}).get("partes", 0)
 
 
 def _ficha_historia(bloque, gvm, apodo_de):
@@ -465,9 +467,9 @@ def _ficha_historia(bloque, gvm, apodo_de):
             "duracion": f"{segs // 60}:{segs % 60:02d}",
             "palabras": palabras,
             "apodo": apodo_de(bloque) if apodo_de else None,
-            # Las que no caben en un short, para ofrecer partirlas en la Cola.
-            "partes": _partes_posibles(bloque),
         }
+        # Las que no caben en un short, para ofrecer partirlas en la Cola.
+        ficha["larga"], ficha["partes"] = _plan_de_corte(bloque)
         _FICHAS_HISTORIA[bloque] = ficha
     return ficha
 
@@ -967,6 +969,54 @@ def credenciales():
 # =========================================================
 # API
 # =========================================================
+def siguiente_paso(credenciales, historias, videos, candidatos, trabajo):
+    """Lo que toca hacer ahora, para quien no se sabe el orden del pipeline.
+
+    Devuelve None mientras algo corre (ya se ve en su tarjeta). Si no, un
+    dict con el texto y lo que hace el botón: "accion" (una de ACCIONES, o
+    renderizar) o "ir" (una pestaña del panel).
+    """
+    if trabajo and trabajo.estado in ("corriendo", "pausado"):
+        return None
+    tiene = {c["nombre"]: c["ok"] for c in credenciales}
+    if not tiene.get("GEMINI_API_KEY"):
+        return {"titulo": "Conecta Gemini", "boton": "Conectar", "ir": "ajustes",
+                "detalle": "Es lo que escribe los guiones. Es gratis y lleva un minuto: "
+                           "sacas la clave con el enlace y la pegas."}
+
+    sin_revisar = [v for v in videos if not v.get("publicado")]
+    if sin_revisar and not tiene.get("youtube_token.json"):
+        return {"titulo": "Autoriza la subida a YouTube", "boton": "Ver cómo", "ir": "ajustes",
+                "detalle": f"Hay {len(sin_revisar)} video(s) listos, pero sin ese permiso no se "
+                           "pueden subir. Se concede una sola vez."}
+    if sin_revisar:
+        n = len(sin_revisar)
+        return {"titulo": f"Revisa {n} video{'s' if n > 1 else ''}", "boton": "Revisar", "ir": "revisar",
+                "detalle": "Míralos antes de que se suban. Si alguno no te convence, lo rehaces o lo borras."}
+
+    pendientes = [h for h in historias if not h.get("renderizada")]
+    caben = [h for h in pendientes if not h.get("larga")]
+    if caben:
+        n = len(caben)
+        return {"titulo": f"Graba {n} historia{'s' if n > 1 else ''}", "boton": "Grabar",
+                "accion": "renderizar", "historias": ",".join(str(h["n"]) for h in caben),
+                "detalle": "Convierte los guiones en video. Tarda unos minutos cada uno; "
+                           "puedes salir del panel mientras."}
+    partibles = [h for h in pendientes if h.get("partes", 0) > 1]
+    if partibles:
+        return {"titulo": "Hay historias demasiado largas", "boton": "Verlas", "ir": "cola",
+                "detalle": "No caben en un short y no se graban tal cual. Puedes partirlas "
+                           "en varios shorts seguidos desde la Cola."}
+    if candidatos:
+        return {"titulo": f"Escribe {candidatos} guion{'es' if candidatos > 1 else ''}",
+                "boton": "Escribir", "accion": "guiones",
+                "detalle": "Hay historias encontradas esperando. Gemini las convierte en guiones."}
+    return {"titulo": "Busca historias nuevas", "boton": "Buscar", "accion": "buscar",
+            "detalle": "Mira Reddit por historias que funcionen en un short."
+                       + (" Las que siguen en la cola no caben ni partidas; esperan a los largos."
+                          if pendientes else "")}
+
+
 # El resumen del canal compara cada video subido con todos los demás para
 # encontrar repetidos, y solo cambia cuando cambia algo en pipeline_state/ (o
 # el token, por los permisos). Se rehace entonces, o pasado un minuto, que es
@@ -1134,6 +1184,8 @@ def tiktok_resumen():
 def api_estado():
     import generar_video_maestro as gvm
     cfg = cfg_actual()
+    historias, videos, cr = historias_del_guion(), videos_renderizados(), credenciales()
+    candidatos = len(cola.cargar_pendientes())
     publicados = leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), [])
 
     ahora = datetime.now(timezone.utc)
@@ -1165,11 +1217,11 @@ def api_estado():
         })
 
     return jsonify({
-        "historias": historias_del_guion(),
-        "videos": videos_renderizados(),
+        "historias": historias,
+        "videos": videos,
         "publicados": pubs,
         "material": material(),
-        "credenciales": credenciales(),
+        "credenciales": cr,
         "subtitulos": cfg["subtitulos"],
         "presets": list(gvm.PRESETS_SUBTITULOS.keys()),
         # Los estilos propios y con qué se arma el formulario del panel. Las
@@ -1204,7 +1256,8 @@ def api_estado():
         # Lo que los buscadores dejaron esperando guion. Sin esto, el panel
         # enseña las historias de guion.txt y nada más: los candidatos que
         # trajo Reddit se quedan en candidatos.json sin que se note.
-        "candidatos": len(cola.cargar_pendientes()),
+        "candidatos": candidatos,
+        "siguiente": siguiente_paso(cr, historias, videos, candidatos, TRABAJO["actual"]),
         "hechos": list(TRABAJO["hechos"]),
         "fuentes": fuentes_actuales(),
     })
