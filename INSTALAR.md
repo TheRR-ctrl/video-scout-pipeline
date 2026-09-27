@@ -668,6 +668,12 @@ a las 9:00, refrescar la música el día 1 de cada mes, y la revisión del canal
 los días 1 y 15 a las 7:30. Correrlo dos veces no duplica nada, y
 `bash instalar_cron.sh --quitar` las borra.
 
+Ese es el horario de fábrica. Para cambiarlo no hay que tocar el script: en
+el panel, **Ajustes → Horario automático** deja elegir los días, la hora y
+pausar cada tarea, y «Guardar y aplicar» reescribe el crontab al momento.
+Desde Termux, `python horario.py` dice qué hay programado y cuándo. Lo que
+corre cada tarea no se cambia desde ahí: está fijo en `horario.py`.
+
 ### La búsqueda diaria a hora sorteada
 
 La primera línea del crontab (`*/30 * * * *`) llama a `buscar_diario.py` cada

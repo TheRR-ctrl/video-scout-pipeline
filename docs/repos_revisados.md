@@ -435,3 +435,45 @@ que tiene. Reutiliza `secretos.revisar_clave_api` para reconocer las
 credenciales equivocadas (un client secret de OAuth pegado como clave, por
 ejemplo). El panel lo enseña en Ajustes → Conectar servicios. Corre en
 Termux sin nada más.
+
+## 10. Horario de las tandas desde el panel — SE ADOPTÓ UNA IDEA, NO EL CÓDIGO
+
+**El problema.** Las cinco tareas de cron estaban escritas a mano dentro de
+`instalar_cron.sh`. Cambiar "publicar a las 9" por "publicar a las 10" era
+editar un script de bash desde el teclado del teléfono, y un error de
+sintaxis en una línea de crontab no avisa: cron la ignora y la tanda
+simplemente deja de salir.
+
+**Qué se encontró.**
+
+- [`alseambusher/crontab-ui`](https://github.com/alseambusher/crontab-ui)
+  (MIT): el más completo, con copias de seguridad y registro de cada tarea.
+  Es Node, así que queda fuera en Termux.
+- [`fluxkompensator/CronUI`](https://github.com/fluxkompensator/CronUI)
+  (Flask): lista, edita y crea tareas cualesquiera. Pide correr como root y
+  es un servidor aparte en el puerto 5000: otro proceso que Android puede
+  matar, y otra página que no es el panel.
+- [`benjcabalona1029/python-crontab-ui`](https://github.com/benjcabalona1029/python-crontab-ui):
+  lo mismo sobre FastAPI y `python-crontab`. Otro servidor, otra dependencia.
+- [`doctormo/python-crontab`](https://github.com/doctormo/python-crontab)
+  (LGPL-3.0): la librería para leer y escribir el crontab. Para cinco líneas
+  con una marca al final basta `crontab -l` / `crontab -`, que es lo que ya
+  hacía `instalar_cron.sh`.
+
+Además, todos dejan escribir **cualquier orden** en el crontab desde una
+página web. Aquí eso sobra y es peligroso: el panel escucha en el teléfono
+y lo que se meta en el crontab corre solo, sin que nadie mire.
+
+**Qué se adoptó.** La idea de pausar una tarea sin borrarla, que tienen
+crontab-ui y CronUI. Nada de su código.
+
+**Qué se hizo.** `horario.py`, sin dependencias nuevas. Los comandos son
+fijos en `TAREAS`; desde el panel solo se cambian días, hora y si la tarea
+está activa, y todo pasa por `validar` antes de escribirse. Los días del
+mes van del 1 al 28, porque un 30 o un 31 se saltaría en silencio los meses
+que no lo tienen. Lo de fábrica genera exactamente las líneas que ya
+escribía `instalar_cron.sh` (los siete días como `*`, el `python` sin
+resolver), así que un teléfono con el cron puesto por la versión anterior
+cuenta como al día y no ve un aviso falso. `instalar_cron.sh` ahora llama a
+`horario.py --aplicar` en vez de llevar las líneas dentro. En el panel:
+Ajustes → Horario automático.

@@ -555,6 +555,18 @@ run `python pipeline.py` on a schedule with cron (Linux/macOS) or
 `cronie` + `termux-services` (Android). Your background footage/music files
 stay local, no upload needed.
 
+On the phone, `bash instalar_cron.sh` sets all of this up once: installs
+cronie, writes the crontab, starts `crond` and adds the Termux:Boot script
+so it survives a reboot. After that, **the schedule is edited from the
+panel: Ajustes → Horario automático** — days, time and a pause switch for
+each task, saved to `pipeline_state/horario.json` and written to the crontab
+by `horario.py` (`python horario.py` shows what is scheduled). The commands
+themselves are fixed in `horario.py`, so the panel can change *when* a task
+runs but never *what* runs. Only lines tagged `# video-scout-pipeline` are
+touched; anything else in your crontab stays. Out of the box it uses the
+same times as the example below, plus `revision_quincenal.sh` on days 1 and
+15 at 07:30.
+
 **Recommended split — generate in batches, publish daily.** So split
 generation (heavier, less often) from publishing (light, daily). Each
 publish run drains as much of the backlog as YouTube's real daily upload

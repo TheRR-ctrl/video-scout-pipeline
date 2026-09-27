@@ -168,6 +168,21 @@ un problema de caché. Lo mismo con `/api/`, `/video/`, `/audio/` y
 `/miniatura/`: son datos vivos. Si algún día cambia lo que sí se guarda, hay
 que subir `CACHE` (`mesa-v1`) o los teléfonos seguirán sirviendo lo viejo.
 
+## El horario de cron: el panel elige cuándo, nunca qué
+
+`horario.py` escribe el crontab con lo que se elige en Ajustes → Horario
+automático. **Los comandos viven fijos en `horario.TAREAS` y el panel no
+puede cambiarlos, y tiene que seguir así.** Todas las interfaces de crontab
+que hay en GitHub dejan escribir la orden a mano (ver
+`docs/repos_revisados.md`, sección 10); aquí eso convertiría un POST al
+panel en algo que corre solo cada media hora sin que nadie mire. Una tarea
+nueva se añade a `TAREAS` en el código.
+
+Si cambia el formato de las líneas que genera (la ruta de python, el orden
+de los campos), los teléfonos con el cron ya puesto verán «no coincide»
+hasta pulsar «Guardar y aplicar» o repetir `bash instalar_cron.sh`: eso va
+en el bloque de actualización de ese cambio.
+
 ## TikTok: la auditoría no se va a pasar
 
 Cada cierto tiempo vuelve la idea de mandar la app a revisión para desbloquear
