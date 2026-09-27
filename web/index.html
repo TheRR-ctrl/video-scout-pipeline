@@ -2243,13 +2243,16 @@ let secretosCache = [];
 // abiertas para cambiar la clave y lo que llevas pegado en cada una. El
 // borrador vive aquí y no solo en el <input> porque Ajustes se repinta entero
 // y te borraría la clave a medio pegar.
+// Horario automático: lo que dice el servidor, y lo que llevas cambiado sin
+// aplicar. Mismo motivo que cxBorrador: Ajustes se repinta entero.
+let horarioCache = null, horarioBorrador = null;
 let masOpciones = false;  // ¿«Más opciones» abierto en Ajustes?
 let conectarCache = null, cxAbierto = new Set(), cxBorrador = {}, cxNota = {};
 let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
 function firmaAjustes(){
   const foco = document.activeElement;
-  if(foco && foco.matches && foco.matches('[data-cx-input]')) return firmas.ajustes;
-  return [JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
+  if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
+  return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto,
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
@@ -2320,6 +2323,93 @@ function bloqueConectar(cr){
         <div class="t" style="font:12.5px var(--mono)">${esc(c.nombre)}</div>
         <span class="pill ${c.ok?'ok':(c.opcional?'idle':'crit')}">${c.ok?'ok':(c.opcional?'opcional':'falta')}</span>
       </div>`).join('')}</div>` : ''}`;
+}
+
+/* Horario automático: días, hora y pausa de cada tanda de cron. Lo que se
+   toca aquí es un borrador; «Guardar y aplicar» lo manda a horario.py, que
+   escribe el crontab. Los comandos no se ven ni se tocan: son fijos. */
+const LETRAS_DIA = [[1,'L'],[2,'M'],[3,'X'],[4,'J'],[5,'V'],[6,'S'],[0,'D']];
+function bloqueHorario(){
+  if(!horarioCache || !horarioBorrador) return `<div class="muted">Cargando…</div>`;
+  const h = horarioCache;
+  const cambiado = JSON.stringify(horarioBorrador) !== JSON.stringify(h.tareas);
+  const aviso = !h.hay_cron
+    ? `<div class="aviso warn"><span>⚠</span><div>Cron no está instalado en el teléfono, así que nada
+        corre solo. Una vez, en Termux:<div style="display:flex;gap:6px;align-items:center;margin-top:6px">
+        <code style="flex-grow:1;font:12px var(--mono)">bash instalar_cron.sh</code>
+        <button class="btn sm" data-cx-copiar="bash instalar_cron.sh">Copiar</button></div></div></div>`
+    : h.crond_vivo === false
+    ? `<div class="aviso warn"><span>⚠</span><div>El horario está puesto, pero cron no está corriendo:
+        no se ejecutará nada. En Termux: <code style="font:12px var(--mono)">sv-enable crond</code></div></div>`
+    : (!h.al_dia && !cambiado)
+    ? `<div class="aviso warn"><span>⚠</span><div>Lo que hay en cron no coincide con este horario.
+        Pulsa «Guardar y aplicar» para ponerlo al día.</div></div>` : '';
+  return `${aviso}
+    <div class="list">${horarioBorrador.map(t=>`
+      <div class="row" style="display:block">
+        <div style="display:flex;gap:8px;align-items:center">
+          <b style="flex-grow:1;${t.activa?'':'opacity:.55'}">${esc(t.nombre)}</b>
+          <button class="btn sm" data-hr-activa="${t.id}">${t.activa ? 'Pausar' : 'Reanudar'}</button>
+        </div>
+        <div class="m" style="margin-top:3px">${t.activa ? esc(t.que) : 'En pausa: no corre sola. Puedes lanzarla a mano cuando quieras.'}</div>
+        ${t.activa ? `
+        <div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;margin-top:8px">
+          ${t.tipo === 'mes'
+            ? `<span class="m">Días del mes</span>
+               <input data-hr-mes="${t.id}" value="${esc((t.dias_mes||[]).join(', '))}" inputmode="numeric"
+                      style="width:90px" placeholder="1, 15">`
+            : LETRAS_DIA.map(([d,l])=>`<button class="btn sm ${t.dias.includes(d)?'go':''}"
+                 style="min-width:34px;justify-content:center" data-hr-dia="${t.id}:${d}">${l}</button>`).join('')}
+          ${t.tipo === 'franja' ? `<span class="m">a una hora sorteada</span>`
+            : `<span class="m" style="margin-left:4px">a las</span>
+               <input type="time" data-hr-hora="${t.id}" value="${esc(t.hora)}" style="width:104px">`}
+        </div>` : ''}
+      </div>`).join('')}</div>
+    <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn go" id="b-horario" ${(cambiado || (h.hay_cron && !h.al_dia)) ? '' : 'disabled'}>Guardar y aplicar</button>
+      ${cambiado ? `<button class="btn" id="b-horario-deshacer">Deshacer cambios</button>` : ''}
+    </div>
+    <div class="muted" style="margin-top:6px">Las horas son las del teléfono. El teléfono tiene que estar
+      encendido y con Termux vivo a esa hora.</div>`;
+}
+
+function enlazarHorario(){
+  const tarea = id => horarioBorrador.find(t=>t.id===id);
+  document.querySelectorAll('[data-hr-activa]').forEach(b => b.onclick = ()=>{
+    const t = tarea(b.dataset.hrActiva); t.activa = !t.activa; pintar();
+  });
+  document.querySelectorAll('[data-hr-dia]').forEach(b => b.onclick = ()=>{
+    const [id, d] = b.dataset.hrDia.split(':'); const t = tarea(id), n = +d;
+    t.dias = t.dias.includes(n) ? t.dias.filter(x=>x!==n) : [...t.dias, n].sort();
+    pintar();
+  });
+  document.querySelectorAll('[data-hr-hora]').forEach(i => i.onchange = ()=>{
+    tarea(i.dataset.hrHora).hora = i.value; i.blur(); pintar();
+  });
+  document.querySelectorAll('[data-hr-mes]').forEach(i => i.onchange = ()=>{
+    tarea(i.dataset.hrMes).dias_mes = i.value.split(/[^0-9]+/).filter(Boolean).map(Number);
+    i.blur(); pintar();
+  });
+  const des = $('#b-horario-deshacer');
+  if(des) des.onclick = ()=>{ horarioBorrador = JSON.parse(JSON.stringify(horarioCache.tareas)); pintar(); };
+  const b = $('#b-horario');
+  if(b) b.onclick = async ()=>{
+    const tareas = {};
+    horarioBorrador.forEach(t => tareas[t.id] = {activa:t.activa, dias:t.dias, dias_mes:t.dias_mes, hora:t.hora});
+    b.disabled = true;
+    // fetch a mano y no post(): un 409 trae el horario ya guardado (solo
+    // faltó cron) y hay que pintarlo; un 400 no trae nada y lo que llevas
+    // cambiado se queda para que corrijas solo lo que está mal.
+    let r, j;
+    try{
+      r = await fetch('/api/horario', {method:'POST', headers:{'Content-Type':'application/json'},
+                                       body: JSON.stringify({tareas})});
+      j = await r.json().catch(()=>({}));
+    }catch(e){ toast('Sin conexión con el servidor'); b.disabled = false; return; }
+    if(j.tareas){ horarioCache = j; horarioBorrador = JSON.parse(JSON.stringify(j.tareas)); }
+    toast(r.ok ? '✓ Horario aplicado' : (j.error || 'HTTP '+r.status));
+    pintar();
+  };
 }
 
 async function conectarGuardar(clave){
@@ -2468,6 +2558,9 @@ function pintaAjustes(){
         <button class="btn sm" id="b-partir-auto">${E.partir_auto?'activado':'desactivado'}</button>
       </div>
     </div>
+
+    <h3 class="sec">Horario automático</h3>
+    ${bloqueHorario()}
 
     <h3 class="sec">Poner todo al día</h3>
     <div class="card" style="margin-bottom:14px">
@@ -2682,6 +2775,7 @@ function pintaAjustes(){
     ejecutar(t.accion);
   });
   enlazarConectar();
+  enlazarHorario();
   const mas = $('#mas-opciones');
   if(mas) mas.ontoggle = ()=>{ masOpciones = mas.open; };
   const bApi = $('#b-api-nueva');
@@ -2943,6 +3037,10 @@ async function refrescar(){
     if(vistaActual() === 'ajustes' && !conectarCache){
       try{ conectarCache = await api('/api/conectar'); }catch(e){}
     }
+    if(vistaActual() === 'ajustes' && !horarioCache){
+      try{ horarioCache = await api('/api/horario');
+           horarioBorrador = JSON.parse(JSON.stringify(horarioCache.tareas)); }catch(e){}
+    }
     pintar();
   }
   catch(e){ $('#job-slot').innerHTML =
@@ -2982,7 +3080,13 @@ refrescar();
 setInterval(()=>{ const j=E&&E.trabajo;
   if(!document.hidden && j && (j.estado==='corriendo'||j.estado==='pausado')) refrescar(); }, 1500);
 setInterval(()=>{ if(!document.hidden) refrescar(); }, 12000);
-document.addEventListener('visibilitychange', ()=>{ if(!document.hidden) refrescar(); });
+document.addEventListener('visibilitychange', ()=>{
+  if(document.hidden) return;
+  // Al volver de Termux (de instalar cron, por ejemplo) el aviso del horario
+  // tiene que ponerse al día. Solo si no hay cambios a medias, que se perderían.
+  if(horarioCache && JSON.stringify(horarioBorrador) === JSON.stringify(horarioCache.tareas)) horarioCache = null;
+  refrescar();
+});
 
 /* Latido: mientras la pestaña esté abierta, el servidor sabe que sigues
    aquí. Si deja de llegar (cerraste el panel), se apaga solo y suelta el

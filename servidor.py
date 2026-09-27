@@ -1645,6 +1645,35 @@ def api_musica_auto():
     return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
 
 
+@app.get("/api/horario")
+def api_horario():
+    """Las tandas automáticas: cuándo corre cada una y si cron está al día.
+    Va aparte de /api/estado porque mira el crontab, y eso no hace falta
+    cada segundo y medio."""
+    import horario
+    return jsonify(horario.estado())
+
+
+@app.post("/api/horario")
+def api_horario_guardar():
+    """Guarda días, horas y pausas, y los escribe en el crontab.
+
+    Solo se aceptan esos tres campos de tareas que ya existen: los comandos
+    viven en horario.TAREAS y desde aquí no se pueden cambiar.
+    """
+    import horario
+    try:
+        horario.guardar((request.json or {}).get("tareas") or {})
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc)}), 400
+    ok, mensaje = horario.aplicar()
+    datos = horario.estado()
+    datos["aplicado"], datos["mensaje"] = ok, mensaje
+    if not ok:
+        datos["error"] = f"Guardado, pero no se aplicó. {mensaje}"
+    return jsonify(datos), (200 if ok else 409)
+
+
 @app.post("/api/partir/auto")
 def api_partir_auto():
     """Enciende o apaga el corte automático de las historias largas."""
