@@ -1257,6 +1257,9 @@ const AVISO_LIMPIAR_COLA =
    grabadas y había que ir recordando cuáles. Quitarlas de verdad es cosa de
    «Limpiar» (que las pasa al historial); aquí solo se ocultan, que es
    reversible y no renumera nada. */
+// «(58)» detrás de «Escribir guiones»: cuántas encontradas esperan guion.
+const nCandidatos = () => E.candidatos ? ` (${E.candidatos})` : '';
+
 function pintaCola(){
   const todas = E.historias, cont = $('#v-cola');
   const grabadas = todas.filter(x=>x.renderizada).length;
@@ -1269,23 +1272,28 @@ function pintaCola(){
       <p class="sub">Las ${grabadas} historia(s) de la cola ya tienen video.</p>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
-        <button class="btn go" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+        <button class="btn go" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
         <button class="btn" onclick="verGrabadas=true;pintar()">👁 Ver las ya grabadas</button>
         <button class="btn" title="Las pasa al historial y renumera lo que quede"
           onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
-      </div>${bloquePartibles([])}`;
+      </div><div style="margin-top:12px">${bloquePartibles([])}</div>`;
     enlazarArchivadas();
     return;
   }
   if(!h.length){
+    // Con candidatos esperando, lo que toca es escribirlos, no buscar más:
+    // ese botón pasa a ser el destacado.
+    const hay = (E.candidatos || 0) > 0;
     cont.innerHTML = `<h2>Sin historias</h2>
-      <p class="sub">No hay guion.txt. Busca historias en Reddit y conviértelas en guiones.</p>
+      <p class="sub">${hay
+        ? `No queda ninguna por grabar, pero hay ${E.candidatos} encontrada${E.candidatos>1?'s':''} esperando guion.`
+        : 'No queda ninguna por grabar. Busca historias en Reddit o YouTube y conviértelas en guiones.'}</p>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
-        <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
-        <button class="btn go" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
-        <button class="btn" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+        <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
+        <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
+        <button class="btn ${hay?'go':''}" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
         <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
-      </div>${bloquePartibles([])}`;
+      </div><div style="margin-top:12px">${bloquePartibles([])}</div>`;
     enlazarArchivadas();
     return;
   }
@@ -1343,7 +1351,7 @@ function pintaCola(){
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
           <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
           <button class="btn" title="Convierte en guion lo que encontraron los buscadores"
-            onclick="ejecutar('guiones')">✍ Escribir guiones</button>
+            onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"
             onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
