@@ -2338,6 +2338,10 @@ function bloqueHorario(){
         corre solo. Una vez, en Termux:<div style="display:flex;gap:6px;align-items:center;margin-top:6px">
         <code style="flex-grow:1;font:12px var(--mono)">bash instalar_cron.sh</code>
         <button class="btn sm" data-cx-copiar="bash instalar_cron.sh">Copiar</button></div></div></div>`
+    : h.ilegible
+    ? `<div class="aviso crit"><span>✕</span><div>No pude leer lo que hay en cron (${esc(h.ilegible)}),
+        así que no lo toco: guardar aquí podría borrar otras tareas tuyas. En Termux:
+        <code style="font:12px var(--mono)">crontab -l</code></div></div>`
     : h.crond_vivo === false
     ? `<div class="aviso warn"><span>⚠</span><div>El horario está puesto, pero cron no está corriendo:
         no se ejecutará nada. En Termux: <code style="font:12px var(--mono)">sv-enable crond</code></div></div>`
@@ -2366,7 +2370,7 @@ function bloqueHorario(){
         </div>` : ''}
       </div>`).join('')}</div>
     <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap">
-      <button class="btn go" id="b-horario" ${(cambiado || (h.hay_cron && !h.al_dia)) ? '' : 'disabled'}>Guardar y aplicar</button>
+      <button class="btn go" id="b-horario" ${(cambiado || (h.hay_cron && !h.al_dia && !h.ilegible)) ? '' : 'disabled'}>Guardar y aplicar</button>
       ${cambiado ? `<button class="btn" id="b-horario-deshacer">Deshacer cambios</button>` : ''}
     </div>
     <div class="muted" style="margin-top:6px">Las horas son las del teléfono. El teléfono tiene que estar
