@@ -5,7 +5,8 @@ en guion.txt, el formato que ya consume generar_video_maestro.py.
 Usa la API de Gemini (capa gratuita) para reescribir cada historia con un hook
 fuerte en las primeras líneas y marcar Genero:/Emocion: explícitos.
 
-Requiere: pip install -U google-genai
+Requiere: pip install requests (Gemini se llama por su API REST,
+ver gemini.py)
 Credenciales: variable de entorno GEMINI_API_KEY (gratis en https://aistudio.google.com/apikey).
 """
 import os
@@ -22,8 +23,8 @@ import cola      # cola de candidatos e historial compartidos con trend_scout.py
 import almacen   # escritura atómica de guion.txt
 import partir_historias  # la historia que no cabe en un short entra ya partida
 
-from google import genai
-from google.genai import types as genai_types
+import gemini as genai
+from gemini import types as genai_types
 
 CARPETA_ESTADO = cola.CARPETA_ESTADO
 RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS

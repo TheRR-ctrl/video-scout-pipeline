@@ -91,7 +91,7 @@ def main():
     # que generar.
     client = None
     try:
-        from google import genai
+        import gemini as genai
         client = genai.Client()
     except Exception as exc:
         logger.warning(f"Sin Gemini ({exc}); se usará la metadata de respaldo.")

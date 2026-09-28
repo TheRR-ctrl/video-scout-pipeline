@@ -161,7 +161,7 @@ def _prompt(registro, medidas):
 
 
 def analizar_por_fotogramas(client, ruta, registro, medidas):
-    from google.genai import types
+    from gemini import types
 
     carpeta = tempfile.mkdtemp(prefix="calidad_ia_")
     try:
@@ -193,7 +193,7 @@ def analizar_por_fotogramas(client, ruta, registro, medidas):
 def analizar_video_entero(client, ruta, registro, medidas):
     """Sube el mp4 y se lo da tal cual. Ve el ritmo y oye el audio."""
     import time
-    from google.genai import types
+    from gemini import types
 
     logger.info(f"  Subiendo {medidas.get('tamano_mb')} MB a Gemini…")
     archivo = client.files.upload(file=ruta)
@@ -323,7 +323,7 @@ def main(argv=None):
         raise SystemExit("Todos los videos ya tienen la opinión de Gemini. "
                          "Usa --solo N para repetir uno.")
 
-    from google import genai
+    import gemini as genai
     try:
         client = genai.Client()
     except Exception as exc:

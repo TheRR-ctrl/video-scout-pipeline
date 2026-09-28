@@ -12,7 +12,7 @@ Flujo por video:
   4. Si falla algún chequeo: no sube, queda en pipeline_state/rechazados.json.
 
 Requiere:
-  pip install google-api-python-client google-auth-oauthlib google-genai
+  pip install google-api-python-client google-auth-oauthlib requests
 Credenciales:
   - client_secret.json (OAuth de Google, para subir a YouTube) junto a este script.
   - GEMINI_API_KEY como variable de entorno (gratis en https://aistudio.google.com/apikey).
@@ -30,8 +30,8 @@ import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 from titulos import (recortar_titulo, limpiar_titulo, largo_youtube, LIMITE_YOUTUBE,
                      parte_de_titulo, con_parte, sin_marca_de_parte)
 
-from google import genai
-from google.genai import types as genai_types
+import gemini as genai
+from gemini import types as genai_types
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow

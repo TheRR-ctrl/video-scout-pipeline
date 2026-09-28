@@ -51,6 +51,36 @@ reescribir esas 31 llamadas con un camino distinto solo para Android, y a
 mantenerlo separado del que usan Termux y el runner. Ver
 `docs/repos_revisados.md` §11.
 
+## El muro que queda: ningún botón del panel funciona
+
+Esto es lo que impide que esta app sustituya a la de Termux, y no es un
+detalle de acabado.
+
+`ACCIONES`, en `servidor.py`, lanza cada etapa como un proceso nuevo:
+`[sys.executable, "trend_scout.py"]`. Dentro de Chaquopy **`sys.executable`
+está vacío** — Python va como librería (`libpython3.12.so`), no como
+ejecutable, y no hay forma de lanzar un proceso de Python (es el issue #96
+de chaquopy). El panel se sirve y se ve, pero buscar, escribir guiones o
+renderizar desde sus botones, no.
+
+La salida es correr las etapas **dentro del proceso**: `Trabajo` pasaría de
+`subprocess.Popen` a `runpy` en un hilo, con la salida redirigida al mismo
+sitio. Lo que se pierde por el camino es real: matar un proceso es fiable,
+parar un hilo no, así que el botón de cancelar dejaría de ser de verdad. Y
+toca el corazón de `servidor.py`, que es el mismo archivo que usa Termux.
+
+El mismo muro alcanza a `horario.py`: sus órdenes de cron son
+`"{py} buscar_diario.py"`, y aquí no hay `{py}` — ni cron. Las tandas
+automáticas tendrían que ir por `WorkManager`.
+
+## El muro que ya cayó: Gemini
+
+`google-genai` pedía `pydantic-core`, Rust compilado sin rueda de Android.
+Ya no se usa: `gemini.py` llama a la API REST de Gemini con `requests`,
+imitando los nombres del SDK para que las llamadas del pipeline no
+cambiaran. Salió del proyecto entero, así que Termux y el runner también
+instalan menos.
+
 ## Lo que se pierde: el chip de video
 
 **`usar_chip_android` no funciona aquí.** El soporte de `h264_mediacodec` en

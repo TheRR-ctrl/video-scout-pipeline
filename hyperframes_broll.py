@@ -53,8 +53,8 @@ import tempfile
 import subprocess
 from dataclasses import dataclass
 
-from google import genai
-from google.genai import errors as genai_errors
+import gemini as genai
+from gemini import errors as genai_errors
 
 import hyperframes_nucleo as nucleo
 
