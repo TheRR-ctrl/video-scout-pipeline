@@ -591,10 +591,12 @@ que es donde sí hay JVM. Con Chaquopy se puede llamar a Java desde Python,
 así que el camino existe — pero es el refactor de las 31 llamadas que este
 apartado acaba de descartar para el caso general.
 
-### 11.4 Los dos muros que solo aparecen al construirlo
+### 11.4 Los dos muros que solo aparecen al construirlo (uno ya cayó)
 
-Los dos se encontraron compilando, no leyendo documentación, y los dos son
-más grandes que todo lo anterior.
+Ninguno de los dos salió de leer documentación: salieron de compilar. El
+segundo ya está resuelto —y resolverlo mejoró el proyecto entero, no solo
+Android—; el primero sigue en pie y es el que decide si esta app llega a
+sustituir a la de Termux.
 
 **1. El panel lanza un proceso de Python por cada botón, y en la app no hay
 ninguno.** `servidor.py` tiene una lista blanca de acciones (`ACCIONES`) y
@@ -620,30 +622,55 @@ Python no hay `{py}` que valga, y además en Android no hay cron. Las tandas
 automáticas de la app tendrían que ir por `WorkManager`, que es otra pieza
 que no existe todavía.
 
-**2. Gemini no se puede instalar en el APK.** `google-genai` exige
-`pydantic >= 2.12`, que depende de `pydantic-core`: una extensión compilada
-en **Rust**, sin rueda de Android y ausente del repositorio de Chaquopy.
+**2. Gemini no se podía instalar en el APK — RESUELTO, y se escribió.**
 
-El síntoma, además, no dice nada: pip se pone a **retroceder** versión por
-versión buscando una combinación que no pida pydantic —que no existe, porque
-google-genai siempre la ha usado— y la compilación se queda media hora
-bajando metadatos de `urllib3` y de `idna` sin un solo mensaje de error.
-Aquí se dejó correr 22 minutos antes de entender qué pasaba.
+`google-genai` exige `pydantic >= 2.12`, que depende de `pydantic-core`: una
+extensión compilada en **Rust**, sin rueda de Android y ausente del
+repositorio de Chaquopy.
 
-Esto afecta a lo más importante del pipeline: `script_writer.py` escribe
-**todos** los guiones con Gemini, y `calidad_ia.py` y `publisher.py` también
-lo usan.
+El síntoma, además, no decía nada: pip se ponía a **retroceder** versión por
+versión buscando una combinación que no pidiera pydantic —que no existe,
+porque google-genai siempre la ha usado— y la compilación se quedaba media
+hora bajando metadatos de `urllib3` y de `idna` sin un solo mensaje de
+error. Aquí se dejó correr 22 minutos antes de entender qué pasaba.
 
-Hay dos salidas, y una es claramente mejor:
+Afectaba a lo más importante del pipeline: `script_writer.py` escribe
+**todos** los guiones con Gemini, y `calidad_ia.py`, `publisher.py`,
+`partir_historias.py`, `rehacer_guiones.py`, `preparar_metadata.py` y
+`hyperframes_broll.py` también lo usan.
 
-- **Llamar a la API REST de Gemini con `requests`**, que ya es dependencia.
-  Quita `google-genai`, `pydantic` y `pydantic-core` del proyecto entero —
-  no solo de Android — y deja el pipeline más ligero también en Termux y en
-  el runner. Es la que recomienda este documento.
-- Compilar una rueda de `pydantic-core` para Android con las recetas de
-  `chaquopy/server/pypi`. Significa cross-compilar Rust y mantener esa rueda
-  cada vez que pydantic suba de versión, para no ganar nada que la primera
-  opción no dé.
+**Qué se hizo: `gemini.py`, un cliente REST sobre `requests`.** Y la
+decisión que lo hizo barato: **imita los nombres del SDK** —`Client`,
+`types.GenerateContentConfig`, `types.Part`, `errors.APIError`— así que de
+los ocho archivos solo cambió la línea del `import`. Las llamadas, que son
+lo que hay que leer para entender el pipeline, se quedaron como estaban.
+
+Se miró primero si había algo hecho: no hace falta. La superficie que este
+repositorio usa del SDK resultó ser diminuta —generar contenido con
+instrucción de sistema y respuesta JSON con esquema, más subir, consultar y
+borrar un archivo— y son 300 líneas contra una dependencia que arrastra
+Rust compilado. La alternativa era compilar una rueda de `pydantic-core`
+para Android con las recetas de `chaquopy/server/pypi`: cross-compilar Rust
+y mantener esa rueda cada vez que pydantic suba de versión, para no ganar
+nada.
+
+**Lo que costó no estaba a la vista, y son las dos cosas que se probaron
+con un servidor de mentira antes de tocar nada más:**
+
+- **El SDK normalizaba los esquemas y el REST no.** Los `SCHEMA_*` del repo
+  están escritos en minúsculas (`"type": "object"`), y la API los quiere en
+  mayúsculas. Sin convertirlos, Google responde 400 sin decir qué campo le
+  molesta.
+- **Todo el manejo de errores del proyecto lee el *texto* de la excepción.**
+  `motivo_error_gemini` busca `API_KEY_INVALID`, `SERVICE_DISABLED` o
+  `PERMISSION_DENIED`; `hyperframes_broll` busca `RESOURCE_EXHAUSTED` y saca
+  el `retryDelay` con un regex. Por eso `APIError.__str__` devuelve el
+  código HTTP y el cuerpo JSON crudo: esas cadenas vienen dentro y ese
+  código sigue funcionando sin tocarlo.
+
+**Se gana también fuera de Android.** `google-genai` y `pydantic` salen de
+`requirements.txt`, así que Termux y el runner instalan menos y arrancan
+antes. `requests` ya estaba.
 
 ### 11.5 El precio que hay que decir en voz alta
 

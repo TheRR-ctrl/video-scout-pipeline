@@ -285,16 +285,21 @@ MIT), so the panel and the pipeline run *inside* the app — no Termux, no
 the app unpacks the pipeline into a writable directory, so every module's
 `BASE_DIR` keeps working exactly as it does under Termux.
 
-**It is not a replacement yet, and the reasons are specific.** Two of them
-only showed up once it was actually built:
+**It is not a replacement yet**, though one of the two blockers found while
+building it has since been fixed:
 
 - **Panel buttons don't work.** Each action in `servidor.py` launches a
   stage as `[sys.executable, "trend_scout.py"]`, and under Chaquopy
   `sys.executable` is empty — Python is a library there, not an executable.
   Fixing it means running stages in-process and giving up real cancellation.
-- **Gemini can't be installed.** `google-genai` needs `pydantic-core`, a
-  compiled Rust extension with no Android wheel. The fix that helps
-  everywhere is calling Gemini's REST API with `requests` instead.
+  This is the one still standing.
+- ~~Gemini can't be installed.~~ **Fixed.** `google-genai` pulled in
+  `pydantic-core`, a compiled Rust extension with no Android wheel — and it
+  failed silently, with pip backtracking for half an hour instead of
+  erroring. Gemini is now called through its REST API from `gemini.py`, on
+  the `requests` that was already a dependency. That removed `google-genai`
+  and `pydantic` from `requirements.txt` altogether, so Termux and the
+  runner install less too.
 - **No hardware encoder.** `h264_mediacodec` reaches the chip through JNI
   and needs a live JVM; a standalone ffmpeg binary has none. It falls back
   to libx264 automatically, so nothing breaks — it's just CPU-only.

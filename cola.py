@@ -2,7 +2,7 @@
 Cola de candidatos compartida entre trend_scout.py y script_writer.py.
 
 Sin dependencias externas a propósito: los dos scripts la importan y ninguno
-tiene que arrastrar las dependencias del otro (requests / google-genai).
+tiene que arrastrar las dependencias del otro (requests).
 
 El reparto de responsabilidades es lo importante:
 

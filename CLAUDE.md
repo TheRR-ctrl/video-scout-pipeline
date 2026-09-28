@@ -172,9 +172,9 @@ que subir `CACHE` (`mesa-v1`) o los teléfonos seguirán sirviendo lo viejo.
 
 `android/app` es la que anda: un WebView que le pide a Termux que arranque
 `servidor.py`. `android/nativa` lleva **CPython dentro del APK** (Chaquopy) y
-no necesita Termux para nada. La segunda es un experimento con dos muros sin
-resolver, y por eso no sustituye a la primera. Los muros, en orden de
-tamaño:
+no necesita Termux para nada. La segunda es un experimento con **un muro sin
+resolver** (antes eran dos; el de Gemini ya cayó), y por eso todavía no
+sustituye a la primera.
 
 **Ningún botón del panel funciona en la app nativa.** `ACCIONES`, en
 `servidor.py`, lanza cada etapa como `[sys.executable, "trend_scout.py"]`.
@@ -187,14 +187,25 @@ Termux, así que no se ha hecho. Lo mismo alcanza a `horario.py`: sus
 órdenes de cron son `"{py} buscar_diario.py"`, y ahí no hay `{py}` — ni
 cron.
 
-**Gemini no entra en el APK.** `google-genai` pide `pydantic`, que depende
-de `pydantic-core`, que es Rust compilado y no tiene rueda de Android. Y el
-síntoma engaña: pip no falla, se pone a **retroceder** versión por versión
-durante media hora sin decir por qué. Si alguien vuelve a añadir
-`google-genai` al bloque `pip` de `android/nativa/build.gradle` y la
-compilación "se cuelga", es esto. La salida buena es llamar a la API REST de
-Gemini con `requests` y quitar la dependencia del proyecto entero — ver
-`docs/repos_revisados.md` §11.4.
+**Gemini ya no pasa por un SDK: se llama por REST, y eso no se deshace.**
+`gemini.py` habla con la API por `requests` e imita los nombres del SDK
+(`Client`, `types.GenerateContentConfig`, `types.Part`, `errors.APIError`)
+para que las llamadas de los ocho archivos que lo usan no cambiaran. Volver
+a `google-genai` traería otra vez `pydantic-core` —Rust compilado, sin rueda
+de Android— y con él el fallo que más cuesta diagnosticar de todo este
+repo: pip no da error, se pone a **retroceder** versión por versión durante
+media hora en silencio. Si alguien añade `google-genai` al bloque `pip` de
+`android/nativa/build.gradle` y la compilación "se cuelga", es esto.
+
+Dos cosas de `gemini.py` que parecen detalles y no lo son. **El texto de
+`APIError` incluye el cuerpo JSON crudo de Google** porque todo el manejo de
+errores del proyecto lo lee así: `motivo_error_gemini` busca
+`API_KEY_INVALID`, y `hyperframes_broll` busca `RESOURCE_EXHAUSTED` y el
+`retryDelay`. "Limpiar" ese mensaje rompe el reintento por cuota y la
+detección de clave inválida a la vez, y sin ruido. **Y los `type` de los
+`SCHEMA_*` se pasan a mayúsculas** antes de mandarlos: los esquemas están
+escritos en minúsculas, el REST los quiere en mayúsculas, y si no se
+convierten Google responde 400 sin decir qué campo le molesta.
 
 **El chip de video no existe en la app nativa.** `h264_mediacodec` llega por
 JNI y necesita una JVM; el ffmpeg que va dentro es un ejecutable y no tiene

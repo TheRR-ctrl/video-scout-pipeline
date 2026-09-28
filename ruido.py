@@ -8,15 +8,7 @@ import logging
 
 
 def callar_sdk_google():
-    """Quita las líneas de AFC de google-genai y la del cache de discovery.
-
-    AFC: en cada llamada, el SDK anuncia "AFC is enabled with max remote
-    calls" y avisa una vez de que usar AFC (llamadas automáticas a funciones)
-    desde Models.generate_content no es lo recomendado, que mejor
-    Chat.send_message.
-
-    Aquí ninguna llamada pasa `tools=`, así que no hay función que llamar y
-    el consejo no aplica: el SDK lo suelta igual porque no distingue.
+    """Quita la línea del cache de discovery de googleapiclient.
 
     file_cache: al construir el cliente de YouTube, googleapiclient intenta
     guardar en disco el documento de la API y no puede, porque ese cache
@@ -26,8 +18,13 @@ def callar_sdk_google():
     que se quede viejo. No hay nada que arreglar, así que no hay nada que
     avisar.
 
-    En los dos casos se silencia solo ese logger, y solo por debajo de
-    ERROR: si algún día la llamada falla de verdad, el error se sigue viendo.
+    Se silencia solo ese logger, y solo por debajo de ERROR: si algún día la
+    llamada falla de verdad, el error se sigue viendo.
+
+    Aquí había una segunda línea, para el logger `google_genai.models`: el
+    SDK anunciaba en cada llamada "AFC is enabled with max remote calls" y
+    recomendaba Chat.send_message, un consejo que no aplicaba porque ninguna
+    llamada de este proyecto pasa `tools=`. Se fue con el SDK: `gemini.py`
+    habla por REST y no dice nada que no le pregunten.
     """
-    logging.getLogger("google_genai.models").setLevel(logging.ERROR)
     logging.getLogger("googleapiclient.discovery_cache").setLevel(logging.ERROR)

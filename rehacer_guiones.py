@@ -47,9 +47,9 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(me
 ruido.callar_sdk_google()   # los avisos de AFC del SDK, que aqui no aplican
 logger = logging.getLogger("rehacer_guiones")
 
-from google import genai
-from google.genai import types as genai_types
-from google.genai import errors as genai_errors
+import gemini as genai
+from gemini import types as genai_types
+from gemini import errors as genai_errors
 
 import script_writer
 import almacen

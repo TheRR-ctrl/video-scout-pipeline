@@ -78,11 +78,12 @@ jobs:
         with:
           python-version: "3.11"
 
-      # Solo el cliente de Gemini: generar_fondos_ia.py no necesita nada más,
-      # y el requirements.txt completo trae edge-tts, pillow y los clientes de
+      # Solo lo que hace falta para hablar con Gemini, que desde que
+      # gemini.py usa la API REST es requests y nada más. El
+      # requirements.txt completo trae edge-tts, pillow y los clientes de
       # YouTube para no usarlos aquí.
       - name: Instalar dependencias
-        run: pip install google-genai
+        run: pip install requests
 
       # Las entradas van por el entorno y entrecomilladas, no interpoladas
       # dentro del script: lo que escribe quien lanza el workflow no debe

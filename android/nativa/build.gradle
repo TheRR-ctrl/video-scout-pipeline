@@ -60,8 +60,8 @@ chaquopy {
         version = "3.12"
 
         pip {
-            // Las de requirements.txt, MENOS google-genai. Las que llevan
-            // código nativo (pillow) salen del repositorio de ruedas de
+            // Las mismas de requirements.txt. Las que llevan código nativo
+            // (pillow, cryptography) salen del repositorio de ruedas de
             // Chaquopy; el resto es Python puro y viene de PyPI.
             install "flask>=3.0"
             install "requests"
@@ -71,22 +71,12 @@ chaquopy {
             install "google-auth-oauthlib"
             install "youtube-transcript-api"
 
-            // google-genai NO está, y no es un olvido.
-            //
-            // Exige pydantic >= 2.12, que depende de pydantic-core: una
-            // extensión compilada en Rust que no tiene rueda de Android y
-            // que no está en el repositorio de Chaquopy. Dejarlo puesto no
-            // da un error claro: pip se pone a retroceder versión por
-            // versión buscando una que no lo pida —y no existe— y la
-            // compilación se queda media hora bajando metadatos de urllib3
-            // sin decir por qué. Se vio en vivo.
-            //
-            // Sin esto, la app arranca y sirve el panel, pero todo lo que
-            // pasa por Gemini (script_writer, calidad_ia, la metadata del
-            // publisher) falla al importar. La salida está en
-            // docs/repos_revisados.md §11.4: Gemini tiene API REST, y
-            // llamarla con requests quitaría la dependencia en los tres
-            // sitios donde corre el pipeline, no solo aquí.
+            // Aquí faltaba google-genai, y ya no falta nadie: Gemini se
+            // llama por su API REST desde gemini.py, con el requests que ya
+            // está arriba. El SDK pedía pydantic-core —Rust compilado, sin
+            // rueda de Android— y eso no solo rompía este APK: hacía que pip
+            // se pusiera a retroceder versión por versión durante media hora
+            // sin decir por qué. Ver docs/repos_revisados.md §11.4.
         }
     }
 }
