@@ -38,6 +38,7 @@ except ImportError:
     )
 
 import cola      # la cola de candidatos que dejaron los buscadores
+import archivar_largas  # las historias largas apartadas de la cola
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -1294,6 +1295,7 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "archivadas": len(archivar_largas.archivadas()),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
         "musica": pistas_musica(),
@@ -1359,6 +1361,9 @@ ACCIONES = {
     "limpiar_cola": ("Quitando de la cola lo ya grabado", [sys.executable, "limpiar_cola.py", "--si"]),
     "ver_partir": ("Buscando historias demasiado largas", [sys.executable, "partir_historias.py"]),
     "partir": ("Partiendo historias largas en shorts", [sys.executable, "partir_historias.py", "--si"]),
+    "archivar_largas": ("Apartando las historias largas", [sys.executable, "archivar_largas.py", "--si"]),
+    "devolver_largas": ("Devolviendo las largas a la cola",
+                        [sys.executable, "archivar_largas.py", "--devolver", "--si"]),
     "ver_recomprimir": ("Buscando videos que pesan de más", [sys.executable, "recomprimir.py"]),
     "recomprimir": ("Recomprimiendo videos", [sys.executable, "recomprimir.py", "--si"]),
     "recomprimir_limpiar": ("Borrando temporales de recompresión", [sys.executable, "recomprimir.py", "--limpiar"]),

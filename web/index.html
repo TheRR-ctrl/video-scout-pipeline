@@ -499,16 +499,42 @@ function vigilarTarjeta(caja){
    se ofrece, historia por historia, y nada se parte solo salvo que actives
    el modo automático en Ajustes → Subida. */
 function bloquePartibles(h){
-  const largas = h.filter(x => x.partes > 1 && !x.renderizada);
-  if(!largas.length) return '';
+  const largas = h.filter(x => x.larga && !x.renderizada);
+  const guardadas = (E && E.archivadas) || 0;
+  // Las apartadas se enseñan aunque ya no quede ninguna larga en la cola: es
+  // el único sitio desde donde se pueden devolver.
+  const pie = (solo) => `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:${solo?0:10}px">
+      <span class="${solo?'':'m'}" style="flex-grow:1">${solo?'':'📦 '}${guardadas} historia${guardadas>1?'s':''}
+        larga${guardadas>1?'s':''} guardada${guardadas>1?'s':''} para cuando se abran los videos largos.</span>
+      <button class="btn sm" id="b-devolver-largas">Devolver a la cola</button></div>`;
+  if(!largas.length) return guardadas ? `<div class="aviso"><span>📦</span><div>${pie(true)}</div></div>` : '';
   return `<div class="aviso"><span>✂</span><div>
     <b>${largas.length === 1 ? 'Una historia es demasiado larga' : largas.length + ' historias son demasiado largas'}
       para un short.</b> Mientras los videos largos estén bloqueados no se graban. Puedes
-    partirlas en varios shorts seguidos («Parte 1 de 3…»), sin cambiar el texto.
+    partirlas en varios shorts seguidos («Parte 1 de 3…»), sin cambiar el texto, o apartarlas
+    hasta que se abran los largos.
     ${largas.map(x=>`<div style="display:flex;gap:8px;align-items:center;margin-top:8px">
       <span style="flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.titulo)}</span>
-      <button class="btn sm" style="white-space:nowrap" data-partir="${x.n}" data-partes="${x.partes}">✂ Partir en ${x.partes}</button>
-    </div>`).join('')}</div></div>`;
+      ${x.partes > 1 ? `<button class="btn sm" style="white-space:nowrap" data-partir="${x.n}" data-partes="${x.partes}">✂ Partir en ${x.partes}</button>`
+                     : `<span class="m" style="white-space:nowrap">no cabe ni partida</span>`}
+    </div>`).join('')}
+    <div style="margin-top:10px"><button class="btn sm" id="b-archivar-largas">📦 Archivar ${largas.length === 1 ? 'la larga' : 'las ' + largas.length}</button></div>
+    ${guardadas ? pie(false) : ''}</div></div>`;
+}
+
+function enlazarArchivadas(){
+  const bArch = $('#b-archivar-largas');
+  if(bArch) bArch.onclick = ()=>{
+    if(!confirm('Se apartan de la cola las historias demasiado largas para un short, a guion_largas.txt.\n\n'
+      + 'El texto no cambia y queda una copia con fecha de la cola. Las que quedan se renumeran. '
+      + 'Cuando se abran los videos largos, «Devolver a la cola» las trae de vuelta al final.')) return;
+    ejecutar('archivar_largas');
+  };
+  const bDev = $('#b-devolver-largas');
+  if(bDev) bDev.onclick = ()=>{
+    if(!confirm('¿Devolver a la cola las historias largas guardadas? Van al final, así que ninguna otra cambia de número.')) return;
+    ejecutar('devolver_largas');
+  };
 }
 
 function pintaColaTrabajos(){
@@ -1215,7 +1241,8 @@ function olvidarLoQueSeRenumero(){
 function firmaCola(){
   return [E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
-          (E.musica||[]).length, E.candidatos || 0, verGrabadas].join('~');
+          (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
+          E.historias.map(h=>h.larga?1:0).join('')].join('~');
 }
 /* El aviso de limpiar la cola sale en dos sitios —aquí y en Mantenimiento—
    y dice justo lo que se pierde, que es la numeración. Una sola copia para
@@ -1246,7 +1273,8 @@ function pintaCola(){
         <button class="btn" onclick="verGrabadas=true;pintar()">👁 Ver las ya grabadas</button>
         <button class="btn" title="Las pasa al historial y renumera lo que quede"
           onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
-      </div>`;
+      </div>${bloquePartibles([])}`;
+    enlazarArchivadas();
     return;
   }
   if(!h.length){
@@ -1257,7 +1285,8 @@ function pintaCola(){
         <button class="btn go" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
         <button class="btn" onclick="ejecutar('guiones')">✍ Escribir guiones</button>
         <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
-      </div>`;
+      </div>${bloquePartibles([])}`;
+    enlazarArchivadas();
     return;
   }
   // De entrada, las tres primeras que se pueden grabar tal cual: una larga
@@ -1378,6 +1407,7 @@ function pintaCola(){
       + 'La original queda guardada entera en el historial.')) return;
     ejecutar('partir_una', {numero: +b.dataset.partir});
   });
+  enlazarArchivadas();
   $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintar(); };
   $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintar(); };
   $('#b-render').onclick = ()=>{
