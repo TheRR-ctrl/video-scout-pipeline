@@ -273,6 +273,54 @@ def _toca_encadenar(accion):
         return False
 
 
+def cadena_automatica():
+    """¿Buscar sigue solo con escribir guiones, y escribir con grabar?
+
+    Encendido por omisión: buscar sin más deja 60 candidatos que no se ven en
+    ningún sitio hasta que alguien sabe que falta «Escribir guiones», y eso
+    parecía que la búsqueda no había servido. Se apaga en Ajustes → Subida
+    para quien prefiera grabar a mano (grabar gasta batería y minutos).
+    """
+    return bool(leer_json(RUTA_CONFIG, {}).get("cadena_automatica", True))
+
+
+def _encadenada(accion):
+    """(nombre, cmd, luego) de lo que se encola tras un trabajo que salió
+    bien, o None si no toca: si no hay nada que hacer, encolarlo solo deja
+    en el panel un trabajo vacío, y eso acaba siendo ruido que se ignora.
+
+    El comando se arma aquí, al terminar el anterior, y no al pulsar: qué
+    historias grabar depende de lo que el paso de antes acaba de escribir.
+    """
+    if accion == "musica_rotar":
+        if not _toca_encadenar("musica_rotar"):
+            return None
+        return (*ACCIONES["musica_rotar"], None)
+    if accion == "guiones":
+        if not cadena_automatica() or not os.environ.get("GEMINI_API_KEY"):
+            return None
+        if not cola.cargar_pendientes():
+            return None
+        return (*ACCIONES["guiones"], "grabar_nuevas")
+    if accion == "grabar_nuevas":
+        if not cadena_automatica():
+            return None
+        # Solo las que caben en un short: las largas se aplazarían igual,
+        # pero después de gastar la voz de cada una.
+        caben = [str(h["n"]) for h in historias_del_guion()
+                 if not h.get("renderizada") and not h.get("larga")]
+        if not caben:
+            return None
+        return ("Grabando las historias nuevas",
+                [sys.executable, "generar_video_maestro.py", "--historias", ",".join(caben)],
+                "musica_rotar")
+    return None
+
+
+# Qué va detrás de cada botón cuando la cadena está encendida.
+CADENA = {"buscar": "guiones", "buscar_youtube": "guiones", "guiones": "grabar_nuevas"}
+
+
 def seguir_con_la_cola(terminado):
     """Apunta el que acaba de terminar y arranca el siguiente, si lo hay."""
     with _CANDADO:
@@ -298,13 +346,14 @@ def seguir_con_la_cola(terminado):
         # solo. Se encola aquí dentro, con el candado puesto, porque un
         # instante después ya hay otro proceso corriendo.
         luego = getattr(terminado, "luego", None)
-        if luego and terminado.estado == "ok" and _toca_encadenar(luego):
-            nombre_luego, cmd_luego = ACCIONES[luego]
+        siguiente = _encadenada(luego) if luego and terminado.estado == "ok" else None
+        if siguiente:
+            nombre_luego, cmd_luego, luego_luego = siguiente
             ya_esperando = any(e["cmd"] == cmd_luego for e in TRABAJO["cola"])
             if not ya_esperando and len(TRABAJO["cola"]) < TOPE_COLA:
                 _SIGUIENTE_ID[0] += 1
                 TRABAJO["cola"].append({"id": _SIGUIENTE_ID[0], "nombre": nombre_luego,
-                                        "cmd": cmd_luego, "luego": None})
+                                        "cmd": cmd_luego, "luego": luego_luego})
 
         if not TRABAJO["cola"]:
             return
@@ -1002,15 +1051,19 @@ def siguiente_paso(credenciales, historias, videos, candidatos, trabajo):
                 "accion": "renderizar", "historias": ",".join(str(h["n"]) for h in caben),
                 "detalle": "Convierte los guiones en video. Tarda unos minutos cada uno; "
                            "puedes salir del panel mientras."}
+    # Los candidatos van antes que las largas: 60 historias esperando guion
+    # son más trabajo por delante que tres que no caben, y era lo que había
+    # que pulsar justo después de buscar.
+    if candidatos:
+        return {"titulo": f"Escribe {candidatos} guion{'es' if candidatos > 1 else ''}",
+                "boton": "Escribir", "accion": "guiones",
+                "detalle": "Hay historias encontradas esperando. Gemini las convierte en guiones"
+                           + (" y luego se graban solas." if cadena_automatica() else ".")}
     partibles = [h for h in pendientes if h.get("partes", 0) > 1]
     if partibles:
         return {"titulo": "Hay historias demasiado largas", "boton": "Verlas", "ir": "cola",
                 "detalle": "No caben en un short y no se graban tal cual. Puedes partirlas "
                            "en varios shorts seguidos desde la Cola."}
-    if candidatos:
-        return {"titulo": f"Escribe {candidatos} guion{'es' if candidatos > 1 else ''}",
-                "boton": "Escribir", "accion": "guiones",
-                "detalle": "Hay historias encontradas esperando. Gemini las convierte en guiones."}
     return {"titulo": "Busca historias nuevas", "boton": "Buscar", "accion": "buscar",
             "detalle": "Mira Reddit por historias que funcionen en un short."
                        + (" Las que siguen en la cola no caben ni partidas; esperan a los largos."
@@ -1240,6 +1293,7 @@ def api_estado():
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
+        "cadena_auto": cadena_automatica(),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
         "musica": pistas_musica(),
@@ -1368,7 +1422,7 @@ def api_ejecutar(accion):
         t, encolado, err = lanzar("Regenerando con Gemini", cmd)
     elif accion in ACCIONES:
         nombre, cmd = ACCIONES[accion]
-        t, encolado, err = lanzar(nombre, cmd)
+        t, encolado, err = lanzar(nombre, cmd, luego=CADENA.get(accion))
     else:
         return jsonify({"error": "Acción desconocida"}), 400
 
@@ -1672,6 +1726,15 @@ def api_horario_guardar():
     if not ok:
         datos["error"] = f"Guardado, pero no se aplicó. {mensaje}"
     return jsonify(datos), (200 if ok else 409)
+
+
+@app.post("/api/cadena/auto")
+def api_cadena_auto():
+    """Enciende o apaga buscar → escribir guiones → grabar, uno detrás de otro."""
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["cadena_automatica"] = bool((request.json or {}).get("auto", True))
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "auto": cfg["cadena_automatica"]})
 
 
 @app.post("/api/partir/auto")
