@@ -76,11 +76,15 @@ FONDOS_POR_TEMA = 3
 
 # Búsquedas pensadas para material que se mire sin robarle atención a la
 # narración: textura y movimiento lento, nada con cara hablando ni con texto
-# quemado en la imagen.
+# quemado en la imagen. Tampoco personas reales haciendo algo arriesgado
+# (conducir, trepar, fuego): a YouTube le basta ese clip de fondo para marcar
+# el video por seguridad infantil, sin que la narración tenga nada que ver.
+# "driving road night" y "road trip window" volvían con gente al volante y
+# así se descartaron — "highway pov" y "empty/night" solo traen carretera.
 TEMAS = {
     "lluvia":    ["rain window night", "rain drops glass", "wet street night"],
     "ciudad":    ["city night timelapse", "neon street night", "traffic lights night"],
-    "carretera": ["driving road night", "highway pov", "road trip window"],
+    "carretera": ["empty highway night", "highway pov", "road night timelapse"],
     "abstracto": ["abstract liquid ink", "smoke slow motion dark", "particles dark background"],
     "naturaleza":["ocean waves slow", "forest fog", "clouds timelapse"],
 }

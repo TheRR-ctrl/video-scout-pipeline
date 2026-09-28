@@ -38,10 +38,11 @@ echo
 echo "-- Los que no vio nadie --------------------------------------"
 "$PYTHON" relanzar.py --sin-vistas $HACERLO
 
-# No se llama al render aquí: el cron de lunes y jueves ya corre
+# No se llama al render aquí: la tanda «Escribir guiones y grabar» ya corre
 # pipeline.py --hasta video, y encuentra en la cola lo que esto acabe de
 # devolver. Grabar dos tandas el mismo día llenaría el teléfono.
 echo
-echo "  Las historias que volvieron a la cola las graba el cron de"
-echo "  lunes/jueves. Para no esperar:  python generar_video_maestro.py"
+echo "  Las historias que volvieron a la cola las graba la tanda"
+echo "  «Escribir guiones y grabar» (python horario.py dice cuándo)."
+echo "  Para no esperar:  python generar_video_maestro.py"
 echo

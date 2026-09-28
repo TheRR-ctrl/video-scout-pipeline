@@ -27,6 +27,8 @@ import logging
 import argparse
 from datetime import datetime, timezone
 
+import almacen
+
 CARPETA_ESTADO = os.path.join(os.path.dirname(os.path.abspath(__file__)), "pipeline_state")
 RUTA_CACHE = os.path.join(CARPETA_ESTADO, "suscriptores.json")
 
@@ -90,11 +92,7 @@ def _leer_cache():
 
 
 def _escribir_cache(datos):
-    os.makedirs(CARPETA_ESTADO, exist_ok=True)
-    tmp = RUTA_CACHE + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, RUTA_CACHE)
+    almacen.guardar(RUTA_CACHE, datos)
 
 
 def suscriptores(refrescar=False):

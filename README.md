@@ -87,6 +87,26 @@ schedule (cron, Termux, or GitHub Actions).
    vs. long-form isn't decided up front: it falls out of the finished
    narration's real duration (`duracion_max_short_sec`, default 180 s), so the
    script is never padded or trimmed to hit a format.
+
+   Long-form is gated, though (`formato.py`: until the channel reaches 500
+   subscribers), and a story that doesn't fit in a Short just waits in
+   `guion.txt`. **`partir_historias.py`** can split it into 2–4 consecutive
+   Shorts titled "Parte N de M — …", each ending on "Sigue en la parte N+1" —
+   but only when you decide: each long story in the panel's **Cola** tab gets
+   a «✂ Partir en N» button. Turning on *Partir solas las historias largas*
+   (Ajustes → Subida, `"partir_automatico": true`) makes `script_writer.py`
+   split new stories as it writes them and adds the step to "Todo de una
+   pasada"; it's off by default. The text is never rewritten: Gemini
+   only picks *between which sentences* to cut, aiming for a cliffhanger, and
+   without it the cut falls at equal lengths. The part marker goes at the
+   *front* of the title, because the video's filename is the title cut at 120
+   characters and `limpiar_cola.py` matches by filename — at the end, the cut
+   would eat it and the three parts would look like one. For the same reason
+   `publisher.py` forces "(Parte N/M)" onto the YouTube title instead of
+   leaving it to Gemini: it skips any upload whose title is already on the
+   channel. It also puts each series back in order before uploading, since
+   the queue number a part was rendered under shifts with every cleanup, and
+   `relanzar.py` never re-queues a single part on its own.
 5. **`publisher.py`** — runs a technical + content quality check (Gemini free
    tier, with an automatic fallback description/hashtags if that check
    fails), then uploads the video to YouTube as **private**, scheduled to go
@@ -150,7 +170,7 @@ source off. Verify any `@handle` you add by opening it in a browser first — a
 handle that 404s silently wastes a run.
 
 Channels and subreddits can also be added or removed from the panel, in
-**Ajustes → Fuentes** — the panel checks a new channel against YouTube before
+**Ajustes → Más opciones → Fuentes** — the panel checks a new channel against YouTube before
 saving it (same 404-protection as above), and a new subreddit against Reddit
 the same way (one request per add; a 429 is let through unverified rather
 than blocking the add, since Reddit's RSS rate limit is stricter than a
@@ -197,6 +217,18 @@ built in). Never commit `config_trends.json`, `config.json`,
 
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
+
+The easier way, on the phone: **Ajustes → Conectar servicios** in the panel.
+Each service (Gemini, YouTube search, Pexels, Pixabay, Jamendo) has a card
+saying what it's for, a link to the page where you get the key and the
+steps there; back in the panel, **📋 Pegar** reads the clipboard and the key
+is tested against the service *before* it's saved (`conectar.py`), so a
+wrong key says so right away — and says whether it's the key or an API
+that isn't enabled — instead of failing on the next render. If the service
+can't be reached it's saved anyway, with a warning. Keys go to
+`secretos.env` (mode 600), never to the command line. Upload permissions
+(`youtube_token.json`) are OAuth grants that can't be given from the panel;
+the card shows the one Termux command to run.
 
 ## The panel as an app
 
@@ -276,7 +308,7 @@ runs it on the runner.
 And the price worth saying out loud: with the pipeline inside the APK,
 updating stops being `git pull` on the phone and becomes "build an APK,
 download it, install it". The full write-up, including what was evaluated
-and rejected, is in `docs/repos_revisados.md` §8 and
+and rejected, is in `docs/repos_revisados.md` §11 and
 **[android/nativa/README.md](android/nativa/README.md)**.
 
 ## Background video (`motor_fondo` in `config.json`)
@@ -366,7 +398,7 @@ supports them** — flipping neither changes today's output at all.
   hardware video encoder (`h264_mediacodec`, exposed because Termux's ffmpeg
   is built with `--enable-mediacodec`) before falling back to software
   `libx264`. Faster and easier on the battery when it works. Toggle it from
-  the panel (Ajustes → Render, only shown when the server detects Android)
+  the panel (Ajustes → Más opciones → Render, only shown when the server detects Android)
   rather than editing the file by hand — that's the fix if a phone's chip
   renders badly. The automatic CPU fallback only catches a hard failure
   (ffmpeg exits non-zero, or the file is empty); a chip that finishes fine
@@ -556,6 +588,18 @@ up where it left off.
 run `python pipeline.py` on a schedule with cron (Linux/macOS) or
 `cronie` + `termux-services` (Android). Your background footage/music files
 stay local, no upload needed.
+
+On the phone, `bash instalar_cron.sh` sets all of this up once: installs
+cronie, writes the crontab, starts `crond` and adds the Termux:Boot script
+so it survives a reboot. After that, **the schedule is edited from the
+panel: Ajustes → Horario automático** — days, time and a pause switch for
+each task, saved to `pipeline_state/horario.json` and written to the crontab
+by `horario.py` (`python horario.py` shows what is scheduled). The commands
+themselves are fixed in `horario.py`, so the panel can change *when* a task
+runs but never *what* runs. Only lines tagged `# video-scout-pipeline` are
+touched; anything else in your crontab stays. Out of the box it uses the
+same times as the example below, plus `revision_quincenal.sh` on days 1 and
+15 at 07:30.
 
 **Recommended split — generate in batches, publish daily.** So split
 generation (heavier, less often) from publishing (light, daily). Each

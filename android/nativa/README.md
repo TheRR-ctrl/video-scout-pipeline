@@ -49,7 +49,7 @@ en los tres sitios donde corre: Termux, el runner y la app.
 **Un binario y no una librería tipo ffmpeg-kit.** Una librería obligaría a
 reescribir esas 31 llamadas con un camino distinto solo para Android, y a
 mantenerlo separado del que usan Termux y el runner. Ver
-`docs/repos_revisados.md` §8.
+`docs/repos_revisados.md` §11.
 
 ## Lo que se pierde: el chip de video
 

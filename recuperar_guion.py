@@ -20,8 +20,11 @@ Uso:
 import os
 import re
 import json
+import shutil
 import argparse
 from datetime import datetime
+
+import almacen
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
@@ -119,11 +122,10 @@ def main():
 
     if os.path.exists(RUTA_GUION):
         respaldo = f"{RUTA_GUION}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
-        os.replace(RUTA_GUION, respaldo)
-        print(f"\nguion.txt anterior movido a {os.path.basename(respaldo)}")
+        shutil.copy2(RUTA_GUION, respaldo)
+        print(f"\nguion.txt anterior copiado a {os.path.basename(respaldo)}")
 
-    with open(RUTA_GUION, "w", encoding="utf-8") as f:
-        f.write(SEPARADOR.join(construir_bloque(v) for v in con_cuerpo))
+    almacen.escribir_texto(RUTA_GUION, SEPARADOR.join(construir_bloque(v) for v in con_cuerpo))
 
     print(f"\n✅ guion.txt recuperado con {len(con_cuerpo)} historia(s).")
     if dudosas:

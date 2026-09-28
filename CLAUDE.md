@@ -19,6 +19,25 @@ Lo que hay que contar al proponerlo:
 Descartar algo también es un resultado válido; lo que no vale es no haber
 mirado.
 
+## Al terminar cada cambio: los comandos para actualizar el teléfono
+
+Pedido por el dueño del proyecto: **cada vez que se termine una
+actualización del código, cerrar con el bloque de Termux para ponerla en el
+teléfono**, listo para copiar y pegar, aunque sea el mismo de siempre. Lo
+normal:
+
+```bash
+cd ~/video-scout-pipeline && git pull
+pkill -f servidor.py; panel
+```
+
+(`panel` lo crea `instalar_panel.sh`; si se usa la app de Android, basta con
+cerrarla y volver a abrirla después del `git pull`.) Si el cambio trae algo
+más —una dependencia nueva (`pip install …`), volver a correr
+`instalar_panel.sh`, vaciar una caché—, va en el mismo bloque y en el orden
+en que hay que hacerlo. Y solo cuando el cambio ya esté en `main`: antes de
+mergear, `git pull` no trae nada.
+
 ## El contexto real
 
 Todo esto se maneja desde un teléfono Android con Termux, sin PC. Eso manda
@@ -72,7 +91,7 @@ de hardware del teléfono, que el ffmpeg de Termux expone porque está
 compilado con `--enable-mediacodec`. Más rápido y con menos batería que
 `libx264` por software. Vive apagado por omisión detrás de
 `CONFIG["video"]["usar_chip_android"]` en `config.json`, y se enciende o
-apaga desde el panel (Ajustes → Render, solo aparece en Android) sin tocar
+apaga desde el panel (Ajustes → Más opciones → Render, solo aparece en Android) sin tocar
 el archivo a mano.
 
 **El respaldo automático a CPU no cubre todo tipo de fallo.** Si
@@ -164,7 +183,9 @@ no como ejecutable, y no se puede lanzar un proceso de Python. Arreglarlo
 significa correr las etapas dentro del proceso (`runpy` en un hilo, salida
 redirigida) y perder la cancelación de verdad — matar un proceso es fiable,
 parar un hilo no. Toca el corazón de `servidor.py`, que es el mismo que usa
-Termux, así que no se ha hecho.
+Termux, así que no se ha hecho. Lo mismo alcanza a `horario.py`: sus
+órdenes de cron son `"{py} buscar_diario.py"`, y ahí no hay `{py}` — ni
+cron.
 
 **Gemini no entra en el APK.** `google-genai` pide `pydantic`, que depende
 de `pydantic-core`, que es Rust compilado y no tiene rueda de Android. Y el
@@ -173,7 +194,7 @@ durante media hora sin decir por qué. Si alguien vuelve a añadir
 `google-genai` al bloque `pip` de `android/nativa/build.gradle` y la
 compilación "se cuelga", es esto. La salida buena es llamar a la API REST de
 Gemini con `requests` y quitar la dependencia del proyecto entero — ver
-`docs/repos_revisados.md` §8.4.
+`docs/repos_revisados.md` §11.4.
 
 **El chip de video no existe en la app nativa.** `h264_mediacodec` llega por
 JNI y necesita una JVM; el ffmpeg que va dentro es un ejecutable y no tiene
@@ -186,6 +207,21 @@ respaldo a libx264 es automático), pero renderizar ahí es por CPU siempre.
 **una carpeta nueva no**. Si algún día el pipeline necesita otro directorio,
 hay que añadirlo a los `include` de esa tarea o la app arrancará sin él, y
 el fallo aparecerá a mitad de una tanda.
+
+## El horario de cron: el panel elige cuándo, nunca qué
+
+`horario.py` escribe el crontab con lo que se elige en Ajustes → Horario
+automático. **Los comandos viven fijos en `horario.TAREAS` y el panel no
+puede cambiarlos, y tiene que seguir así.** Todas las interfaces de crontab
+que hay en GitHub dejan escribir la orden a mano (ver
+`docs/repos_revisados.md`, sección 10); aquí eso convertiría un POST al
+panel en algo que corre solo cada media hora sin que nadie mire. Una tarea
+nueva se añade a `TAREAS` en el código.
+
+Si cambia el formato de las líneas que genera (la ruta de python, el orden
+de los campos), los teléfonos con el cron ya puesto verán «no coincide»
+hasta pulsar «Guardar y aplicar» o repetir `bash instalar_cron.sh`: eso va
+en el bloque de actualización de ese cambio.
 
 ## TikTok: la auditoría no se va a pasar
 

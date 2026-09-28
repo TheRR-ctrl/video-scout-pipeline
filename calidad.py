@@ -402,7 +402,10 @@ def main(argv=None):
         return
 
     if not videos_renderizados():
-        raise SystemExit("No hay videos renderizados que revisar.")
+        # No es un fallo: sale igual que «ya está todo revisado». Con un
+        # código de error, la tanda de mantenimiento lo pintaba en rojo.
+        print("\n  Todavía no hay videos grabados que revisar.\n")
+        return
 
     nuevas = revisar_pendientes(todos=args.todos, solo=args.solo, al_terminar=_pintar)
     if not nuevas:

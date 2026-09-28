@@ -26,11 +26,13 @@ import re
 import sys
 import glob
 import json
+import shutil
 import argparse
 import contextlib
 from datetime import datetime
 
 import publisher
+import almacen
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_GUION = os.path.join(BASE_DIR, "guion.txt")
@@ -103,7 +105,7 @@ def _apodo_de_archivo(nombre):
     return re.sub(r"^\d+_", "", sin_ext)
 
 
-def archivar_en_historial(bloques, cuando=None):
+def archivar_en_historial(bloques, cuando=None, motivo="Quitada de la cola"):
     """Agrega al historial las historias que salen de la cola.
 
     Se agrega, nunca se reescribe: este archivo es lo único que queda de un
@@ -117,7 +119,7 @@ def archivar_en_historial(bloques, cuando=None):
         for b in bloques:
             if hay_algo:
                 f.write("\n" + SEPARADOR + "\n")
-            f.write(f"# Quitada de la cola: {cuando}\n{b}")
+            f.write(f"# {motivo}: {cuando}\n{b}")
             hay_algo = True
         f.write("\n")
     return len(bloques)
@@ -157,9 +159,8 @@ def main(argv=None):
 
     sello = datetime.now().strftime("%Y%m%d-%H%M%S")
     respaldo = f"{RUTA_GUION}.bak-{sello}"
-    os.replace(RUTA_GUION, respaldo)
-    with open(RUTA_GUION, "w", encoding="utf-8") as f:
-        f.write(("\n" + SEPARADOR + "\n").join(b for _, b in quedan) + "\n")
+    shutil.copy2(RUTA_GUION, respaldo)
+    almacen.escribir_texto(RUTA_GUION, ("\n" + SEPARADOR + "\n").join(b for _, b in quedan) + "\n")
 
     print(f"\n   ✓ Las {len(fuera)} quitada(s) quedan en {os.path.basename(RUTA_HISTORIAL_GUION)}")
     print(f"   ✓ Copia de la cola anterior en {os.path.basename(respaldo)}")

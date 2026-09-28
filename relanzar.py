@@ -37,6 +37,7 @@ con los valores por omisión, así que lo que borra automáticamente es lo que
 verías corriéndolo a mano.
 """
 import os
+import re
 import sys
 import json
 import time
@@ -305,6 +306,10 @@ def sobrantes_de_los_repetidos(registros, max_vistas, dias_minimos=0):
     return fuera
 
 
+# Cómo queda "Parte 2 de 3 — …" en el nombre del archivo.
+ES_PARTE = re.compile(r"^Parte_\d+_de_\d+_", re.IGNORECASE)
+
+
 def sin_vistas(registros, max_vistas, dias_minimos=0, max_intentos=0):
     """Los no vistos que tiene sentido rehacer.
 
@@ -318,6 +323,9 @@ def sin_vistas(registros, max_vistas, dias_minimos=0, max_intentos=0):
     - Las historias que ya se rehicieron max_intentos veces y siguen a cero.
       Esas no se tocan: se quedan en el canal y en el registro, para que al
       revisar quede claro cuáles ya se intentaron.
+    - Las partes de una historia partida (ver partir_historias.py). Rehecha
+      sola, la parte 2 volvería a subirse después de la 3, diciendo "Sigue en
+      la parte 3" de un video que ya está en el canal.
     """
     repetidos = {id(p) for p in sobrantes_de_los_repetidos(registros, max_vistas, dias_minimos)}
     gastados = intentos_previos() if max_intentos > 0 else {}
@@ -328,6 +336,8 @@ def sin_vistas(registros, max_vistas, dias_minimos=0, max_intentos=0):
         if id(p) in repetidos or not es_maduro(p, dias_minimos):
             continue
         if gastados.get(apodo_de_registro(p), 0) >= max_intentos > 0:
+            continue
+        if ES_PARTE.match(apodo_de_registro(p)):
             continue
         elegidos.append(p)
     return elegidos

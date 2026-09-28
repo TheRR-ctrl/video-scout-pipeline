@@ -19,6 +19,8 @@ import secretos  # carga secretos.env si las claves no están en el entorno
 import ruido     # calla los avisos del SDK de Google que aqui no dicen nada
 import narrador  # comprobar que el género declarado casa con el texto escrito
 import cola      # cola de candidatos e historial compartidos con trend_scout.py
+import almacen   # escritura atómica de guion.txt
+import partir_historias  # la historia que no cabe en un short entra ya partida
 
 from google import genai
 from google.genai import types as genai_types
@@ -555,12 +557,9 @@ def escribir_guion(bloques):
     if contenido_previo:
         nuevo_contenido = contenido_previo + separador + nuevo_contenido
 
-    # Archivo temporal y os.replace: si el proceso muere a media escritura, el
-    # guion.txt de antes sigue entero en vez de quedar cortado por la mitad.
-    tmp = RUTA_GUION + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        f.write(nuevo_contenido)
-    os.replace(tmp, RUTA_GUION)
+    # Atómico: si el proceso muere a media escritura, el guion.txt de antes
+    # sigue entero en vez de quedar cortado por la mitad.
+    almacen.escribir_texto(RUTA_GUION, nuevo_contenido)
 
 
 def main(argv=None):
@@ -681,7 +680,10 @@ def main(argv=None):
                         # gastar una llamada a Gemini en cada corrida.
                         escritas += 1
                         continue
-                    bloques.append(construir_bloque_guion(historia, parte))
+                    # Con los largos bloqueados, una historia larga se
+                    # aplazaría sin producir nada; aquí sale ya en partes.
+                    bloques.extend(partir_historias.partir_si_hace_falta(
+                        construir_bloque_guion(historia, parte), client))
                     # La huella entra en la lista viva, no solo en el disco: dos
                     # segmentos del MISMO video que se pisan llegan dentro de
                     # esta misma vuelta, y comparándolos solo contra el

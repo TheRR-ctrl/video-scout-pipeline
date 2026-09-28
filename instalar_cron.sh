@@ -45,23 +45,14 @@ if [ "$1" = "--quitar" ]; then
   exit 0
 fi
 
-NUEVAS="$(cat <<EOF
-*/30 * * * * cd $REPO && $PYTHON buscar_diario.py >> $REPO/buscar.log 2>&1 $MARCA
-0 6 * * 1,4 cd $REPO && $PYTHON pipeline.py --desde guion --hasta video >> $REPO/pipeline.log 2>&1 $MARCA
-0 9 * * * cd $REPO && $PYTHON pipeline.py --desde publicar >> $REPO/pipeline.log 2>&1 $MARCA
-0 8 1 * * cd $REPO && $PYTHON actualizar_musica.py >> $REPO/musica.log 2>&1 $MARCA
-30 7 1,15 * * cd $REPO && bash revision_quincenal.sh >> $REPO/revision.log 2>&1 $MARCA
-EOF
-)"
-
-printf '%s\n%s\n' "$ACTUAL" "$NUEVAS" | grep -v '^$' | crontab -
-echo "  ✓ Programado:"
-echo "      todos los días       → buscar historias a una hora sorteada"
-echo "                              (mírala con: python buscar_diario.py --ver)"
-echo "      lunes y jueves 06:00  → guiones y video con lo que haya en la cola"
-echo "      todos los días 09:00  → publicar lo que haya en la cola"
-echo "      día 1 de cada mes     → refrescar la música"
-echo "      días 1 y 15   07:30   → revisar qué funcionó y rehacer lo que no"
+# Las tareas y sus horas las escribe horario.py, con lo que hayas elegido en
+# el panel (Ajustes → Horario automático) o, si no has tocado nada, con el
+# horario de siempre. Solo toca las líneas marcadas con MARCA.
+# Si falla, se sigue igual: arrancar crond y el arranque tras reiniciar hacen
+# falta de todas formas, y el panel puede volver a aplicar el horario luego.
+echo "  Programado:"
+"$PYTHON" "$REPO/horario.py" --aplicar || echo "  ⚠️ No se pudo escribir el crontab; repite esta orden."
+echo "     (cámbialo cuando quieras en el panel: Ajustes → Horario automático)"
 echo
 
 # ---- 3. crond vivo --------------------------------------------------------

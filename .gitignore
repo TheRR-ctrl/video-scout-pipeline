@@ -24,6 +24,9 @@ tiktok_token.json
 guion.bak
 guion_prueba.txt
 *.bak
+# las de limpiar_cola/partir_historias: guion.txt.bak-20260926-120000
+*.bak-*
+*.tmp
 
 # Los logs de las tandas automáticas (cron).
 *.log

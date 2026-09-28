@@ -31,7 +31,6 @@ lo que importa es el ?code= que lleva dentro).
 """
 import os
 import sys
-import json
 import time
 import base64
 import hashlib
@@ -42,6 +41,7 @@ from urllib.parse import urlencode, urlparse, parse_qs
 import requests
 
 import secretos  # carga secretos.env
+import almacen   # escritura atómica del token
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_TOKEN = os.path.join(BASE_DIR, "tiktok_token.json")
@@ -135,12 +135,7 @@ def main(argv):
         "expira_en": time.time() + int(datos.get("expires_in", 86400)),
         "scope": datos.get("scope", args.scope),
     }
-    with open(RUTA_TOKEN, "w", encoding="utf-8") as f:
-        json.dump(token, f, indent=2)
-    try:
-        os.chmod(RUTA_TOKEN, 0o600)
-    except OSError:
-        pass
+    almacen.guardar(RUTA_TOKEN, token, privado=True)
 
     # Si hay una grabación del demo en curso, esta es su primera escena.
     import demo_tiktok

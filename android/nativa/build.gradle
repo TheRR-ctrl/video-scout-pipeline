@@ -84,7 +84,7 @@ chaquopy {
             // Sin esto, la app arranca y sirve el panel, pero todo lo que
             // pasa por Gemini (script_writer, calidad_ia, la metadata del
             // publisher) falla al importar. La salida está en
-            // docs/repos_revisados.md §8.4: Gemini tiene API REST, y
+            // docs/repos_revisados.md §11.4: Gemini tiene API REST, y
             // llamarla con requests quitaría la dependencia en los tres
             // sitios donde corre el pipeline, no solo aquí.
         }

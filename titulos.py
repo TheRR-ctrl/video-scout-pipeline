@@ -98,3 +98,44 @@ def recortar_titulo(texto, limite=LIMITE_YOUTUBE):
         # posible y hay que partirla, pero al menos se avisa con el "…".
         return texto[: limite - 1].rstrip() + "…"
     return corte + "…"
+
+
+# Las historias partidas llevan la parte DELANTE del título. Detrás, el
+# recorte a 120 caracteres del nombre de archivo se la comería, las partes
+# quedarían con el mismo nombre, y limpiar_cola.py daría las tres por
+# grabadas en cuanto se grabara la primera.
+_PARTE = re.compile(r"^\s*Parte\s+(\d+)\s+de\s+(\d+)\s*[—–:-]\s*", re.IGNORECASE)
+# Lo que Gemini añade por su cuenta al escribir el título de YouTube.
+_PARTE_SUELTA = re.compile(r"\s*[(\[]?\s*parte\s+\d+(?:\s*(?:/|de)\s*\d+)?\s*[)\]]?\s*[—–:-]?\s*",
+                           re.IGNORECASE)
+
+
+def titulo_de_parte(titulo, numero, total):
+    return f"Parte {numero} de {total} — {titulo}"
+
+
+def parte_de_titulo(titulo):
+    """(número, total) si el título es de una parte, si no None."""
+    m = _PARTE.match(titulo or "")
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def sin_marca_de_parte(titulo):
+    """El título de la historia, sin el "Parte N de M — " de delante."""
+    return _PARTE.sub("", titulo or "")
+
+
+def con_parte(titulo_youtube, parte, limite=LIMITE_YOUTUBE):
+    """El título de YouTube con "(Parte N/M)" al final, sin que se corte.
+
+    Va aquí y no en el prompt porque no se puede dejar a Gemini: escribe
+    títulos parecidos para las partes de una misma historia, y el publicador
+    no sube un video cuyo título ya está en el canal. Sin la marca, la parte
+    2 se daría por subida.
+    """
+    if not parte:
+        return titulo_youtube
+    sufijo = f"(Parte {parte[0]}/{parte[1]})"
+    base = _PARTE_SUELTA.sub(" ", titulo_youtube or "").strip(" —–:-")
+    base = recortar_titulo(base, limite - largo_youtube(sufijo) - 1)
+    return f"{base} {sufijo}".strip()

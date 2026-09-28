@@ -97,7 +97,7 @@ lo intenta primero cuando `CONFIG["video"]["usar_chip_android"]` está en
 driver raro), la misma tanda cae sola a `libx264` sin perder el video. La
 clave vive en `config.json` bajo `"video"` (ver `config.example.json`) y por
 omisión está en `false`: el comportamiento de hoy no cambia para nadie que
-no toque nada. El panel (pestaña Ajustes → Render, solo visible cuando el
+no toque nada. El panel (pestaña Ajustes → Más opciones → Render, solo visible cuando el
 servidor detecta que corre en Android) trae un interruptor deslizante para
 encenderlo o apagarlo sin tocar `config.json` a mano — pensado exactamente
 para el caso de que el chip falle tan seguido que no valga la pena ni
@@ -184,7 +184,7 @@ el `@handle` público) solo sale de `channels().list`, no de `search().list`,
 así que hacen falta las dos llamadas — mismo patrón de dos pasos que
 `_detalles_de_videos` ya usa para las vistas.
 
-**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Fuentes, ver
+**Por qué importa aquí.** Agregar un canal a mano (Ajustes → Más opciones → Fuentes, ver
 sesión de "canales/subreddits manuales") pedía copiar el `@handle` exacto
 desde el navegador — fácil de escribir mal desde el teclado del teléfono.
 Buscar por nombre y elegir de una lista quita ese paso.
@@ -289,7 +289,196 @@ Que Termux acepte el intent en un teléfono de verdad solo se ve instalándolo
 — es la misma trampa que `VERSION_CLI` de HyperFrames: sin Android delante,
 subir la versión es apostar.
 
-## 8. Quitar Termux de en medio: que la app corra el pipeline ella sola — SE ADOPTÓ Chaquopy, y ffmpeg hay que compilarlo
+## 8. Revisión de septiembre de 2026 — una idea que vale la pena, una a medias, una descartada
+
+Tres cosas salieron del uso real esta semana: una historia de 937 palabras
+que el log del teléfono marca como `Video 1 aplazado: ~6.0 min estimados`
+porque los largos siguen bloqueados (93 de 500 suscriptores, ver
+`formato.py`); una advertencia de YouTube por "seguridad infantil" causada
+por un clip de fondo de stock, no por la narración; y la duda de si la
+música debería bajar sola bajo la voz.
+
+### Partir historias largas en partes — SE ADOPTÓ LA IDEA, NO EL CÓDIGO
+
+**Qué se encontró.** `TerzicScript/shorts-flow` parte una historia en
+"Parte 1, Parte 2…" a partir de una duración objetivo;
+`Subset28/shorts-pipeline` tiene un `split --parts N`. Los dos parten el
+**video ya renderizado**, ninguno documenta cómo elige el punto de corte, y
+ninguno tiene archivo de licencia — así que su código no se puede tomar
+aunque se quisiera.
+
+**Corre en Termux.** `shorts-flow` no: depende de Kokoro y faster-whisper,
+que es torch. `shorts-pipeline` recomienda Docker. La idea, en cambio, no
+necesita nada nuevo.
+
+**Cómo encajaría aquí.** Partiendo el **texto antes del TTS**, no el video
+después: cortar un video a mitad de frase es peor que elegir el corte en el
+guion. Gemini ya hace algo parecido en `script_writer.py`
+(`segmentar_transcripcion`), pero con otro contrato: aquella separa
+anécdotas *distintas* de un podcast, esto partiría *una* historia en tramos
+seguidos terminados en suspenso. Se copiaría el patrón (prompt + esquema
+JSON), no la función.
+
+**Por qué vale la pena.** Los números del propio canal, en `formato.py`:
+48 shorts sumaron 29.000 vistas y 18 largos, 43. Hoy una historia larga se
+queda en `guion.txt` sin producir nada hasta los 500 suscriptores; partida
+en tres, saldría ya en el formato que funciona.
+
+**La restricción que decide el diseño.** El nombre del archivo sale del
+título (`n_arch`, recortado a 120 caracteres) y `limpiar_cola.py` empareja
+por ese nombre sin el número delante. Si las partes solo se distinguen por
+un "(Parte 2 de 3)" al final de un título largo, el recorte se lo come, las
+tres partes quedan con el mismo apodo, y al grabarse la primera la limpieza
+borraría las otras dos de la cola. La marca de parte tiene que ir donde el
+recorte no llegue — delante del título, o recortando antes de añadirla.
+
+**Cómo quedó.** El dueño del proyecto eligió hacerlo, y vive en
+`partir_historias.py`:
+
+- **Gemini no reescribe, solo elige dónde cortar.** Recibe las frases
+  numeradas con las palabras acumuladas y devuelve los números de frase
+  donde termina cada parte, buscando el suspenso. Si falla, no hay clave o
+  los cortes no cumplen los límites, se corta a partes iguales. Lo que se
+  publica es palabra por palabra lo que ya estaba escrito.
+- **Cuándo se parte.** Cuando el cuerpo pasa de lo que cabe en un short
+  (`DURACION_MAX_SHORT_SEC` × `PALABRAS_POR_SEGUNDO`, 468 palabras con 180 s)
+  y los largos están bloqueados. Cada parte llena como mucho el 80%, para
+  el título leído y el error de la estimación. Más de cuatro partes ya no
+  se parte: espera a los largos.
+- **La marca de parte va delante del título** ("Parte 2 de 3 — …"), por la
+  restricción de arriba, y `publisher.py` pone "(Parte 2/3)" en el título
+  de YouTube por su cuenta: el publicador no sube un video cuyo título ya
+  está en el canal, y Gemini escribe títulos parecidos para las partes de
+  una misma historia.
+- **Solo si el dueño lo decide.** Por omisión nada se parte solo: cada
+  historia larga tiene su botón «✂ Partir» en la Cola. El modo automático
+  (`partir_automatico`, apagado por omisión) hace que además
+  `script_writer.py` parta las nuevas al escribirlas (se añaden al final de
+  `guion.txt`, no renumeran nada) y que la tanda de mantenimiento parta las
+  de la cola. Partir las que ya estaban en la cola sí
+  renumera: si detrás hay historias ya grabadas, el render las volvería a
+  grabar, porque reconoce lo hecho por "NN_Titulo.mp4". Por eso esa pasada
+  quita antes lo ya grabado, igual que `limpiar_cola.py`, y en la tanda de
+  mantenimiento va justo detrás de la limpieza.
+- **El orden de publicación no salía solo.** El publicador sube por número
+  de historia, y ese número es la posición en `guion.txt`, que cambia con
+  cada limpieza: si la parte 1 se graba hoy y una limpieza renumera antes
+  de grabar las otras dos, esas pueden quedar con número menor y subirse
+  antes. `publisher.en_orden_de_serie` reordena cada serie dentro de los
+  huecos que ya ocupaba. Lo que no se controla es `max_subidas_por_corrida`:
+  con una subida al día, una serie de tres tarda tres días en salir entera.
+- **`relanzar.py` deja las partes en paz.** La revisión quincenal borra
+  los videos sin vistas y devuelve la historia a la cola; con una parte,
+  la 2 volvería a subirse sola después de la 3.
+
+### Filtrar el material de stock por lo que dice su ficha — VIABLE, a medias
+
+**Qué se encontró.** Los servicios de detección de menores en imagen
+(Sightengine y parecidos) son APIs de pago en la nube, y las herramientas
+libres de detección de caras (OpenScrub y similares) piden GPU. Nada de eso
+cabe aquí.
+
+**Lo que sí hay, sin coste.** Las dos fuentes describen cada clip en texto:
+Pixabay devuelve un campo `tags` ("girl, driving, truck"), y en la
+respuesta de búsqueda de Pexels la `url` de la página lleva un slug
+descriptivo (`https://www.pexels.com/video/video-of-forest-1448735/`); su
+campo `tags` viene vacío. Ese slug ya se guarda hoy, como `pagina`, en
+`pipeline_state/fondos_atribucion.json`. Rechazar al buscar los clips cuya
+ficha nombra personas (child, kid, girl, boy, baby, teen, woman, man,
+people, driver…) son unas veinte líneas en `descargar_fondos.py`, sin
+dependencias, y el mismo filtro pasado sobre `fondos_atribucion.json`
+señalaría los clips ya descargados que habría que borrar del teléfono.
+
+**Por qué "a medias".** Es un filtro por palabras sobre lo que escribió
+quien subió el clip, no una revisión de la imagen: un clip titulado
+"woman driving" puede mostrar a una menor, y uno sin personas en el título
+puede tenerlas. Reduce el riesgo, no lo elimina. Para las fichas antiguas
+de Pixabay, `fondos_atribucion.json` no guardó los `tags`, así que la
+revisión retroactiva solo cubre bien lo que vino de Pexels.
+
+**Lo que ya se hizo.** El PR que quitó del tema `carretera` las búsquedas
+que devolvían gente al volante ataca la causa directa; esto sería la red
+por debajo, para cualquier tema.
+
+**Licencia.** No aplica — son las mismas APIs que ya se usan, dentro de sus
+términos.
+
+### Bajar la música bajo la voz con `sidechaincompress` — DESCARTADO
+
+**Qué se encontró.** Es un filtro que trae ffmpeg de serie, así que
+correría en Termux, y varios proyectos lo usan (umbral ≈0.02–0.05, ratio
+8–10, ataque 50 ms, liberación 400–500 ms), siempre con `asplit=2` sobre la
+voz para usarla a la vez de llave y de mezcla.
+
+**Por qué no.** Aquí no hay nada que bajar: la música va a `volumen_musica`
+0.04 contra la locución a 0.5, con `normalize=0` — diez veces por debajo
+todo el rato. El comentario de `generar_video_maestro.py` junto al `amix`
+explica por qué esos niveles son los que son. Añadiría una etapa de filtro
+y un `asplit` a cada render en la CPU del teléfono para una diferencia que
+no se oye.
+
+## 9. Conectar servicios desde el panel — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Poner una clave era saberse el nombre exacto de la
+variable, buscar por tu cuenta la página donde se saca, pegarla a ciegas y
+enterarse en el siguiente render de que no servía.
+
+**Qué se encontró.** `jthop/flask-api-key` y parecidos resuelven otro
+problema: autenticar a quien llama a *tu* API. `akdinesh2003/API-Key-Validator`
+prueba claves de otros servicios (OpenAI, AWS…) en una aplicación aparte.
+Ninguno encaja en un panel que ya existe y tiene que leerse a 412 px.
+
+**Qué se hizo.** `conectar.py`, ~200 líneas sin dependencias nuevas
+(`requests` ya estaba): un catálogo con para qué sirve cada clave, su enlace
+y sus pasos, y una prueba real contra cada servicio con la llamada más barata
+que tiene. Reutiliza `secretos.revisar_clave_api` para reconocer las
+credenciales equivocadas (un client secret de OAuth pegado como clave, por
+ejemplo). El panel lo enseña en Ajustes → Conectar servicios. Corre en
+Termux sin nada más.
+
+## 10. Horario de las tandas desde el panel — SE ADOPTÓ UNA IDEA, NO EL CÓDIGO
+
+**El problema.** Las cinco tareas de cron estaban escritas a mano dentro de
+`instalar_cron.sh`. Cambiar "publicar a las 9" por "publicar a las 10" era
+editar un script de bash desde el teclado del teléfono, y un error de
+sintaxis en una línea de crontab no avisa: cron la ignora y la tanda
+simplemente deja de salir.
+
+**Qué se encontró.**
+
+- [`alseambusher/crontab-ui`](https://github.com/alseambusher/crontab-ui)
+  (MIT): el más completo, con copias de seguridad y registro de cada tarea.
+  Es Node, así que queda fuera en Termux.
+- [`fluxkompensator/CronUI`](https://github.com/fluxkompensator/CronUI)
+  (Flask): lista, edita y crea tareas cualesquiera. Pide correr como root y
+  es un servidor aparte en el puerto 5000: otro proceso que Android puede
+  matar, y otra página que no es el panel.
+- [`benjcabalona1029/python-crontab-ui`](https://github.com/benjcabalona1029/python-crontab-ui):
+  lo mismo sobre FastAPI y `python-crontab`. Otro servidor, otra dependencia.
+- [`doctormo/python-crontab`](https://github.com/doctormo/python-crontab)
+  (LGPL-3.0): la librería para leer y escribir el crontab. Para cinco líneas
+  con una marca al final basta `crontab -l` / `crontab -`, que es lo que ya
+  hacía `instalar_cron.sh`.
+
+Además, todos dejan escribir **cualquier orden** en el crontab desde una
+página web. Aquí eso sobra y es peligroso: el panel escucha en el teléfono
+y lo que se meta en el crontab corre solo, sin que nadie mire.
+
+**Qué se adoptó.** La idea de pausar una tarea sin borrarla, que tienen
+crontab-ui y CronUI. Nada de su código.
+
+**Qué se hizo.** `horario.py`, sin dependencias nuevas. Los comandos son
+fijos en `TAREAS`; desde el panel solo se cambian días, hora y si la tarea
+está activa, y todo pasa por `validar` antes de escribirse. Los días del
+mes van del 1 al 28, porque un 30 o un 31 se saltaría en silencio los meses
+que no lo tienen. Lo de fábrica genera exactamente las líneas que ya
+escribía `instalar_cron.sh` (los siete días como `*`, el `python` sin
+resolver), así que un teléfono con el cron puesto por la versión anterior
+cuenta como al día y no ve un aviso falso. `instalar_cron.sh` ahora llama a
+`horario.py --aplicar` en vez de llevar las líneas dentro. En el panel:
+Ajustes → Horario automático.
+
+## 11. Quitar Termux de en medio: que la app corra el pipeline ella sola — SE ADOPTÓ Chaquopy, y ffmpeg hay que compilarlo
 
 **Qué se quería.** La app del §7 no arranca nada por su cuenta: le encarga
 `servidor.py` a Termux con el intent `RUN_COMMAND`. Eso obliga a tener Termux
@@ -299,7 +488,7 @@ pregunta era si la app puede llevar el pipeline entero.
 Son dos problemas distintos y se resolvieron distinto: **el intérprete de
 Python** y **ffmpeg**.
 
-### 8.1 Python dentro del APK — SE ADOPTÓ `chaquo/chaquopy`
+### 11.1 Python dentro del APK — SE ADOPTÓ `chaquo/chaquopy`
 
 **Qué es.** Un plugin de Gradle que mete CPython y sus dependencias dentro
 del APK, y deja llamar a Python desde Java y al revés. Versión 17.0, Python
@@ -344,7 +533,7 @@ cero cambios en los `.py`: ver más abajo.
 - **UserLAnd o `proot-distro` dentro de la app.** Es cambiar Termux por otro
   Linux emulado: el mismo problema con otro nombre, y más peso.
 
-### 8.2 ffmpeg — NO HAY NADA QUE SIRVA, HAY QUE COMPILARLO
+### 11.2 ffmpeg — NO HAY NADA QUE SIRVA, HAY QUE COMPILARLO
 
 El pipeline llama a `ffmpeg` y `ffprobe` **31 veces**. Sin ellos no hay
 video.
@@ -384,7 +573,7 @@ hace en el runner (compilar esto en el teléfono no es posible).
 mano da igual; si algún día se distribuyera habría que publicar el código
 —que ya está publicado— y la receta de compilación, que es ese script.
 
-### 8.3 Lo que se descubrió por el camino: el chip de video se pierde
+### 11.3 Lo que se descubrió por el camino: el chip de video se pierde
 
 **`h264_mediacodec` no funciona en un ffmpeg ejecutable.** El soporte de
 mediacodec en ffmpeg pasa por JNI y necesita una JVM viva
@@ -402,7 +591,7 @@ que es donde sí hay JVM. Con Chaquopy se puede llamar a Java desde Python,
 así que el camino existe — pero es el refactor de las 31 llamadas que este
 apartado acaba de descartar para el caso general.
 
-### 8.4 Los dos muros que solo aparecen al construirlo
+### 11.4 Los dos muros que solo aparecen al construirlo
 
 Los dos se encontraron compilando, no leyendo documentación, y los dos son
 más grandes que todo lo anterior.
@@ -424,6 +613,12 @@ en un hilo en vez de lanzarlo: `Trabajo` pasaría de `subprocess.Popen` a
 —matar un proceso es fiable, parar un hilo no— y la pausa. No es un cambio
 pequeño y toca el corazón de `servidor.py`, que es el mismo que usa Termux,
 así que no se ha hecho aquí.
+
+Y el mismo muro alcanza a algo que acaba de entrar en `main`: `horario.py`
+escribe el crontab con órdenes `"{py} buscar_diario.py"`. Sin ejecutable de
+Python no hay `{py}` que valga, y además en Android no hay cron. Las tandas
+automáticas de la app tendrían que ir por `WorkManager`, que es otra pieza
+que no existe todavía.
 
 **2. Gemini no se puede instalar en el APK.** `google-genai` exige
 `pydantic >= 2.12`, que depende de `pydantic-core`: una extensión compilada
@@ -450,7 +645,7 @@ Hay dos salidas, y una es claramente mejor:
   cada vez que pydantic suba de versión, para no ganar nada que la primera
   opción no dé.
 
-### 8.5 El precio que hay que decir en voz alta
+### 11.5 El precio que hay que decir en voz alta
 
 **Se deja de actualizar con `git pull`.** Hoy el dueño del proyecto se mete
 en Termux, hace `git pull` y ya está corriendo lo nuevo. Con el pipeline

@@ -277,11 +277,7 @@ def _cache_canales():
 
 
 def _guardar_cache_canales(datos):
-    os.makedirs(cola.CARPETA_ESTADO, exist_ok=True)
-    tmp = RUTA_CANALES + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(datos, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, RUTA_CANALES)
+    almacen.guardar(RUTA_CANALES, datos)
 
 
 def resolver_channel_id(referencia, cache=None):
