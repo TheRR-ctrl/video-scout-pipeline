@@ -1,0 +1,118 @@
+// La app sin Termux: lleva Python dentro.
+//
+// El módulo :app (el que funciona hoy) le pide a Termux que arranque
+// servidor.py. Este no le pide nada a nadie: Chaquopy mete CPython y las
+// dependencias en el propio APK, así que el panel corre dentro de la app.
+//
+// Está aparte y no sustituye a :app a propósito. Que compila lo dice el
+// workflow; que funciona en un teléfono solo se ve instalándolo, y hasta
+// entonces la app que hay que poder instalar es la que ya se probó.
+plugins {
+    id "com.android.application"
+    id "com.chaquo.python"
+}
+
+android {
+    namespace "com.mesaderevision.nativa"
+    compileSdk 35
+
+    defaultConfig {
+        applicationId "com.mesaderevision.nativa"
+        // Chaquopy pide 24; el resto de la app pedía 26 por
+        // startForegroundService, que aquí también se usa.
+        minSdk 26
+        targetSdk 35
+        versionCode 1
+        versionName "0.1"
+
+        ndk {
+            // Solo arm64: es lo que lleva cualquier teléfono capaz de
+            // renderizar video, y cada ABI extra duplica el peso del
+            // runtime de Python dentro del APK.
+            abiFilters "arm64-v8a"
+        }
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    // El binario de ffmpeg viaja aquí dentro como si fuera una librería
+    // nativa. No es un capricho de empaquetado: desde Android 10, una app
+    // no puede ejecutar un archivo de su carpeta de datos (W^X), y el
+    // directorio de librerías del APK es el único sitio del que sí puede.
+    sourceSets {
+        main {
+            jniLibs.srcDirs = ["src/main/jniLibs"]
+        }
+    }
+}
+
+chaquopy {
+    defaultConfig {
+        version = "3.12"
+
+        pip {
+            // Las de requirements.txt, MENOS google-genai. Las que llevan
+            // código nativo (pillow) salen del repositorio de ruedas de
+            // Chaquopy; el resto es Python puro y viene de PyPI.
+            install "flask>=3.0"
+            install "requests"
+            install "pillow"
+            install "edge-tts"
+            install "google-api-python-client"
+            install "google-auth-oauthlib"
+            install "youtube-transcript-api"
+
+            // google-genai NO está, y no es un olvido.
+            //
+            // Exige pydantic >= 2.12, que depende de pydantic-core: una
+            // extensión compilada en Rust que no tiene rueda de Android y
+            // que no está en el repositorio de Chaquopy. Dejarlo puesto no
+            // da un error claro: pip se pone a retroceder versión por
+            // versión buscando una que no lo pida —y no existe— y la
+            // compilación se queda media hora bajando metadatos de urllib3
+            // sin decir por qué. Se vio en vivo.
+            //
+            // Sin esto, la app arranca y sirve el panel, pero todo lo que
+            // pasa por Gemini (script_writer, calidad_ia, la metadata del
+            // publisher) falla al importar. La salida está en
+            // docs/repos_revisados.md §8.4: Gemini tiene API REST, y
+            // llamarla con requests quitaría la dependencia en los tres
+            // sitios donde corre el pipeline, no solo aquí.
+        }
+    }
+}
+
+// Los .py del pipeline NO se empaquetan como código de Chaquopy, sino como
+// un zip en assets que la app descomprime al arrancar.
+//
+// Parece un rodeo y es justo lo contrario. Todos los módulos calculan su
+// BASE_DIR con os.path.dirname(__file__), y cuelgan de ahí pipeline_state/,
+// config.json, guion.txt y los videos. Si corrieran desde dentro del APK,
+// ese directorio sería de solo lectura y habría que tocar los veinte
+// archivos que lo definen. Descomprimidos en filesDir, BASE_DIR es
+// escribible y el pipeline funciona exactamente igual que en Termux.
+tasks.register("empaquetarPipeline", Zip) {
+    archiveFileName = "pipeline.zip"
+    destinationDirectory = layout.projectDirectory.dir("src/main/assets")
+
+    from(rootProject.projectDir.parentFile) {
+        include "*.py"
+        include "web/**"
+        include "fuentes/**"
+        include "config.example.json"
+        include "config_trends.ejemplo.json"
+        // Nada de secretos ni de estado: esos nacen en el teléfono.
+        exclude "secretos.env", "tiktok_token.json", "config.json"
+    }
+}
+
+tasks.named("preBuild").configure { dependsOn("empaquetarPipeline") }

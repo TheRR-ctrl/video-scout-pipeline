@@ -1,0 +1,92 @@
+name: Compilar ffmpeg para Android
+
+# El ffmpeg que va dentro de la app sin Termux (android/nativa).
+#
+# Está en su propio workflow y a mano porque tarda cerca de una hora y casi
+# nunca hace falta: solo cuando cambia la versión de ffmpeg o de alguna de
+# sus librerías. El workflow del APK no lo compila — se baja los binarios ya
+# hechos de la release que este deja.
+#
+# Por qué compilarlo en vez de usar uno hecho: no existe un ffmpeg
+# ejecutable para Android, mantenido, que traiga libass — y libass es quien
+# dibuja los subtítulos karaoke. Los detalles y los proyectos que se miraron
+# están en docs/repos_revisados.md §8.
+
+on:
+  workflow_dispatch:
+    inputs:
+      publicar:
+        description: "Dejar los binarios en la release 'ffmpeg-android' (es de donde los toma el APK)"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  ffmpeg:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Herramientas de compilación
+        run: |
+          sudo apt-get update
+          # autotools para fribidi, freetype y libass; nasm para x264.
+          sudo apt-get install -y autoconf automake libtool pkg-config nasm ninja-build
+          pip install --quiet meson
+
+      - name: NDK
+        id: ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      - name: Compilar
+        env:
+          ANDROID_NDK_HOME: ${{ steps.ndk.outputs.ndk-path }}
+          TRABAJO: ${{ runner.temp }}/ffmpeg-trabajo
+          SALIDA: ${{ github.workspace }}/salida
+        working-directory: android/nativa/ffmpeg
+        run: bash construir.sh
+
+      - name: Comprobar que salieron binarios de Android arm64
+        run: |
+          set -e
+          for b in ffmpeg ffprobe; do
+            file "salida/$b"
+            # Si esto no dice ARM aarch64, algo salió compilado para el
+            # runner y el APK llevaría un binario que el teléfono no puede
+            # ejecutar — un fallo que solo se vería al renderizar.
+            file "salida/$b" | grep -q "ARM aarch64"
+          done
+          ls -la salida
+
+      - name: Guardar los binarios
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffmpeg-android-arm64
+          path: salida/*
+          if-no-files-found: error
+
+      - name: Publicar en la release 'ffmpeg-android'
+        if: ${{ inputs.publicar }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Van con el nombre con el que viajan dentro del APK: Android solo
+          # empaqueta como librería lo que se llama lib*.so.
+          cp salida/ffmpeg  libffmpeg.so
+          cp salida/ffprobe libffprobe.so
+          gh release delete ffmpeg-android --yes --cleanup-tag || true
+          gh release create ffmpeg-android libffmpeg.so libffprobe.so \
+            --title "ffmpeg para Android (arm64)" \
+            --prerelease \
+            --notes "ffmpeg y ffprobe arm64 con libx264, libass, freetype y fribidi.
+          Compilados desde ${{ github.sha }} con android/nativa/ffmpeg/construir.sh.
+
+          Sin h264_mediacodec: el chip de video pasa por JNI y un ejecutable
+          suelto no tiene JVM. Ver android/nativa/README.md."

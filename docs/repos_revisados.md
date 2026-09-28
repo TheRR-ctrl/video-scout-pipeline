@@ -288,3 +288,177 @@ workflow en cada push, y se compiló antes de subirlo (SDK 35, AGP 8.7.3).
 Que Termux acepte el intent en un teléfono de verdad solo se ve instalándolo
 — es la misma trampa que `VERSION_CLI` de HyperFrames: sin Android delante,
 subir la versión es apostar.
+
+## 8. Quitar Termux de en medio: que la app corra el pipeline ella sola — SE ADOPTÓ Chaquopy, y ffmpeg hay que compilarlo
+
+**Qué se quería.** La app del §7 no arranca nada por su cuenta: le encarga
+`servidor.py` a Termux con el intent `RUN_COMMAND`. Eso obliga a tener Termux
+instalado, con `allow-external-apps=true` y el repo clonado dentro. La
+pregunta era si la app puede llevar el pipeline entero.
+
+Son dos problemas distintos y se resolvieron distinto: **el intérprete de
+Python** y **ffmpeg**.
+
+### 8.1 Python dentro del APK — SE ADOPTÓ `chaquo/chaquopy`
+
+**Qué es.** Un plugin de Gradle que mete CPython y sus dependencias dentro
+del APK, y deja llamar a Python desde Java y al revés. Versión 17.0, Python
+3.13 hasta 3.8, `minSdk` 24, arm64-v8a y x86_64.
+
+**Licencia: MIT.** Esto es nuevo y cambia la decisión: hasta la 12.0.1
+Chaquopy era de pago para apps de código cerrado. Desde entonces, y gracias
+al patrocinio de Anaconda, es libre sin restricciones.
+
+**Corre en Android sin root.** Es su único objetivo. Y lo que importa aquí:
+las dependencias con código nativo del proyecto tienen rueda de Android en
+el repositorio de Chaquopy — se comprobó que están **pillow** y
+**cryptography** (y de paso numpy y lxml). El resto de `requirements.txt`
+—flask, requests, google-genai, edge-tts, google-api-python-client,
+youtube-transcript-api— es Python puro y sale de PyPI.
+
+`subprocess` **no** está en su lista de módulos no soportados (sí lo están
+`crypt`, `grp`, `curses`, `tkinter`… y `multiprocessing`, que aquí no se
+usa). Eso es lo que permite que las llamadas a ffmpeg sigan siendo las
+mismas.
+
+**Coste de mantenimiento.** Un plugin más en el Gradle y las dependencias
+declaradas dos veces (en `requirements.txt` y en el bloque `pip`). A cambio,
+cero cambios en los `.py`: ver más abajo.
+
+**Se miraron las alternativas y se descartaron por forma, no por calidad:**
+
+- **`python-for-android`** (Kivy, MIT) tiene un *bootstrap* de WebView
+  pensado exactamente para esto: un servidor Python local y una WebView
+  apuntándole. Si este proyecto empezara hoy sería un candidato de primera.
+  Se descarta porque **ya hay una app Android nativa** (módulo `:app`, con
+  su Activity, su servicio y su WebView) compilándose con Gradle en el
+  runner: p4a traería su propia cadena de construcción (buildozer/p4a) y
+  habría que rehacer lo que ya funciona.
+- **BeeWare / Briefcase** (BSD). Se descarta por el mismo motivo —está
+  pensado para proyectos que nacen dentro de él— y por un dato que además
+  refuerza la elección de arriba: **Briefcase usa Chaquopy** para Android
+  desde la 0.3.10, en lugar de su antiguo `Python-Android-support`.
+- **Pyodide / Python en WebAssembly.** Correría dentro de la WebView sin
+  tocar el APK, pero no tiene `subprocess` ni sistema de archivos real, así
+  que no puede llamar a ffmpeg ni escribir los videos. No sirve para esto.
+- **UserLAnd o `proot-distro` dentro de la app.** Es cambiar Termux por otro
+  Linux emulado: el mismo problema con otro nombre, y más peso.
+
+### 8.2 ffmpeg — NO HAY NADA QUE SIRVA, HAY QUE COMPILARLO
+
+El pipeline llama a `ffmpeg` y `ffprobe` **31 veces**. Sin ellos no hay
+video.
+
+**`arthenica/ffmpeg-kit` está retirado.** Era la respuesta obvia —traía un
+paquete `full-gpl` con libass y x264— pero su autor lo archivó y **el 1 de
+abril de 2025 retiró los binarios de Maven Central, CocoaPods y npm**. En
+julio de 2026 apareció **FFmpegKitNext**, del mismo autor, como continuación
+oficial, pero se distribuye como código fuente, no como binarios listos. Hay
+además forks de la comunidad (`SixtyTwoPlus/ffmpeg-kit`,
+`moizhassankh/ffmpeg-kit-android-16KB`).
+
+**Y aunque no lo estuviera, ffmpeg-kit es una librería, no un ejecutable.**
+Usarla significaría reescribir las 31 llamadas para que pasen por JNI, y
+mantener ese camino **solo para Android** — mientras Termux y el runner de
+GitHub siguen usando `subprocess`. Los mismos `.py` corren en los tres
+sitios; partirlos en dos es exactamente como se pudre este tipo de código.
+
+**Binarios ya compilados: ninguno sirve.**
+
+- `Khang-NT/ffmpeg-binary-android` (LGPL) sí da **ejecutables** y arm64,
+  pero sin libass, sin fontconfig y sin freetype, sobre una base de ffmpeg
+  3.3.2 (2017). **libass no es opcional aquí**: es quien dibuja los
+  subtítulos karaoke que arma `convertir_timing_a_karaoke_ass`.
+- `cropsly/ffmpeg-android` sí trae x264, libass, fontconfig, freetype y
+  fribidi —el juego exacto— pero está congelado en "Android 4.1+".
+- `guardianproject/android-ffmpeg`, `cmeng-git/ffmpeg-android`: la técnica
+  está, los binarios son viejos.
+
+**Conclusión: existe la técnica, no existe el artefacto.** Se escribió
+`android/nativa/ffmpeg/construir.sh`, que compila ffmpeg y ffprobe para
+arm64 con x264, libass, freetype, fribidi y harfbuzz, y un workflow que lo
+hace en el runner (compilar esto en el teléfono no es posible).
+
+**Licencias.** Con x264 el binario es **GPL**, y por eso el script pasa
+`--enable-gpl --enable-version3`. Para una app personal que se instala a
+mano da igual; si algún día se distribuyera habría que publicar el código
+—que ya está publicado— y la receta de compilación, que es ese script.
+
+### 8.3 Lo que se descubrió por el camino: el chip de video se pierde
+
+**`h264_mediacodec` no funciona en un ffmpeg ejecutable.** El soporte de
+mediacodec en ffmpeg pasa por JNI y necesita una JVM viva
+(`av_jni_set_java_vm`); un binario suelto no tiene ninguna. Es el motivo de
+fondo del issue #73 de `mobile-ffmpeg`, y no tiene arreglo mientras ffmpeg
+sea un ejecutable.
+
+No rompe nada —`usar_chip_android` ya viene en `false` y el pipeline cae
+solo a libx264 (ver `CLAUDE.md`)— pero el coste es real: renderizar por CPU
+es más lento y gasta más batería. Es, de hecho, **lo único que la app con
+Termux hace mejor** que la app nativa.
+
+Recuperarlo pide llamar a ffmpeg como librería desde el proceso de la app,
+que es donde sí hay JVM. Con Chaquopy se puede llamar a Java desde Python,
+así que el camino existe — pero es el refactor de las 31 llamadas que este
+apartado acaba de descartar para el caso general.
+
+### 8.4 Los dos muros que solo aparecen al construirlo
+
+Los dos se encontraron compilando, no leyendo documentación, y los dos son
+más grandes que todo lo anterior.
+
+**1. El panel lanza un proceso de Python por cada botón, y en la app no hay
+ninguno.** `servidor.py` tiene una lista blanca de acciones (`ACCIONES`) y
+cada una es `[sys.executable, "trend_scout.py"]` — un proceso nuevo, con su
+salida en vivo, que se puede cancelar. Dentro de Chaquopy **`sys.executable`
+está vacío**: CPython va como librería (`libpython3.12.so`), no como
+ejecutable, y no hay forma de lanzar un proceso de Python. Es el issue #96
+de chaquopy.
+
+O sea: la app puede servir el panel y enseñar el estado, pero **ningún botón
+que lance una etapa funciona** tal y como está escrito hoy.
+
+La salida es correr las etapas **dentro del proceso**, importando el módulo
+en un hilo en vez de lanzarlo: `Trabajo` pasaría de `subprocess.Popen` a
+`runpy` con la salida redirigida. Lo que se pierde es la cancelación real
+—matar un proceso es fiable, parar un hilo no— y la pausa. No es un cambio
+pequeño y toca el corazón de `servidor.py`, que es el mismo que usa Termux,
+así que no se ha hecho aquí.
+
+**2. Gemini no se puede instalar en el APK.** `google-genai` exige
+`pydantic >= 2.12`, que depende de `pydantic-core`: una extensión compilada
+en **Rust**, sin rueda de Android y ausente del repositorio de Chaquopy.
+
+El síntoma, además, no dice nada: pip se pone a **retroceder** versión por
+versión buscando una combinación que no pida pydantic —que no existe, porque
+google-genai siempre la ha usado— y la compilación se queda media hora
+bajando metadatos de `urllib3` y de `idna` sin un solo mensaje de error.
+Aquí se dejó correr 22 minutos antes de entender qué pasaba.
+
+Esto afecta a lo más importante del pipeline: `script_writer.py` escribe
+**todos** los guiones con Gemini, y `calidad_ia.py` y `publisher.py` también
+lo usan.
+
+Hay dos salidas, y una es claramente mejor:
+
+- **Llamar a la API REST de Gemini con `requests`**, que ya es dependencia.
+  Quita `google-genai`, `pydantic` y `pydantic-core` del proyecto entero —
+  no solo de Android — y deja el pipeline más ligero también en Termux y en
+  el runner. Es la que recomienda este documento.
+- Compilar una rueda de `pydantic-core` para Android con las recetas de
+  `chaquopy/server/pypi`. Significa cross-compilar Rust y mantener esa rueda
+  cada vez que pydantic suba de versión, para no ganar nada que la primera
+  opción no dé.
+
+### 8.5 El precio que hay que decir en voz alta
+
+**Se deja de actualizar con `git pull`.** Hoy el dueño del proyecto se mete
+en Termux, hace `git pull` y ya está corriendo lo nuevo. Con el pipeline
+dentro del APK, cada cambio de una línea de Python exige compilar un APK en
+el runner, bajarlo al teléfono e instalarlo. Para un proyecto que se toca
+casi a diario desde el propio móvil, eso no es un detalle: es el cambio más
+grande de los tres.
+
+Por eso la app nativa se añade **al lado** de la de Termux y no en su lugar.
+Son dos formas de usar el mismo repo, y hoy la que se actualiza en diez
+segundos sigue siendo la de Termux.

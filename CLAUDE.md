@@ -149,6 +149,44 @@ un problema de caché. Lo mismo con `/api/`, `/video/`, `/audio/` y
 `/miniatura/`: son datos vivos. Si algún día cambia lo que sí se guarda, hay
 que subir `CACHE` (`mesa-v1`) o los teléfonos seguirán sirviendo lo viejo.
 
+## Hay dos apps de Android, y solo una funciona hoy
+
+`android/app` es la que anda: un WebView que le pide a Termux que arranque
+`servidor.py`. `android/nativa` lleva **CPython dentro del APK** (Chaquopy) y
+no necesita Termux para nada. La segunda es un experimento con dos muros sin
+resolver, y por eso no sustituye a la primera. Los muros, en orden de
+tamaño:
+
+**Ningún botón del panel funciona en la app nativa.** `ACCIONES`, en
+`servidor.py`, lanza cada etapa como `[sys.executable, "trend_scout.py"]`.
+Dentro de Chaquopy `sys.executable` **está vacío**: Python va como librería,
+no como ejecutable, y no se puede lanzar un proceso de Python. Arreglarlo
+significa correr las etapas dentro del proceso (`runpy` en un hilo, salida
+redirigida) y perder la cancelación de verdad — matar un proceso es fiable,
+parar un hilo no. Toca el corazón de `servidor.py`, que es el mismo que usa
+Termux, así que no se ha hecho.
+
+**Gemini no entra en el APK.** `google-genai` pide `pydantic`, que depende
+de `pydantic-core`, que es Rust compilado y no tiene rueda de Android. Y el
+síntoma engaña: pip no falla, se pone a **retroceder** versión por versión
+durante media hora sin decir por qué. Si alguien vuelve a añadir
+`google-genai` al bloque `pip` de `android/nativa/build.gradle` y la
+compilación "se cuelga", es esto. La salida buena es llamar a la API REST de
+Gemini con `requests` y quitar la dependencia del proyecto entero — ver
+`docs/repos_revisados.md` §8.4.
+
+**El chip de video no existe en la app nativa.** `h264_mediacodec` llega por
+JNI y necesita una JVM; el ffmpeg que va dentro es un ejecutable y no tiene
+ninguna. No hay que tocar nada (`usar_chip_android` ya viene en `false` y el
+respaldo a libx264 es automático), pero renderizar ahí es por CPU siempre.
+
+**El zip del pipeline se arma solo, y por eso se puede olvidar.** La tarea
+`empaquetarPipeline` mete en el APK `*.py`, `web/`, `fuentes/` y los
+`config.*.ejemplo` de la raíz del repo. Un archivo `.py` nuevo entra solo;
+**una carpeta nueva no**. Si algún día el pipeline necesita otro directorio,
+hay que añadirlo a los `include` de esa tarea o la app arrancará sin él, y
+el fallo aparecerá a mitad de una tanda.
+
 ## TikTok: la auditoría no se va a pasar
 
 Cada cierto tiempo vuelve la idea de mandar la app a revisión para desbloquear

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android bloquea el tráfico sin cifrar desde Android 9. El panel vive en
+  http://127.0.0.1:8770 y no puede tener HTTPS (no hay certificado posible
+  para localhost), así que hay que abrir una rendija — pero solo esa.
+
+  El resto sigue cerrado a propósito: si un día esta app cargara una URL
+  externa por error, no podría hacerlo en claro.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

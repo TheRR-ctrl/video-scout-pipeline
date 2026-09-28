@@ -245,6 +245,40 @@ the `RUN_COMMAND` permission, not just this one, which is why the installer
 won't set it without being asked. Details in
 **[android/README.md](android/README.md)**.
 
+### An experiment: the app without Termux (`android/nativa`)
+
+A second module embeds CPython in the APK (via [Chaquopy](https://chaquo.com/chaquopy/),
+MIT), so the panel and the pipeline run *inside* the app — no Termux, no
+`RUN_COMMAND`, nothing to install first. The panel itself needs no changes:
+the app unpacks the pipeline into a writable directory, so every module's
+`BASE_DIR` keeps working exactly as it does under Termux.
+
+**It is not a replacement yet, and the reasons are specific.** Two of them
+only showed up once it was actually built:
+
+- **Panel buttons don't work.** Each action in `servidor.py` launches a
+  stage as `[sys.executable, "trend_scout.py"]`, and under Chaquopy
+  `sys.executable` is empty — Python is a library there, not an executable.
+  Fixing it means running stages in-process and giving up real cancellation.
+- **Gemini can't be installed.** `google-genai` needs `pydantic-core`, a
+  compiled Rust extension with no Android wheel. The fix that helps
+  everywhere is calling Gemini's REST API with `requests` instead.
+- **No hardware encoder.** `h264_mediacodec` reaches the chip through JNI
+  and needs a live JVM; a standalone ffmpeg binary has none. It falls back
+  to libx264 automatically, so nothing breaks — it's just CPU-only.
+
+ffmpeg is the other half of the story: no maintained Android ffmpeg
+*executable* ships with libass (which draws the karaoke subtitles), so
+`android/nativa/ffmpeg/construir.sh` builds one — ffmpeg + ffprobe for
+arm64 with x264, libass, freetype, fribidi and harfbuzz — and a workflow
+runs it on the runner.
+
+And the price worth saying out loud: with the pipeline inside the APK,
+updating stops being `git pull` on the phone and becomes "build an APK,
+download it, install it". The full write-up, including what was evaluated
+and rejected, is in `docs/repos_revisados.md` §8 and
+**[android/nativa/README.md](android/nativa/README.md)**.
+
 ## Background video (`motor_fondo` in `config.json`)
 
 - `"cortes"` (default) — the original behaviour: random 6-12 s cuts from your
