@@ -37,7 +37,17 @@ fi
 # búsqueda sale a una hora distinta cada día sin que cron sepa de sorteos, y
 # sin dejar un `sleep` de horas colgando que Android acabaría matando.
 # Se quitan primero las anteriores nuestras, para no duplicarlas al reinstalar.
-ACTUAL="$(crontab -l 2>/dev/null | grep -v "$MARCA" || true)"
+# Si `crontab -l` falla por otra cosa que "no hay crontab", se para: tomarlo
+# por vacío y escribir encima borraría las demás tareas que tengas.
+if ! LEIDO="$(crontab -l 2>&1)"; then
+  case "$LEIDO" in
+    *"no crontab for"*) LEIDO="" ;;
+    *) echo "  ✗ No pude leer el crontab, así que no lo toco:"
+       echo "    $LEIDO"
+       exit 1 ;;
+  esac
+fi
+ACTUAL="$(printf '%s\n' "$LEIDO" | grep -v "$MARCA" || true)"
 
 if [ "$1" = "--quitar" ]; then
   printf '%s\n' "$ACTUAL" | crontab -

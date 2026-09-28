@@ -202,16 +202,39 @@ def describir(t):
     return f"{dias}, a las {t['hora']}"
 
 
+class CrontabIlegible(Exception):
+    """`crontab -l` falló por algo que no es "todavía no hay crontab"."""
+
+
 def _crontab_actual():
+    """El crontab tal cual, "" si todavía no hay, None si falta cron.
+
+    Un fallo de `crontab -l` solo cuenta como vacío cuando dice que no hay
+    crontab. Con cualquier otro (permisos, archivo roto, timeout) se para:
+    tomarlo por vacío haría que aplicar() escribiese solo nuestras líneas y
+    borrase sin avisar las demás tareas que tengas, y eso ahora pasa con
+    un toque en el panel, no a mano en Termux.
+    """
     if not shutil.which("crontab"):
         return None
-    r = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
-    return r.stdout if r.returncode == 0 else ""
+    try:
+        r = subprocess.run(["crontab", "-l"], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CrontabIlegible(f"no pude leer el crontab ({exc})") from exc
+    if r.returncode == 0:
+        return r.stdout
+    error = (r.stderr or "").strip()
+    if "no crontab for" in error.lower():
+        return ""
+    raise CrontabIlegible(f"no pude leer el crontab: {error or 'código ' + str(r.returncode)}")
 
 
 def aplicar():
     """Escribe en el crontab las tareas activas. Devuelve (ok, mensaje)."""
-    actual = _crontab_actual()
+    try:
+        actual = _crontab_actual()
+    except CrontabIlegible as exc:
+        return False, f"No toqué nada: {exc}. Mira `crontab -l` en Termux."
     if actual is None:
         return False, ("Falta cron en el teléfono. Instálalo una vez en Termux con: "
                        "bash instalar_cron.sh")
@@ -225,7 +248,11 @@ def aplicar():
 
 def estado():
     """Para el panel: las tareas, si cron está y si lo instalado coincide."""
-    actual = _crontab_actual()
+    ilegible = None
+    try:
+        actual = _crontab_actual()
+    except CrontabIlegible as exc:
+        actual, ilegible = "", str(exc)
     instaladas = [l for l in (actual or "").splitlines() if MARCA in l]
     try:
         vivo = subprocess.run(["pgrep", "-x", "crond"], capture_output=True, timeout=5).returncode == 0
@@ -236,7 +263,8 @@ def estado():
         "tareas": [{"id": i, **t, "cuando": describir(t)} for i, t in tareas.items()],
         "hay_cron": actual is not None,
         "crond_vivo": vivo,
-        "al_dia": sorted(instaladas) == sorted(lineas_cron(tareas)),
+        "al_dia": ilegible is None and sorted(instaladas) == sorted(lineas_cron(tareas)),
+        "ilegible": ilegible,
     }
 
 
