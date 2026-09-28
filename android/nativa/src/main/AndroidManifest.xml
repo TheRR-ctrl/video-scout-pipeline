@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- Para hablar con 127.0.0.1, y para que el pipeline llegue a Reddit,
+         YouTube y Gemini. Aquí sí sale tráfico del teléfono: lo que antes
+         hacía Python en Termux ahora lo hace Python dentro de la app. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!-- El equivalente nativo de termux-wake-lock: un render dura minutos y
+         Android congela lo que no está en primer plano. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <!-- Desde Android 13 hay que pedirlo para que se vea la notificación
+         del servicio. Si el usuario lo niega, el panel sigue funcionando:
+         solo se queda sin el aviso y sin el botón de apagar. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!-- Ni RUN_COMMAND ni <queries> de com.termux: esta app no le pide
+         nada a nadie. Esa es toda la diferencia con el módulo :app. -->
+
+    <application
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/red"
+        android:supportsRtl="true"
+        android:theme="@style/TemaPanel">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|uiMode|density">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- dataSync y no mediaProcessing: el servicio no solo renderiza,
+             también sirve el panel y habla con las APIs. Android 15 pone
+             límites de tiempo a dataSync que este proyecto todavía no ha
+             medido en un render largo de verdad — está anotado en
+             android/nativa/README.md como lo que hay que mirar primero. -->
+        <service
+            android:name=".ServicioPanel"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

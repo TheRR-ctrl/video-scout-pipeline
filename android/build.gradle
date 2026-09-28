@@ -3,4 +3,7 @@
 // funcionó hoy sigue funcionando dentro de un año sin tocar versiones.
 plugins {
     id "com.android.application" version "8.7.3" apply false
+    // Solo lo usa :nativa. Es MIT desde la 12.0.1 (antes era de pago para
+    // apps cerradas), y es lo que mete CPython dentro del APK.
+    id "com.chaquo.python" version "17.0.0" apply false
 }

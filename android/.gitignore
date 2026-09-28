@@ -5,3 +5,13 @@ build/
 local.properties
 *.apk
 *.aab
+
+# Lo genera la tarea empaquetarPipeline en cada compilación, a partir de los
+# .py que ya están en el repo. Commitearlo sería guardar el repo dentro del
+# repo, y encima desactualizado.
+nativa/src/main/assets/pipeline.zip
+
+# ffmpeg y ffprobe: 18 MB cada uno. Los baja el workflow desde la release
+# 'ffmpeg-android'. Meterlos aquí haría que clonar el repo desde el teléfono
+# —que es como se trabaja en este proyecto— costara 40 MB más.
+nativa/src/main/jniLibs/

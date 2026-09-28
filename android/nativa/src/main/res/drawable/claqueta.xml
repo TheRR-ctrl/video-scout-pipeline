@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- La misma claqueta de web/icono-512.png, redibujada como vector.
+
+     Vector y no PNG por una razón tonta pero real: .gitignore de este repo
+     ignora *.png (son videos y miniaturas) con una sola excepción para
+     web/icono-*.png. Un icono en XML no se topa con eso, pesa 1 KB y sirve
+     para cualquier densidad de pantalla. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- El cuerpo, con las esquinas de abajo redondeadas. -->
+    <path
+        android:fillColor="@color/acento"
+        android:pathData="M24,46 L84,46 L84,78 Q84,82 80,82 L28,82 Q24,82 24,78 Z" />
+
+    <!-- Las cinco tiras inclinadas de arriba. Los huecos entre ellas dejan
+         ver el fondo, que es lo que dibuja las rayas oscuras. -->
+    <path
+        android:fillColor="@color/acento"
+        android:pathData="M25,44 L31,44 L36,31 L30,31 Z
+                          M36,44 L42,44 L47,31 L41,31 Z
+                          M47,44 L53,44 L58,31 L52,31 Z
+                          M58,44 L64,44 L69,31 L63,31 Z
+                          M69,44 L75,44 L80,31 L74,31 Z" />
+</vector>
