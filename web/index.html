@@ -2253,7 +2253,7 @@ function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
-          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto,
+          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto,
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
@@ -2556,6 +2556,12 @@ function pintaAjustes(){
         <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Buscar, escribir y grabar seguido</div><div class="m">Al buscar desde el panel,
+          Gemini escribe los guiones de lo encontrado y después se graban solos los que caben en un
+          short. Apagado, cada paso espera a que lo pulses.</div></div>
+        <button class="btn sm" id="b-cadena-auto">${E.cadena_auto?'activado':'desactivado'}</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Partir solas las historias largas</div><div class="m">Apagado, solo se parte la que
           elijas con «✂ Partir» en la Cola. Encendido, las que no caben en un short se parten al
           escribir el guion y en «Todo de una pasada».</div></div>
@@ -2818,6 +2824,12 @@ function pintaAjustes(){
       toast(hechos ? 'En marcha: ' + hechos : 'No se pudo encolar nada');
       (j.saltados||[]).forEach(sx=> toast('Se salta ' + sx.accion + ': ' + sx.motivo));
       refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#b-cadena-auto').onclick = async ()=>{
+    try{ const j = await post('/api/cadena/auto',{auto: !E.cadena_auto});
+      toast(j.auto ? 'Buscar seguirá solo con guiones y grabación'
+                   : 'Cada paso esperará a que lo pulses'); refrescar();
     }catch(e){ toast(e.message); }
   };
   $('#b-partir-auto').onclick = async ()=>{

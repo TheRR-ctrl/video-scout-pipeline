@@ -572,6 +572,13 @@ further manual login needed locally.
 
 ## Running it
 
+From the panel, searching chains the rest by default: when a search
+(Reddit or YouTube) finishes, «Escribir guiones» is queued, and when that
+finishes, the stories that fit in a Short are rendered (long ones wait, as
+above). Each step is only queued if there is something for it to do. Turn it
+off in Ajustes → Subida (*Buscar, escribir y grabar seguido*,
+`"cadena_automatica": false`) to press each step yourself.
+
 ```bash
 python pipeline.py                # runs all 4 stages
 python pipeline.py --hasta guion  # only scout + script (stop before rendering)
