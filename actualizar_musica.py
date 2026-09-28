@@ -125,8 +125,19 @@ def descargar_pista(track, destino):
         return False
     resp = requests.get(url, timeout=60)
     resp.raise_for_status()
-    with open(destino, "wb") as f:
-        f.write(resp.content)
+    # A un archivo aparte y luego os.replace, como descargar_fondos.py: si
+    # Android mata el proceso a media escritura, un .mp3 cortado con el
+    # nombre bueno lo cogería el siguiente render. Con el punto delante y
+    # sin acabar en .mp3, pistas_de() no lo ve aunque se quede huérfano.
+    parcial = os.path.join(os.path.dirname(destino),
+                           "." + os.path.basename(destino) + ".parcial")
+    try:
+        with open(parcial, "wb") as f:
+            f.write(resp.content)
+        os.replace(parcial, destino)
+    finally:
+        if os.path.exists(parcial):
+            os.remove(parcial)
     return True
 
 

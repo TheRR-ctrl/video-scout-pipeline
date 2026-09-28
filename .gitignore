@@ -30,3 +30,4 @@ guion_prueba.txt
 
 # Los logs de las tandas automáticas (cron).
 *.log
+*.parcial
