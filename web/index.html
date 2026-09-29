@@ -304,6 +304,16 @@
   /* Sin esto, un texto que no se puede partir (un título largo con
      ellipsis) ensancha el aviso y con él toda la página. */
   .aviso > div{min-width:0}
+  /* Diccionario de errores: hoja a pantalla completa, fuera de las vistas
+     para que el repintado de cada 1,5 s no se la lleve por delante. */
+  #dicc{position:fixed;inset:0;z-index:60;background:var(--ground);overflow-y:auto;
+    padding:16px;display:none}
+  #dicc.on{display:block}
+  #dicc .e{background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:11px 13px;margin-top:8px}
+  #dicc .e > b{display:block}
+  .explica{margin-top:9px}
+  .explica .aviso{margin:6px 0 0}
   .aviso.warn{border-left-color:var(--warn)}
   .aviso.crit{border-left-color:var(--crit)}
 
@@ -377,6 +387,7 @@
 <div class="wrap">
   <div id="paso-slot"></div>
   <div id="job-slot"></div>
+  <div id="dicc"></div>
   <div id="cola-slot"></div>
 
   <section class="view on" id="v-revisar"></section>
@@ -537,6 +548,62 @@ function enlazarArchivadas(){
   };
 }
 
+/* ---------- diccionario de errores (errores.py) ---------- */
+const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar'};
+function bloqueExplicacion(ex){
+  if(!ex || !ex.length) return '';
+  return `<div class="explica">${ex.map(e=>`
+    <div class="aviso"><span>💡</span><div>
+      <b>${esc(e.titulo)}</b>
+      <div class="m" style="margin-top:2px">${esc(e.que_pasa)}</div>
+      <div style="margin-top:5px"><b>Qué hacer:</b> ${esc(e.que_hacer)}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
+        ${e.ir ? `<button class="btn sm" onclick="irA('${e.ir}')">Ir a ${NOMBRE_VISTA[e.ir]||e.ir}</button>` : ''}
+        <button class="btn sm" onclick="abrirDiccionario()">📖 Todos los errores</button>
+      </div>
+    </div></div>`).join('')}</div>`;
+}
+
+let diccionario = null;
+async function abrirDiccionario(){
+  const hoja = $('#dicc');
+  if(!diccionario){
+    try{ diccionario = await api('/api/errores'); }
+    catch(e){ return toast('No se pudo cargar el diccionario: ' + e.message); }
+  }
+  hoja.innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center">
+      <h2 style="flex-grow:1;margin:0">📖 Errores y qué hacer</h2>
+      <button class="btn" id="dicc-cerrar">✕ Cerrar</button>
+    </div>
+    <p class="sub">Lo que puede salir en un trabajo, en palabras claras. Si un trabajo falla, lo
+      que casa con su salida ya aparece debajo de él; aquí está todo para consultarlo.</p>
+    <input id="dicc-buscar" placeholder="Busca: cuota, 429, espacio, WiFi, token…"
+      style="width:100%;box-sizing:border-box" autocomplete="off">
+    <div id="dicc-lista"></div>`;
+  const pinta = ()=>{
+    const q = $('#dicc-buscar').value.trim().toLowerCase();
+    const vale = e => !q || [e.titulo, e.que_pasa, e.que_hacer, e.tema, e.id].join(' ').toLowerCase().includes(q);
+    const lista = diccionario.filter(vale);
+    let tema = null;
+    $('#dicc-lista').innerHTML = !lista.length
+      ? `<p class="sub" style="margin-top:12px">Nada con «${esc(q)}».</p>`
+      : lista.map(e=>{
+          const cab = e.tema !== tema ? `<h3 class="sec" style="margin-top:16px">${esc(e.tema)}</h3>` : '';
+          tema = e.tema;
+          return cab + `<div class="e"><b>${esc(e.titulo)}</b>
+            <div class="m" style="margin-top:3px">${esc(e.que_pasa)}</div>
+            <div style="margin-top:6px"><b>Qué hacer:</b> ${esc(e.que_hacer)}</div></div>`;
+        }).join('');
+  };
+  $('#dicc-buscar').oninput = pinta;
+  $('#dicc-cerrar').onclick = ()=>{ hoja.classList.remove('on'); document.body.style.overflow=''; };
+  pinta();
+  hoja.classList.add('on');
+  hoja.scrollTop = 0;
+  document.body.style.overflow = 'hidden';
+}
+
 function pintaColaTrabajos(){
   const cola = (E && E.cola) || [], hechos = (E && E.hechos) || [];
   const slot = $('#cola-slot');
@@ -571,6 +638,8 @@ function pintaColaTrabajos(){
         <div class="row" style="grid-template-columns:1fr auto auto auto">
           <div style="min-width:0">
             <span class="t">${esc(h.nombre)}</span>
+            ${!h.explicacion ? '' : h.explicacion.map(e=>`<div class="m" style="margin-top:3px">
+              💡 <b>${esc(e.titulo)}.</b> ${esc(e.que_hacer)}</div>`).join('')}
             ${!h.lineas ? '' : `<div class="m" style="font:11px var(--mono);
               color:var(--ink-faint);white-space:pre-wrap">${esc(h.lineas.join('\n'))}</div>`}
           </div>
@@ -634,6 +703,7 @@ function pintaJob(){
           <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
         </div>
         <div class="paso" id="job-paso"></div>
+        <div id="job-explica"></div>
         <div class="barra"><i id="job-barra"></i></div>
         <button class="btn sm" id="b-detalle" style="margin-top:9px">Ver detalle</button>
         <div class="log" id="log" style="display:none"></div>
@@ -687,6 +757,15 @@ function pintaJob(){
   $('#mini-t').textContent = $('#job-t').textContent;
   $('#mini-barra').style.width = $('#job-barra').style.width;
   refrescarMini();
+
+  // Solo se repinta si cambió: si no, el botón «Ir a…» se recrearía cada
+  // segundo y medio y se perdería el toque a medias.
+  const ex = JSON.stringify(j.explicacion || []);
+  const cajaEx = $('#job-explica');
+  if(cajaEx.dataset.firma !== ex){
+    cajaEx.dataset.firma = ex;
+    cajaEx.innerHTML = bloqueExplicacion(j.explicacion);
+  }
 
   const log = $('#log');
   if(log.style.display !== 'none'){
@@ -1293,6 +1372,7 @@ function pintaCola(){
         <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
         <button class="btn ${hay?'go':''}" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
         <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
+        <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
       </div><div style="margin-top:12px">${bloquePartibles([])}</div>`;
     enlazarArchivadas();
     return;
@@ -1353,6 +1433,7 @@ function pintaCola(){
           <button class="btn" title="Convierte en guion lo que encontraron los buscadores"
             onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
+          <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
           <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"
             onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
           <button class="btn go" id="b-render">▶ Grabar</button>

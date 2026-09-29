@@ -684,3 +684,70 @@ grande de los tres.
 Por eso la app nativa se añade **al lado** de la de Termux y no en su lugar.
 Son dos formas de usar el mismo repo, y hoy la que se actualiza en diez
 segundos sigue siendo la de Termux.
+
+## 12. Diccionario de errores en el panel — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Lo que falla sale en el panel tal cual lo escupe la
+librería: un `429` con el JSON de Google, un `invalid_grant`, un
+`Errno 28`. Desde el teléfono no se sabe qué es ni en qué pantalla se
+arregla.
+
+**Qué se encontró.** `aroberge/friendly-traceback` (MIT) explica en lenguaje
+llano las excepciones de Python, pensado para quien aprende a programar:
+dice qué es un `KeyError`, no que la cuota de Gemini se renueva a diario ni
+que el token de YouTube caduca si la app sigue en «Prueba». Lo que hace
+falta aquí son los fallos de *estos* servicios, y eso no lo trae nadie.
+Buscar "error message explainer" en GitHub solo devuelve librerías de
+expresiones regulares.
+
+**Qué se hizo.** `errores.py`, sin dependencias: una lista de entradas con
+los patrones que delatan cada fallo en la salida y tres frases (qué es, qué
+pasa, qué hacer), de lo concreto a lo genérico. El servidor la aplica a la
+salida de cada trabajo y el panel la enseña debajo de la tarjeta y en «Ya
+terminados»; «📖 Errores», en la Cola, abre el diccionario entero con
+buscador. Una entrada nueva es añadir un dict a `CATALOGO`.
+
+## 13. Qué hacer cuando Gemini agota la cuota del día
+
+**El problema.** Con la cuota del día gastada, la escritura de guiones se
+corta y la cadena buscar → guiones → grabar se queda a medias hasta el día
+siguiente.
+
+### Lo que está puesto: los otros modelos gratis de Gemini — SE ESCRIBIÓ
+
+Google cuenta la cuota **por proyecto y por modelo**, así que cada modelo
+del plan gratis trae la suya. `ClienteConRespaldo`, en `script_writer.py`,
+se hace pasar por el cliente de Gemini: si `MODEL` contesta cuota agotada,
+pasa al siguiente de `MODELOS_RESPALDO` y sigue con él el resto de la
+corrida. El orden: primero los Flash (3.8, 3.7, 3.5; unas 20 peticiones al
+día cada uno según lo que publica AI Studio en septiembre de 2026, texto
+mejor) y al final los Flash-Lite (3.5 y 3.1; unas 500 al día, texto más
+llano). Un modelo que no exista en la cuenta —Google los retira— contesta
+404 y se salta, así que la lista puede quedarse vieja sin romper nada.
+
+Al día siguiente se vuelve solo a `MODEL`, porque no se guarda nada. Si se
+agotan todos, la corrida se corta como siempre y la cola queda intacta.
+Gratis y se renueva cada día: por eso ganó a lo de abajo.
+
+Las cifras no salen de la documentación de Google —que remite al panel de
+AI Studio, porque varían por cuenta— sino de guías de terceros que las
+copian de ahí. Las de cada uno se ven en aistudio.google.com/rate-limit.
+
+### La idea aparcada: DeepSeek con su crédito gratis — NO ACTIVO
+
+Se llegó a escribir y se quitó a petición del dueño del proyecto; el código
+está entero en el commit `4dfd80b` (`deepseek.py`), por si algún día hace falta.
+
+- **Qué hacía.** Mismo truco de hacerse pasar por el cliente de Gemini, pero
+  saltando a DeepSeek (`deepseek-flash`, API compatible con la de OpenAI, en
+  `https://api.deepseek.com`). Antes de cada llamada preguntaba el saldo
+  (`GET /user/balance`, que no gasta) y **solo seguía si quedaba
+  `granted_balance`**, para no tocar nunca saldo pagado. El esquema JSON se
+  describía en el prompt, porque DeepSeek no lo acepta como parámetro; su
+  modo `response_format: json_object` exige la palabra "json" en el prompt.
+- **Por qué se aparcó.** El regalo de DeepSeek (5 M de tokens, unos 8 $) es
+  **de una sola vez y caduca a los ~30 días** de crear la cuenta; no se
+  renueva. Flash-lite cubre el mismo hueco gratis y todos los días.
+- **Si se retoma.** Con `requests`, no con el SDK de OpenAI: arrastra
+  `pydantic-core`, Rust sin rueda de Android (§11.4). Kimi (Moonshot) se
+  miró y tampoco tiene nivel gratis permanente; además cuesta bastante más.

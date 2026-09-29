@@ -39,6 +39,7 @@ except ImportError:
 
 import cola      # la cola de candidatos que dejaron los buscadores
 import archivar_largas  # las historias largas apartadas de la cola
+import errores   # el diccionario: qué significa cada error y qué hacer
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -171,6 +172,9 @@ class Trabajo:
             "estado": self.estado,
             "segundos": int(time.time() - self.inicio),
             "lineas": lineas,
+            # Lo que el diccionario de errores reconoce en la salida, en
+            # castellano llano y con qué hacer. Ver errores.py.
+            "explicacion": errores.explicar(lineas),
         }
 
 
@@ -337,8 +341,13 @@ def seguir_con_la_cola(terminado):
         # De los que fallaron se guarda el final de la salida: es lo que hay
         # que leer para saber por qué, y al arrancar el siguiente deja de
         # estar a la vista.
+        final = terminado.como_dict()
         if terminado.estado == "error":
-            hecho["lineas"] = terminado.como_dict()["lineas"][-20:]
+            hecho["lineas"] = final["lineas"][-20:]
+        # También en los que salieron bien: un diagnóstico acaba "ok" y lo
+        # que explica es justo por qué no hubo historias.
+        if final["explicacion"]:
+            hecho["explicacion"] = final["explicacion"]
         TRABAJO["hechos"].append(hecho)
         del TRABAJO["hechos"][:-HECHOS_QUE_SE_RECUERDAN]
 
@@ -1702,6 +1711,12 @@ def api_musica_auto():
     cfg["musica_rotacion_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
+
+
+@app.get("/api/errores")
+def api_errores():
+    """El diccionario de errores entero, para consultarlo desde la Cola."""
+    return jsonify(errores.catalogo())
 
 
 @app.get("/api/horario")
