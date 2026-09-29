@@ -8,6 +8,46 @@
 <meta name="theme-color" content="#12151a">
 <link rel="icon" href="/icono-192.png">
 <meta name="mobile-web-app-capable" content="yes">
+<script>
+/* Tema y color, antes de que se pinte nada: puesto más abajo, el panel
+   parpadearía en oscuro cada vez que se abre en claro. Se guarda en este
+   teléfono (localStorage), no en el servidor: es cosa de quien mira. */
+const ACENTOS = {
+  turquesa:{o:'#4db4a8', c:'#1d7d72'}, azul:{o:'#6ea8fe', c:'#1f5fbf'},
+  morado:{o:'#b596f2', c:'#6a3fc0'},   rosa:{o:'#f08ab4', c:'#b3326b'},
+  dorado:{o:'#e3c552', c:'#8a6d00'},
+};
+function prefTema(){
+  try { return JSON.parse(localStorage.getItem('apariencia')) || {}; } catch(e){ return {}; }
+}
+function aplicarTema(){
+  const p = prefTema(), raiz = document.documentElement;
+  const modo = p.modo === 'claro' || p.modo === 'oscuro' ? p.modo
+    : (matchMedia('(prefers-color-scheme: light)').matches ? 'claro' : 'oscuro');
+  raiz.dataset.tema = modo;
+  const a = ACENTOS[p.acento] || (/^#[0-9a-f]{6}$/i.test(p.acento || '') ? {o:p.acento, c:p.acento} : null);
+  for(const v of ['--accent','--accent-soft','--accent-ink']) raiz.style.removeProperty(v);
+  if(a && p.acento !== 'turquesa'){
+    const col = modo === 'claro' ? a.c : a.o;
+    raiz.style.setProperty('--accent', col);
+    raiz.style.setProperty('--accent-soft', `color-mix(in srgb, ${col} ${modo==='claro'?16:22}%, ${modo==='claro'?'#fff':'#12151a'})`);
+    // Texto sobre el color: negro o blanco según lo claro que sea el color,
+    // para que un color elegido a mano no deje los botones ilegibles.
+    const [r,g,b] = [1,3,5].map(i => parseInt(col.slice(i,i+2),16)/255)
+      .map(x => x <= .03928 ? x/12.92 : ((x+.055)/1.055)**2.4);
+    raiz.style.setProperty('--accent-ink', .2126*r + .7152*g + .0722*b > .25 ? '#0b0f14' : '#fff');
+  }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.content = modo === 'claro' ? '#edeff1' : '#12151a';
+}
+function guardarTema(cambio){
+  const p = Object.assign(prefTema(), cambio);
+  try { localStorage.setItem('apariencia', JSON.stringify(p)); } catch(e){}
+  aplicarTema();
+}
+aplicarTema();
+try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', aplicarTema); } catch(e){}
+</script>
 <style>
   :root {
     --ground:#12151a; --surface:#1b2027; --surface-2:#232932;
@@ -20,13 +60,35 @@
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
     --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
-  @media (prefers-color-scheme:light){
-    :root{ --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8;
+  /* Claro u oscuro lo decide data-tema, que pone el script de arriba del
+     todo: en «Automático» sigue al teléfono, pero también se puede fijar a
+     mano en Ajustes → Apariencia. Sin JS se queda en oscuro. */
+  :root{color-scheme:dark}
+  :root[data-tema="claro"]{ color-scheme:light;
+      --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8;
       --line:#d9dde2; --line-soft:#e6e9ed; --ink:#191d23; --ink-dim:#5b6572;
       --ink-faint:#939ba6; --accent:#1d7d72; --accent-ink:#fff; --accent-soft:#dcefec;
       --warn:#9a6416; --warn-soft:#f7ead6; --crit:#b4402f; --crit-soft:#f8dfda;
       --ok:#35754a; --ok-soft:#dff0e3; }
-  }
+  /* Los enlaces sin estilo salían en el azul del navegador, que sobre el
+     fondo oscuro casi no se lee. */
+  a{color:var(--accent);text-underline-offset:2px}
+  .acciones-aviso{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  /* Pestañas de Ajustes: ruedan de lado en un renglón, como las de arriba. */
+  .tabs-aj{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:4px -14px 6px;
+    padding:2px 14px 6px}
+  .tabs-aj::-webkit-scrollbar{display:none}
+  .tabs-aj .btn{flex-shrink:0;white-space:nowrap}
+  .tabs-aj .btn[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .temas{display:flex;gap:6px;flex-wrap:wrap}
+  .temas .btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .colores{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .colores button,.colores label{width:34px;height:34px;border-radius:50%;cursor:pointer;
+    border:2px solid var(--line);padding:0;position:relative}
+  .colores [aria-pressed="true"]{outline:2px solid var(--ink);outline-offset:2px}
+  .colores label{display:flex;align-items:center;justify-content:center;font-size:15px;
+    background:conic-gradient(#e66,#ec5,#6c8,#5ae,#a7e,#e66)}
+  .colores input{position:absolute;inset:0;opacity:0;cursor:pointer}
   *{box-sizing:border-box}
   /* Sin esto, un .sangria (display:flex) marcado con hidden se sigue viendo:
      la regla del navegador para [hidden] la pisa cualquier display del autor. */
@@ -128,8 +190,14 @@
     padding:10px 12px;border-radius:8px;background:var(--ok);color:var(--ground);font-weight:600}
   .job-fin.err{background:var(--crit)}
   .job-fin span{flex-grow:1;font-size:15px}
-  .job-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .job-top b{flex-grow:1}
+  /* Sin plegar: con un nombre largo («Escribiendo todos los guiones») el
+     renglón se partía y el ⏹ caía solo a la línea de abajo. Ahora es el
+     nombre el que se parte en dos líneas y los botones se quedan en su sitio. */
+  .job-top{display:flex;align-items:center;gap:8px}
+  .job-tit{flex:1 1 0;min-width:0}
+  .job-tit b{display:block;overflow-wrap:anywhere;line-height:1.25}
+  .job-meta{display:flex;gap:8px;align-items:center;margin-top:4px}
+  .job-top > .tbtn{flex-shrink:0}
   .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
     min-height:2.9em;display:flex;align-items:center;
     overflow:hidden;text-overflow:ellipsis}
@@ -138,7 +206,7 @@
     transition:width .4s linear}
   .log{margin-top:9px;background:#0c0f13;border-radius:7px;padding:9px 10px;
     font:11.5px/1.5 var(--mono);color:#c8d2dc;height:170px;overflow:auto;white-space:pre-wrap}
-  @media (prefers-color-scheme:light){ .log{background:#171b20} }
+  :root[data-tema="claro"] .log{background:#171b20}
   .tbtn{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
     background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer}
 
@@ -405,7 +473,7 @@
   <section class="view" id="v-ajustes"></section>
 </div>
 
-<button class="mini" id="mini-job" hidden title="Ir a la tarjeta de arriba">
+<button class="mini" id="mini-job" hidden title="Ver el trabajo en curso">
   <div class="mini-top">
     <span class="pill acc" id="mini-estado"></span>
     <span class="q" id="mini-paso"></span>
@@ -514,7 +582,7 @@ function vigilarTarjeta(caja){
    que hay que leer. */
 /* Las historias que no caben en un short. Partirlas es decisión tuya: aquí
    se ofrece, historia por historia, y nada se parte solo salvo que actives
-   el modo automático en Ajustes → Subida. */
+   el modo automático en Ajustes → Automático. */
 function bloquePartibles(h){
   const largas = h.filter(x => x.larga && !x.renderizada);
   const guardadas = (E && E.archivadas) || 0;
@@ -566,9 +634,11 @@ function lineaLargas(h){
   return `<div class="aviso"><span>🎞</span><div>
     ${largas ? `<b>${largas} ${largas===1?'no cabe':'no caben'} en un short.</b> ` : ''}${guardadas
       ? `${guardadas} guardada${guardadas>1?'s':''} para los videos largos. ` : ''}
-    <a href="#" onclick="filtroCola='videos';pintar();return false">Verlas en Videos</a>
-    ${h.some(x=>x.larga && x.partes>1 && !x.renderizada)
-      ? ` · <a href="#" onclick="filtroCola='shorts';pintar();return false">partirlas en Shorts</a>` : ''}
+    <div class="acciones-aviso">
+      <button class="btn sm" onclick="filtroCola='videos';pintar()">🎞 Verlas en Videos</button>
+      ${h.some(x=>x.larga && x.partes>1 && !x.renderizada)
+        ? `<button class="btn sm" onclick="filtroCola='shorts';pintar()">✂ Partirlas en Shorts</button>` : ''}
+    </div>
   </div></div>`;
 }
 
@@ -701,7 +771,7 @@ function bloqueExplicacion(ex){
       <div class="m" style="margin-top:2px">${esc(e.que_pasa)}</div>
       <div style="margin-top:5px"><b>Qué hacer:</b> ${esc(e.que_hacer)}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
-        ${e.ir ? `<button class="btn sm" onclick="irA('${e.ir}')">Ir a ${NOMBRE_VISTA[e.ir]||e.ir}</button>` : ''}
+        ${e.ir ? `<button class="btn sm" onclick="irA('${e.ir}')">Ir a ${NOMBRE_VISTA[e.ir.split('/')[0]]||e.ir}</button>` : ''}
         <button class="btn sm" onclick="abrirDiccionario()">📖 Todos los errores</button>
       </div>
     </div></div>`).join('')}</div>`;
@@ -835,8 +905,21 @@ function avisoTerminado(texto){
   }
 }
 
+/* La tarjeta grande del trabajo (y la lista de en espera / ya terminados)
+   sale solo en la pestaña de lo que está haciendo: grabar en la Cola,
+   publicar en Subidos… En las demás basta la barra de abajo. El servidor
+   dice cuál es («vista»); si no lo sabe, sale en todas. Sin trabajo en
+   curso manda el último terminado. */
+function trabajoEnEstaPestana(){
+  const ref = (E && E.trabajo) || (E && E.hechos && E.hechos[E.hechos.length-1]);
+  return !ref || !ref.vista || ref.vista === vistaActual();
+}
+
 function pintaJob(){
   const j = E && E.trabajo, slot = $('#job-slot');
+  const aqui = trabajoEnEstaPestana();
+  slot.hidden = !aqui;
+  $('#cola-slot').hidden = !aqui;
   if(!j){
     slot.innerHTML=''; jobMontado=null;
     if(vigilante){ vigilante.disconnect(); vigilante = null; }
@@ -851,9 +934,13 @@ function pintaJob(){
       <div class="job" id="job-caja">
         <div id="job-fin"></div>
         <div class="job-top">
-          <b id="job-nom"></b>
-          <span class="pill acc" id="job-estado"></span>
-          <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+          <div class="job-tit">
+            <b id="job-nom"></b>
+            <div class="job-meta">
+              <span class="pill acc" id="job-estado"></span>
+              <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+            </div>
+          </div>
           <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
           <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>
           <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
@@ -1502,11 +1589,33 @@ function olvidarLoQueSeRenumero(){
 // Qué parte de la cola se ve: todo, lo que cabe en un short, o lo largo.
 let filtroCola = 'todo';
 
+/* La grabación automática que se quedó esperando al cargador (bateria.py).
+   Se ve aquí porque es donde están las historias que no se grabaron. */
+function avisoBateria(){
+  const b = E.bateria, e = b && b.espera;
+  if(!e) return '';
+  return `<div class="aviso warn"><span>🔌</span><div>
+    <b>Grabación en espera${e.porcentaje != null ? ` — batería al ${e.porcentaje}%` : ''}.</b>
+    Con menos del ${b.umbral}% y sin cargador no se graba solo. Empieza sola en cuanto
+    conectes el teléfono (el panel tiene que estar abierto).
+    <div class="acciones-aviso">
+      <button class="btn go sm" onclick="esperaBateria('grabar')">🎬 Grabar ya igualmente</button>
+      <button class="btn sm" onclick="esperaBateria('olvidar')">Olvidarla</button>
+    </div>
+  </div></div>`;
+}
+async function esperaBateria(que){
+  if(que === 'grabar' && !confirm('¿Grabar ahora aunque la batería esté baja?\n\nRenderizar es lo que más batería gasta.')) return;
+  try{ const j = await post('/api/bateria/espera', {que});
+    toast(j.mensaje || 'Espera olvidada'); refrescar();
+  }catch(e){ toast(e.message); }
+}
+
 function firmaCola(){
   return [filtroCola, E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
-          E.historias.map(h=>h.larga?1:0).join('')].join('~');
+          E.historias.map(h=>h.larga?1:0).join(''), JSON.stringify(E.bateria && E.bateria.espera)].join('~');
 }
 /* El aviso de limpiar la cola sale en dos sitios —aquí y en Mantenimiento—
    y dice justo lo que se pierde, que es la numeración. Una sola copia para
@@ -1609,8 +1718,9 @@ function pintaCola(){
     ${!grabadas ? '' : `<p class="sub">${verGrabadas
       ? `Se ven también las ${grabadas} que ya tienen video.`
       : `${grabadas} más ya tienen video y no se enseñan.`}
-      <a href="#" onclick="verGrabadas=${!verGrabadas};pintar();return false"
-        >${verGrabadas ? 'ocultarlas' : 'verlas'}</a></p>`}
+      <button class="btn sm" style="margin-left:4px" onclick="verGrabadas=${!verGrabadas};pintar()"
+        >${verGrabadas ? 'Ocultarlas' : 'Verlas'}</button></p>`}
+    ${avisoBateria()}
     ${!esperando ? '' : `<div class="aviso warn"><span>✍</span><div>
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
@@ -1650,7 +1760,7 @@ function pintaCola(){
           ${botonesGuiones(false)}
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
-          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"
+          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Tareas"
             onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
           <button class="btn go" id="b-render">▶ Grabar</button>
         </div>
@@ -1660,7 +1770,7 @@ function pintaCola(){
 
     <h3 class="sec">Música de cada una</h3>
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
-      Ve a <b>Ajustes → Música y fondos</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
+      Ve a <b>Ajustes → Música y video</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
     : !elegidas.length ? `<div class="aviso"><span>·</span><div>Selecciona historias arriba para elegirles música.</div></div>`
     : `<p class="sub">Por omisión sale una al azar de la emoción que detectó el guion. Si eliges
        una a mano, óyela antes — así no descubres que no pegaba después de esperar el render.
@@ -2584,14 +2694,66 @@ let secretosCache = [];
 // Horario automático: lo que dice el servidor, y lo que llevas cambiado sin
 // aplicar. Mismo motivo que cxBorrador: Ajustes se repinta entero.
 let horarioCache = null, horarioBorrador = null;
-let masOpciones = false;  // ¿«Más opciones» abierto en Ajustes?
+/* Ajustes va en pestañas: todo junto en una sola página era una lista
+   interminable. Se pintan todas y se ocultan las demás (así cada botón
+   sigue enganchado igual); cuál está abierta se recuerda en el teléfono. */
+const GRUPOS_AJUSTES = [['auto','⚙ Automático'], ['servicios','🔑 Servicios'],
+  ['material','🎵 Música y video'], ['fuentes','🔎 Fuentes'], ['apariencia','🎨 Apariencia'],
+  ['tareas','🧰 Tareas']];
+let grupoAjustes = (()=>{ try{ const g = localStorage.getItem('grupoAjustes');
+  return GRUPOS_AJUSTES.some(x=>x[0]===g) ? g : 'auto'; }catch(e){ return 'auto'; } })();
+function abrirGrupoAjustes(g){
+  grupoAjustes = g;
+  try{ localStorage.setItem('grupoAjustes', g); }catch(e){}
+  document.querySelectorAll('[data-grupo-aj]').forEach(b => b.setAttribute('aria-selected', b.dataset.grupoAj === g));
+  document.querySelectorAll('.aj-grupo').forEach(x => x.hidden = x.dataset.grupo !== g);
+}
 let conectarCache = null, cxAbierto = new Set(), cxBorrador = {}, cxNota = {};
 let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
+/* Tema claro/oscuro y color de acento. Se guarda en el teléfono, así que
+   cambiarlo no toca el servidor ni la firma de Ajustes: se marca en su sitio. */
+function bloqueApariencia(){
+  const p = prefTema(), modo = p.modo || 'auto', acento = p.acento || 'turquesa';
+  const propio = !ACENTOS[acento];
+  return `<div class="card" id="apariencia" style="margin-bottom:14px">
+    <div style="font-size:13.5px;margin-bottom:8px">Tema</div>
+    <div class="temas">
+      ${[['auto','📱 Automático'],['claro','☀ Claro'],['oscuro','🌙 Oscuro']].map(([v,t]) =>
+        `<button class="btn sm" data-modo="${v}" aria-pressed="${modo===v}">${t}</button>`).join('')}
+    </div>
+    <div class="muted" style="margin:6px 0 14px">Automático sigue el modo del teléfono.</div>
+    <div style="font-size:13.5px;margin-bottom:8px">Color</div>
+    <div class="colores">
+      ${Object.entries(ACENTOS).map(([n,c]) => `<button data-acento="${n}" title="${n}"
+        aria-pressed="${acento===n}" style="background:${c.o}"></button>`).join('')}
+      <label title="Elegir otro color" aria-pressed="${propio}"
+        ${propio ? `style="background:${esc(acento)}"` : ''}>🎨
+        <input type="color" id="acento-propio" value="${propio ? esc(acento) : '#4db4a8'}"></label>
+    </div>
+  </div>`;
+}
+function enlazarApariencia(){
+  const caja = $('#apariencia');
+  if(!caja) return;
+  const marcar = ()=>{
+    const p = prefTema(), modo = p.modo || 'auto', acento = p.acento || 'turquesa';
+    caja.querySelectorAll('[data-modo]').forEach(b => b.setAttribute('aria-pressed', b.dataset.modo === modo));
+    caja.querySelectorAll('[data-acento]').forEach(b => b.setAttribute('aria-pressed', b.dataset.acento === acento));
+    const lab = caja.querySelector('label');
+    lab.setAttribute('aria-pressed', !ACENTOS[acento]);
+    lab.style.background = ACENTOS[acento] ? '' : acento;
+  };
+  caja.querySelectorAll('[data-modo]').forEach(b => b.onclick = ()=>{ guardarTema({modo: b.dataset.modo}); marcar(); });
+  caja.querySelectorAll('[data-acento]').forEach(b => b.onclick = ()=>{ guardarTema({acento: b.dataset.acento}); marcar(); });
+  // «input» mientras se arrastra en el selector, para ver el color en vivo.
+  $('#acento-propio').oninput = e => { guardarTema({acento: e.target.value}); marcar(); };
+}
+
 function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
-          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto,
+          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria),
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
@@ -2876,12 +3038,12 @@ function pintaAjustes(){
 
   $('#v-ajustes').innerHTML = `
     <h2>Ajustes</h2>
-    <p class="sub">Lo que se usa arriba. Lo demás está plegado en «Más opciones», al final.</p>
+    <div class="tabs-aj" role="tablist">${GRUPOS_AJUSTES.map(([g,txt])=>`
+      <button class="btn sm" role="tab" data-grupo-aj="${g}" aria-selected="${g===grupoAjustes}">${txt}</button>`).join('')}
+    </div>
 
-    <h3 class="sec">Conectar servicios</h3>
-    ${bloqueConectar(cr)}
-
-    <h3 class="sec">Subida</h3>
+    <section class="aj-grupo" data-grupo="auto" ${grupoAjustes==='auto'?'':'hidden'}>
+    <h3 class="sec">Lo que se hace solo</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
@@ -2890,7 +3052,7 @@ function pintaAjustes(){
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Cambiar la música sola</div><div class="m">Después de cada tanda de renders, aparta
           las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
-            : 'Hace falta la clave de Jamendo (Conectar servicios, arriba).'}</div></div>
+            : 'Hace falta la clave de Jamendo (pestaña 🔑 Servicios).'}</div></div>
         <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
@@ -2898,6 +3060,17 @@ function pintaAjustes(){
           Gemini escribe los guiones de lo encontrado y después se graban solos los que caben en un
           short. Apagado, cada paso espera a que lo pulses.</div></div>
         <button class="btn sm" id="b-cadena-auto">${E.cadena_auto?'activado':'desactivado'}</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Con poca batería, esperar al cargador</div><div class="m">Si la batería está por
+          debajo del
+          <select class="btn sm" id="s-bateria-umbral" style="padding:2px 4px" ${E.bateria.cuidar?'':'disabled'}>
+            ${[30,40,50,60,70,80].concat(E.bateria.umbral % 10 ? [E.bateria.umbral] : []).sort((a,b)=>a-b).map(u =>
+              `<option value="${u}" ${u===E.bateria.umbral?'selected':''}>${u}%</option>`).join('')}
+          </select>
+          y el teléfono no está cargando, lo que se graba solo espera y empieza al conectarlo.
+          Grabar a mano no espera nunca. Necesita la app Termux:API.</div></div>
+        <button class="btn sm" id="b-bateria">${E.bateria.cuidar?'activado':'desactivado'}</button>
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Partir solas las historias largas</div><div class="m">Apagado, solo se parte la que
@@ -2923,6 +3096,42 @@ function pintaAjustes(){
         <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
         quitar cualquiera a mitad.</div>
     </div>
+    </section>
+
+    <section class="aj-grupo" data-grupo="servicios" ${grupoAjustes==='servicios'?'':'hidden'}>
+    <h3 class="sec">Conectar servicios</h3>
+    ${bloqueConectar(cr)}
+
+    <h3 class="sec">Añadir una API nueva</h3>
+    <div class="list"><div class="row" style="display:block">
+      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
+        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
+        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
+      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
+             spellcheck="false" style="width:100%;margin-bottom:6px">
+      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
+             style="width:100%;margin-bottom:8px">
+      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
+      <button class="btn sm" id="b-api-nueva">Guardar</button>
+      <div class="m" id="api-nota" style="margin-top:8px"></div>
+    </div></div>
+
+    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
+    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
+      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
+         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
+    <div class="list">${secretosCache.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
+          <div class="m">${esc(s.pista)}</div></div>
+        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
+        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
+          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
+          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
+      </div>`).join('')}</div>
+    </section>
+
+    <section class="aj-grupo" data-grupo="material" ${grupoAjustes==='material'?'':'hidden'}>
     <h3 class="sec">Música y fondos</h3>
     <div class="grid2">
       <div class="card">
@@ -2966,10 +3175,6 @@ function pintaAjustes(){
       al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
       «Re-enlazar material» y clasifícalas aquí.</div>`}
 
-    <details class="mas" id="mas-opciones" ${masOpciones ? 'open' : ''}>
-      <summary>Más opciones</summary>
-      <p class="sub">Para ajustar a fondo: mezcla, fuentes, render, claves de GitHub y cada
-        tarea de mantenimiento por separado. No hace falta tocarlas para el uso diario.</p>
     <h3 class="sec">Mezcla de audio</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr 190px">
@@ -2991,6 +3196,20 @@ function pintaAjustes(){
     <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
       Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
 
+    ${E.es_android ? `
+    <h3 class="sec">Render</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
+          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
+          apaga esto si falla demasiado seguido.</div></div>
+        <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
+          <span class="rail"></span></label>
+      </div>
+    </div>` : ''}
+    </section>
+
+    <section class="aj-grupo" data-grupo="fuentes" ${grupoAjustes==='fuentes'?'':'hidden'}>
     <h3 class="sec">Fuentes</h3>
     <p class="sub" style="margin-top:-6px">Canales de YouTube y subreddits de Reddit que rastrean
       <code style="font:11.5px var(--mono)">youtube_scout.py</code> y
@@ -3041,47 +3260,14 @@ function pintaAjustes(){
         <button class="btn sm" id="b-fu-sub">Agregar subreddit</button>
       </div>
     </div>
+    </section>
 
-    ${E.es_android ? `
-    <h3 class="sec">Render</h3>
-    <div class="list">
-      <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
-          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
-          apaga esto si falla demasiado seguido.</div></div>
-        <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
-          <span class="rail"></span></label>
-      </div>
-    </div>` : ''}
+    <section class="aj-grupo" data-grupo="apariencia" ${grupoAjustes==='apariencia'?'':'hidden'}>
+    <h3 class="sec">Apariencia</h3>
+    ${bloqueApariencia()}
+    </section>
 
-    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
-    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
-      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
-         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
-    <div class="list">${secretosCache.map(s=>`
-      <div class="row" style="grid-template-columns:1fr auto auto">
-        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
-          <div class="m">${esc(s.pista)}</div></div>
-        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
-        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
-          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
-          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
-      </div>`).join('')}</div>
-
-    <h3 class="sec">Añadir una API nueva</h3>
-    <div class="list"><div class="row" style="display:block">
-      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
-        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
-        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
-      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
-             spellcheck="false" style="width:100%;margin-bottom:6px">
-      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
-             style="width:100%;margin-bottom:8px">
-      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
-      <button class="btn sm" id="b-api-nueva">Guardar</button>
-      <div class="m" id="api-nota" style="margin-top:8px"></div>
-    </div></div>
-
+    <section class="aj-grupo" data-grupo="tareas" ${grupoAjustes==='tareas'?'':'hidden'}>
     <h3 class="sec">Tareas sueltas</h3>
     <p class="sub">Y de uno en uno, lo que si no habría que escribir a mano en Termux. Debajo de cada uno
       está la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
@@ -3099,7 +3285,7 @@ function pintaAjustes(){
       que le escribas la ruta nueva, y
       <code style="font:11.5px var(--mono)">tiktok_publisher.py --marcar-subidos</code>, que te va
       preguntando cuáles marcar.</div>
-    </details>`;
+    </section>`;
 
   // Sliders: se muestra en vivo, se guarda al soltar (un POST por pixel
   // arrastrado reescribiría config.json decenas de veces por segundo).
@@ -3127,8 +3313,7 @@ function pintaAjustes(){
   });
   enlazarConectar();
   enlazarHorario();
-  const mas = $('#mas-opciones');
-  if(mas) mas.ontoggle = ()=>{ masOpciones = mas.open; };
+  document.querySelectorAll('[data-grupo-aj]').forEach(b => b.onclick = ()=>abrirGrupoAjustes(b.dataset.grupoAj));
   const bApi = $('#b-api-nueva');
   if(bApi) bApi.onclick = async ()=>{
     const nota = $('#api-nota');
@@ -3167,11 +3352,23 @@ function pintaAjustes(){
       refrescar();
     }catch(e){ toast(e.message); }
   };
+  enlazarApariencia();
   $('#b-cadena-auto').onclick = async ()=>{
     try{ const j = await post('/api/cadena/auto',{auto: !E.cadena_auto});
       toast(j.auto ? 'Buscar seguirá solo con guiones y grabación'
                    : 'Cada paso esperará a que lo pulses'); refrescar();
     }catch(e){ toast(e.message); }
+  };
+  $('#b-bateria').onclick = async ()=>{
+    try{ const j = await post('/api/bateria/cuidar',{cuidar: !E.bateria.cuidar});
+      toast(j.cuidar ? `Con menos del ${j.umbral}% se esperará al cargador`
+                     : 'Se grabará solo aunque la batería esté baja'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#s-bateria-umbral').onchange = async e =>{
+    try{ const j = await post('/api/bateria/cuidar',{umbral: +e.target.value});
+      toast(`Mínimo para grabar solo: ${j.umbral}%`); refrescar();
+    }catch(err){ toast(err.message); refrescar(); }
   };
   $('#b-partir-auto').onclick = async ()=>{
     try{ const j = await post('/api/partir/auto',{auto: !E.partir_auto});
@@ -3377,7 +3574,12 @@ function pintaPaso(){
 }
 // Cambiar de pestaña desde un botón, llevando también la tira de pestañas:
 // en un teléfono Ajustes queda fuera de la vista, a la derecha.
+/* «ajustes/servicios» abre Ajustes ya en esa pestaña: lo usa el
+   diccionario de errores para llevar justo a donde se arregla. */
 function irA(vista){
+  const [v, grupo] = String(vista).split('/');
+  if(grupo) abrirGrupoAjustes(grupo);
+  vista = v;
   const b = document.querySelector(`.tabs button[data-v="${vista}"]`);
   if(!b) return;
   b.click();
@@ -3406,7 +3608,12 @@ async function refrescar(){
 
 // Tocar la barra de abajo sube a la tarjeta, que es donde están el detalle y
 // los botones de pausar y abortar.
-$('#mini-job').onclick = ()=>window.scrollTo({top:0, behavior:'smooth'});
+// Si la tarjeta es de otra pestaña, la barra lleva a esa pestaña.
+$('#mini-job').onclick = ()=>{
+  const v = E && E.trabajo && E.trabajo.vista;
+  if(v && v !== vistaActual()) irA(v);
+  else window.scrollTo({top:0, behavior:'smooth'});
+};
 
 /* La tira de pestañas rueda de lado, así que hay que avisar de que queda
    alguna fuera del borde derecho. */

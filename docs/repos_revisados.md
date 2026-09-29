@@ -773,3 +773,54 @@ fondos → «✂ Tramos que no se usan» abre cada fondo en un reproductor con
 «Marcar inicio» / «Marcar fin»; va en una hoja aparte del repintado para
 que el video no se reinicie mientras se marca. `/fondo/<archivo>` solo sirve
 archivos de la lista de fondos.
+
+## 15. Grabar solo con batería o cargador — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Lo que se graba solo (la cadena del panel, el cron) arranca
+aunque el teléfono esté al 30 % y desenchufado, y un render largo lo deja
+seco.
+
+**Qué se encontró.** Todo lo que hay en GitHub alrededor de Termux y la
+batería son envoltorios de `termux-battery-status` para mirarla:
+`cobrasanjay1/Termux_Battery_Status` (avisa por voz al 80 %),
+`NathanielJS1541/Termux-Battery-Monitor` (registra la carga),
+`usmannasution80/termux-charging-monitor`, `BuriXon-code/Termux-Battery` (la
+pinta bonita en la terminal). Ninguno decide si algo puede correr ni espera
+al cargador para arrancarlo; depender de uno sería traer un script entero
+para usar dos campos del JSON (`percentage`, `plugged`).
+
+**Qué se hizo.** `bateria.py` lee esos dos campos (con timeout: sin la app
+Termux:API la orden se queda colgada) y decide. Si toca esperar, lo apunta
+en `pipeline_state/grabar_al_cargar.json`; el panel enseña la espera en la
+Cola y un hilo del servidor (`vigilar_cargador`) mira la batería cada
+minuto, **solo mientras haya espera** —despertar Termux:API sin motivo
+también gasta—, y graba en cuanto se conecta el cargador. Si la batería no
+se puede leer, no se frena nada.
+
+## 16. Subidas que se cortan — SE COPIÓ LA IDEA de la muestra oficial
+
+**El problema.** Con la conexión del teléfono, una subida de 30 MB se corta
+a veces a mitad. Antes eso contaba como fallo y la corrida siguiente volvía
+a mandar el archivo entero; y si YouTube lo recibía roto, se quedaba así en
+el canal.
+
+**Qué se encontró.** La muestra oficial `youtube/api-samples`
+(`python/upload_video.py`) reintenta `next_chunk()` hasta 10 veces, con
+espera aleatoria creciente, ante errores de red y 500/502/503/504. Es la
+forma que Google documenta, y es la idea que se copió; el código no, porque
+es Python 2 (`except X, e`, `httplib`), el repo está archivado y no tiene
+archivo de licencia en la raíz. No guarda la sesión entre corridas ni mira si
+el video llegó bien. `tokland/youtube-upload` (GPL-3, último push en abril de
+2024, 114 issues abiertos) es una CLI entera para subir. Depender de ella
+sería traer una herramienta completa por un bucle de reintentos, y con GPL.
+
+**Qué se hizo.** `publisher.subir_video` reintenta con la misma idea, y
+además guarda la URL de la sesión en `pipeline_state/subida_en_curso.json`
+para retomarla en la corrida siguiente si el proceso muere. Para eso
+usa `request._in_error_state = True`, un atributo privado de
+`googleapiclient`: hace que la librería pregunte primero cuánto llegó
+(`bytes */total`). Si una versión nueva de la librería lo cambiara, lo
+peor que pasa es que se vuelve a subir de cero. Después, `verificar_subida`
+mira `uploadStatus`/`processingDetails` y `subir_y_verificar` borra y
+vuelve a subir lo que YouTube dio por `failed`.
+

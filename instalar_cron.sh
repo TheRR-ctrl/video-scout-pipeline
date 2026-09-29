@@ -56,13 +56,13 @@ if [ "$1" = "--quitar" ]; then
 fi
 
 # Las tareas y sus horas las escribe horario.py, con lo que hayas elegido en
-# el panel (Ajustes → Horario automático) o, si no has tocado nada, con el
+# el panel (Ajustes → Automático → Horario automático) o, si no has tocado nada, con el
 # horario de siempre. Solo toca las líneas marcadas con MARCA.
 # Si falla, se sigue igual: arrancar crond y el arranque tras reiniciar hacen
 # falta de todas formas, y el panel puede volver a aplicar el horario luego.
 echo "  Programado:"
 "$PYTHON" "$REPO/horario.py" --aplicar || echo "  ⚠️ No se pudo escribir el crontab; repite esta orden."
-echo "     (cámbialo cuando quieras en el panel: Ajustes → Horario automático)"
+echo "     (cámbialo cuando quieras en el panel: Ajustes → Automático → Horario automático)"
 echo
 
 # ---- 3. crond vivo --------------------------------------------------------

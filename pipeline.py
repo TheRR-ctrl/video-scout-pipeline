@@ -187,7 +187,17 @@ def main():
         import script_writer
         resultados["guion"] = correr_etapa("guion (script_writer)", script_writer.main)
 
-    if i_desde <= ETAPAS.index("video") <= i_hasta:
+    grabar = i_desde <= ETAPAS.index("video") <= i_hasta
+    if grabar:
+        # Con poca batería y sin cargador, el render espera: el panel lo
+        # enseña y graba solo en cuanto se conecta (ver bateria.py). No es un
+        # fallo, así que no pinta el día en rojo.
+        import bateria
+        grabar, motivo = bateria.antes_de_grabar_solo()
+        if not grabar:
+            logger.info(motivo)
+
+    if grabar:
         import generar_video_maestro
         resultados["video"] = correr_etapa("video (generar_video_maestro)", generar_video_maestro.renderizar_lote_historias)
 

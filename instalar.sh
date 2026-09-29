@@ -87,7 +87,7 @@ else
   echo "        Créalo con:"
   echo "          printf 'GEMINI_API_KEY=tu_clave\\n' > secretos.env && chmod 600 secretos.env"
   echo "        La clave es gratis en https://aistudio.google.com/apikey"
-  echo "        (o desde el panel: Ajustes → Credenciales)"
+  echo "        (o desde el panel: Ajustes → Servicios)"
   pendientes=$((pendientes+1))
 fi
 

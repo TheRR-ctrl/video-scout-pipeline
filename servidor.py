@@ -41,6 +41,7 @@ import cola      # la cola de candidatos que dejaron los buscadores
 import archivar_largas  # las historias largas apartadas de la cola
 import errores   # el diccionario: qué significa cada error y qué hacer
 import fondos_excluidos  # tramos de los fondos que el render no usa
+import bateria   # con poca batería, lo que se graba solo espera al cargador
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -219,7 +220,39 @@ class Trabajo:
                 else lineas[-4:] if self.estado in ("corriendo", "pausado")
                 else lineas[-15:]),
             "modelos": resumen_modelos(self.modelos),
+            "vista": vista_del_trabajo(self.nombre, self.cmd),
         }
+
+
+# En qué pestaña del panel sale la tarjeta grande de cada trabajo; en las
+# demás solo se ve la barra de abajo. Va por el script que corre y no por
+# la acción pulsada, porque lo que la cadena arranca sola (grabar después
+# de escribir guiones) no pasa por ningún botón. Lo que no esté aquí sale
+# en todas, como antes.
+VISTA_POR_SCRIPT = {
+    "trend_scout.py": "cola", "youtube_scout.py": "cola", "script_writer.py": "cola",
+    "generar_video_maestro.py": "cola", "partir_historias.py": "cola",
+    "limpiar_cola.py": "cola", "archivar_largas.py": "cola",
+    "calidad.py": "revisar", "calidad_ia.py": "revisar", "preparar_metadata.py": "revisar",
+    "publisher.py": "publicados",
+    "tiktok_publisher.py": "tiktok", "demo_tiktok.py": "tiktok",
+    "relanzar.py": "canal", "revision_quincenal.sh": "canal", "formato.py": "canal",
+    "previsualizar_estilos.py": "estilo",
+    "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
+    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes",
+}
+
+
+def vista_del_trabajo(nombre, cmd):
+    if "--probar-clave" in cmd:      # se prueba desde Ajustes → Servicios
+        return "ajustes"
+    if nombre == "Rehaciendo":       # «Rehacer» se pulsa mirando el video
+        return "revisar"
+    for parte in cmd:
+        vista = VISTA_POR_SCRIPT.get(os.path.basename(str(parte)))
+        if vista:
+            return vista
+    return None
 
 
 # "cola" son los que esperan turno; "hechos", los últimos terminados. Los
@@ -327,7 +360,7 @@ def cadena_automatica():
 
     Encendido por omisión: buscar sin más deja 60 candidatos que no se ven en
     ningún sitio hasta que alguien sabe que falta «Escribir guiones», y eso
-    parecía que la búsqueda no había servido. Se apaga en Ajustes → Subida
+    parecía que la búsqueda no había servido. Se apaga en Ajustes → Automático
     para quien prefiera grabar a mano (grabar gasta batería y minutos).
     """
     return bool(leer_json(RUTA_CONFIG, {}).get("cadena_automatica", True))
@@ -354,16 +387,73 @@ def _encadenada(accion):
     if accion == "grabar_nuevas":
         if not cadena_automatica():
             return None
-        # Solo las que caben en un short: las largas se aplazarían igual,
-        # pero después de gastar la voz de cada una.
-        caben = [str(h["n"]) for h in historias_del_guion()
-                 if not h.get("renderizada") and not h.get("larga")]
-        if not caben:
+        orden = _orden_grabar_nuevas()
+        if not orden:
             return None
-        return ("Grabando las historias nuevas",
-                [sys.executable, "generar_video_maestro.py", "--historias", ",".join(caben)],
-                "musica_rotar")
+        # Con poca batería y sin cargador no se graba: queda en espera y
+        # vigilar_cargador lo arranca al conectarlo.
+        ok, motivo = bateria.antes_de_grabar_solo()
+        if not ok:
+            print(f"  🔌 {motivo}", flush=True)
+            return None
+        return orden
     return None
+
+
+def _orden_grabar_nuevas():
+    """(nombre, cmd, luego) para grabar lo que falta, o None si no falta nada.
+
+    Solo las que caben en un short: las largas se aplazarían igual, pero
+    después de gastar la voz de cada una.
+    """
+    caben = [str(h["n"]) for h in historias_del_guion()
+             if not h.get("renderizada") and not h.get("larga")]
+    if not caben:
+        return None
+    return ("Grabando las historias nuevas",
+            [sys.executable, "generar_video_maestro.py", "--historias", ",".join(caben)],
+            "musica_rotar")
+
+
+def _grabar_lo_que_espera():
+    """Arranca (o encola) la grabación que esperaba al cargador.
+
+    Devuelve lo mismo que lanzar(), o (None, None, None) si ya no queda
+    nada por grabar; en los dos casos la espera se quita.
+    """
+    bateria.quitar_espera()
+    orden = _orden_grabar_nuevas()
+    if not orden:
+        return None, None, None
+    return lanzar(*orden)
+
+
+def vigilar_cargador(cada=60):
+    """Mientras haya una grabación esperando al cargador, mira la batería
+    cada minuto y la arranca en cuanto se pueda.
+
+    Sin espera apuntada no pregunta nada: termux-battery-status despierta a
+    la app Termux:API, y hacerlo cada minuto sin motivo es gastar batería
+    para ahorrarla. Tampoco arranca con otro trabajo corriendo: la grabación
+    iría detrás de algo que quizá dura una hora, y la batería de entonces ya
+    no sería la de ahora.
+    """
+    while True:
+        time.sleep(cada)
+        try:
+            if not bateria.en_espera():
+                continue
+            actual = TRABAJO["actual"]
+            if actual and actual.estado in ("corriendo", "pausado"):
+                continue
+            b = bateria.leer() if bateria.cuidar() else None
+            ok, motivo = bateria.puede_grabar(lectura=b)
+            if ok:
+                _grabar_lo_que_espera()
+            else:
+                bateria.marcar_espera(motivo, b["porcentaje"] if b else None)
+        except Exception as exc:  # un fallo aquí no puede tumbar el panel
+            print(f"vigilar_cargador: {exc}", file=sys.stderr, flush=True)
 
 
 # Cuántos escribe «Escribir guiones» respetando la cuota: el tope por
@@ -395,7 +485,8 @@ def seguir_con_la_cola(terminado):
         _SIGUIENTE_HECHO[0] += 1
         hecho = {"id": _SIGUIENTE_HECHO[0], "nombre": terminado.nombre,
                  "estado": terminado.estado,
-                 "segundos": int(time.time() - terminado.inicio)}
+                 "segundos": int(time.time() - terminado.inicio),
+                 "vista": vista_del_trabajo(terminado.nombre, terminado.cmd)}
         # De los que fallaron se guarda el final de la salida: es lo que hay
         # que leer para saber por qué, y al arrancar el siguiente deja de
         # estar a la vista.
@@ -1099,13 +1190,13 @@ def siguiente_paso(credenciales, historias, videos, candidatos, trabajo):
         return None
     tiene = {c["nombre"]: c["ok"] for c in credenciales}
     if not tiene.get("GEMINI_API_KEY"):
-        return {"titulo": "Conecta Gemini", "boton": "Conectar", "ir": "ajustes",
+        return {"titulo": "Conecta Gemini", "boton": "Conectar", "ir": "ajustes/servicios",
                 "detalle": "Es lo que escribe los guiones. Es gratis y lleva un minuto: "
                            "sacas la clave con el enlace y la pegas."}
 
     sin_revisar = [v for v in videos if not v.get("publicado")]
     if sin_revisar and not tiene.get("youtube_token.json"):
-        return {"titulo": "Autoriza la subida a YouTube", "boton": "Ver cómo", "ir": "ajustes",
+        return {"titulo": "Autoriza la subida a YouTube", "boton": "Ver cómo", "ir": "ajustes/servicios",
                 "detalle": f"Hay {len(sin_revisar)} video(s) listos, pero sin ese permiso no se "
                            "pueden subir. Se concede una sola vez."}
     if sin_revisar:
@@ -1364,6 +1455,8 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
+                    "espera": bateria.en_espera()},
         "guiones_por_tanda": GUIONES_POR_TANDA,
         "archivadas": len(archivar_largas.archivadas()),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
@@ -1889,6 +1982,42 @@ def api_cadena_auto():
     cfg["cadena_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["cadena_automatica"]})
+
+
+@app.post("/api/bateria/cuidar")
+def api_bateria_cuidar():
+    """Enciende o apaga «con poca batería, esperar al cargador», y el umbral."""
+    datos = request.json or {}
+    cfg = leer_json(RUTA_CONFIG, {})
+    if "cuidar" in datos:
+        cfg["cuidar_bateria"] = bool(datos["cuidar"])
+    if "umbral" in datos:
+        try:
+            u = int(datos["umbral"])
+        except (TypeError, ValueError):
+            return jsonify({"error": "El umbral tiene que ser un número."}), 400
+        if not 5 <= u <= 100:
+            return jsonify({"error": "El umbral va de 5 a 100."}), 400
+        cfg["bateria_minima_grabar"] = u
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg)})
+
+
+@app.post("/api/bateria/espera")
+def api_bateria_espera():
+    """«Grabar ya» (sin esperar al cargador) o «olvidarla», sobre la espera."""
+    que = (request.json or {}).get("que")
+    if que == "olvidar":
+        bateria.quitar_espera()
+        return jsonify({"ok": True})
+    if que != "grabar":
+        return jsonify({"error": "¿Grabar u olvidar?"}), 400
+    trabajo, encolado, error = _grabar_lo_que_espera()
+    if error:
+        return jsonify({"error": error}), 409
+    if not trabajo and not encolado:
+        return jsonify({"ok": True, "mensaje": "Ya no queda nada por grabar."})
+    return jsonify({"ok": True, "mensaje": "Grabando." if trabajo else "En la cola, detrás de lo que corre."})
 
 
 @app.post("/api/partir/auto")
@@ -2472,6 +2601,8 @@ def main():
         print( "      Android puede congelar el servidor al cambiarte a Chrome.")
         print( "      Instálalo con:  pkg install termux-api")
     print()
+
+    threading.Thread(target=vigilar_cargador, daemon=True).start()
 
     if not args.no_apagar:
         ULTIMO_LATIDO["t"] = time.time()

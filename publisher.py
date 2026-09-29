@@ -20,6 +20,7 @@ Credenciales:
 import os
 import re
 import json
+import time
 import logging
 import subprocess
 from datetime import datetime, timedelta, timezone
@@ -36,6 +37,7 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -47,6 +49,15 @@ RUTA_RECHAZADOS = os.path.join(CARPETA_ESTADO, "rechazados.json")
 # mismo, un instante antes de la subida, así que no había momento en que
 # alguien pudiera mirarlos.
 RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
+# La subida a medias: la URL de la sesión de YouTube, para retomarla desde el
+# último trozo que llegó si el proceso muere (Android lo mata, se va la luz)
+# en vez de volver a mandar el archivo entero. Quien tiene esa URL puede
+# terminar la subida sin más credenciales, así que va en 600 como el token.
+RUTA_SUBIDA_EN_CURSO = os.path.join(CARPETA_ESTADO, "subida_en_curso.json")
+# Videos que YouTube dio por fallidos y no se pudieron borrar (el token no
+# tenía permiso): la búsqueda de duplicados los salta, o el video bueno no se
+# volvería a subir nunca porque "ya hay uno con ese título".
+RUTA_SUBIDAS_ROTAS = os.path.join(CARPETA_ESTADO, "subidas_rotas.json")
 RUTA_CLIENT_SECRET = os.path.join(BASE_DIR, "client_secret.json")
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 
@@ -422,8 +433,9 @@ def buscar_video_existente_en_canal(servicio, titulo):
         resp = servicio.search().list(
             part="snippet", forMine=True, type="video", q=titulo, maxResults=5
         ).execute()
+        rotos = set(almacen.leer(RUTA_SUBIDAS_ROTAS, []) or [])
         for item in resp.get("items", []):
-            if item["snippet"]["title"] == titulo:
+            if item["snippet"]["title"] == titulo and item["id"]["videoId"] not in rotos:
                 return item["id"]["videoId"]
     except Exception as exc:
         logger.warning(f"No se pudo verificar duplicados en YouTube ({exc}); se sube de todas formas.")
@@ -474,7 +486,60 @@ def construir_descripcion(metadata, video):
     return "\n\n".join(partes)
 
 
-def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
+TROZO_SUBIDA = 8 * 1024 * 1024
+# Cuánto esperar antes de cada reintento cuando se corta la conexión a media
+# subida: unos 6 minutos en total, lo que tarda un teléfono en volver a
+# engancharse a la WiFi o salir de un túnel. Cada reintento sigue desde el
+# último trozo que YouTube confirmó, no desde el principio.
+ESPERAS_RECONEXION = [5, 10, 20, 30, 60, 60, 90, 90]
+
+
+def _es_corte_de_red(exc):
+    """¿Vale la pena reintentar? Cortes de red y errores pasajeros de Google
+    sí; una clave mala o el límite diario de subidas, no."""
+    if isinstance(exc, HttpError):
+        return getattr(exc.resp, "status", 0) in (500, 502, 503, 504)
+    if isinstance(exc, (OSError, TimeoutError, ConnectionError)):
+        return True   # socket.timeout, ssl.SSLError, "Network is unreachable"…
+    return type(exc).__module__.startswith("httplib2")
+
+
+def _firma_archivo(ruta):
+    st = os.stat(ruta)
+    return {"ruta": ruta, "tam": st.st_size, "mtime": int(st.st_mtime)}
+
+
+def _sesion_guardada(ruta):
+    """La URL de una subida de este mismo archivo que se quedó a medias, si
+    la hay y todavía sirve (YouTube la guarda una semana; aquí, 5 días)."""
+    s = almacen.leer(RUTA_SUBIDA_EN_CURSO, None)
+    if not isinstance(s, dict) or not s.get("uri"):
+        return None
+    try:
+        firma = _firma_archivo(ruta)
+    except OSError:
+        return None
+    if any(s.get(k) != v for k, v in firma.items()):
+        return None
+    if time.time() - s.get("desde", 0) > 5 * 86400:
+        return None
+    return s
+
+
+def _guardar_sesion(ruta, uri):
+    almacen.guardar(RUTA_SUBIDA_EN_CURSO,
+                    {**_firma_archivo(ruta), "uri": uri, "desde": int(time.time())},
+                    privado=True)
+
+
+def _olvidar_sesion():
+    try:
+        os.remove(RUTA_SUBIDA_EN_CURSO)
+    except FileNotFoundError:
+        pass
+
+
+def subir_video(servicio, ruta_video, metadata, video, publish_at_iso, dormir=time.sleep):
     body = {
         "snippet": {
             "title": recortar_titulo(metadata["titulo_youtube"]),
@@ -488,16 +553,201 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
             "selfDeclaredMadeForKids": False,
         },
     }
-    media = MediaFileUpload(ruta_video, chunksize=-1, resumable=True, mimetype="video/mp4")
-    request = servicio.videos().insert(part="snippet,status", body=body, media_body=media)
+    nombre = os.path.basename(ruta_video)
+    total = os.path.getsize(ruta_video)
+    total_mb = total / (1024 * 1024)
 
-    respuesta = None
+    def nueva_peticion():
+        # En trozos de 8 MB y no de una vez (chunksize=-1): de una vez,
+        # YouTube no contesta hasta el final y el panel se pasaba minutos sin
+        # decir nada. Cada trozo que llega es una línea con el porcentaje,
+        # que la tarjeta del trabajo convierte en barra. Tiene que ser
+        # múltiplo de 256 KB.
+        media = MediaFileUpload(ruta_video, chunksize=TROZO_SUBIDA, resumable=True,
+                                mimetype="video/mp4")
+        return servicio.videos().insert(part="snippet,status", body=body, media_body=media)
+
+    request = nueva_peticion()
+    retomada = False
+    sesion = _sesion_guardada(ruta_video)
+    if sesion:
+        # _in_error_state hace que la librería pregunte primero a YouTube
+        # cuánto le llegó ("bytes */total") y siga desde ahí.
+        request.resumable_uri = sesion["uri"]
+        request._in_error_state = True
+        retomada = True
+        logger.info(f"Retomando la subida de {nombre} que se cortó la otra vez.")
+    else:
+        logger.info(f"Subiendo {nombre}: 0% (0/{total_mb:.0f} MB)")
+
+    respuesta, cortes, uri_guardada = None, 0, sesion["uri"] if sesion else None
     while respuesta is None:
-        status, respuesta = request.next_chunk()
+        try:
+            status, respuesta = request.next_chunk()
+        except HttpError as exc:
+            estado = getattr(exc.resp, "status", 0)
+            if retomada and estado in (400, 404, 410):
+                # La sesión de la otra vez ya no existe: se empieza de cero.
+                logger.info(f"La subida a medias de {nombre} caducó; empieza de nuevo.")
+                _olvidar_sesion()
+                request, retomada, uri_guardada = nueva_peticion(), False, None
+                continue
+            if not _es_corte_de_red(exc) or cortes >= len(ESPERAS_RECONEXION):
+                raise
+            cortes = _esperar_corte(nombre, request, total, exc, cortes, dormir)
+            continue
+        except Exception as exc:
+            if not _es_corte_de_red(exc) or cortes >= len(ESPERAS_RECONEXION):
+                raise
+            cortes = _esperar_corte(nombre, request, total, exc, cortes, dormir)
+            continue
+        retomada, cortes = False, 0
+        if request.resumable_uri and request.resumable_uri != uri_guardada:
+            uri_guardada = request.resumable_uri
+            _guardar_sesion(ruta_video, uri_guardada)
         if status:
-            logger.info(f"Subiendo {os.path.basename(ruta_video)}: {int(status.progress() * 100)}%")
+            logger.info(f"Subiendo {nombre}: {int(status.progress() * 100)}% "
+                        f"({status.resumable_progress / (1024 * 1024):.0f}/{total_mb:.0f} MB)")
+    _olvidar_sesion()
+    logger.info(f"Subiendo {nombre}: 100% ({total_mb:.0f}/{total_mb:.0f} MB)")
 
     return respuesta["id"]
+
+
+def _esperar_corte(nombre, request, total, exc, cortes, dormir):
+    espera = ESPERAS_RECONEXION[cortes]
+    pct = int(100 * request.resumable_progress / total) if total else 0
+    logger.warning(
+        f"Se cortó la conexión subiendo {nombre} al {pct}% ({type(exc).__name__}); "
+        f"reintento {cortes + 1}/{len(ESPERAS_RECONEXION)} en {espera} s, "
+        f"sigue desde donde se quedó.")
+    dormir(espera)
+    return cortes + 1
+
+
+def verificar_subida(servicio, video_id):
+    """Qué dice YouTube del archivo que acaba de recibir.
+
+    Devuelve (estado, detalle), con estado:
+      "ok"         — llegó entero; puede que aún lo esté procesando.
+      "procesado"  — además ya terminó de procesarlo: no hace falta mirar más.
+      "fallida"    — YouTube lo recibió roto o no pudo procesarlo
+                     (failureReason: conversion, uploadAborted, invalidFile…).
+                     Hay que borrarlo y volver a subirlo.
+      "rechazada"  — lo recibió bien y no lo acepta (copyright, duplicado,
+                     duración…). Volver a subirlo no lo arregla.
+      "no_existe"  — no aparece en el canal.
+      None         — no se pudo preguntar (sin red): no se sabe nada.
+    """
+    try:
+        r = servicio.videos().list(part="status,processingDetails", id=video_id).execute()
+    except Exception as exc:
+        logger.warning(f"No se pudo comprobar la subida de {video_id} ({exc}).")
+        return None, ""
+    items = r.get("items") or []
+    if not items:
+        return "no_existe", ""
+    st = items[0].get("status", {})
+    proc = items[0].get("processingDetails", {})
+    subida = st.get("uploadStatus")
+    if subida == "failed":
+        return "fallida", st.get("failureReason") or ""
+    if subida == "rejected":
+        return "rechazada", st.get("rejectionReason") or ""
+    if subida == "deleted":
+        return "no_existe", "borrado"
+    if proc.get("processingStatus") == "failed":
+        return "fallida", proc.get("processingFailureReason") or "processing"
+    if subida == "processed" or proc.get("processingStatus") == "succeeded":
+        return "procesado", ""
+    return "ok", subida or ""
+
+
+def quitar_subida_rota(servicio, video_id):
+    """Borra del canal un video que YouTube dio por fallido. Si el token no
+    tiene permiso de borrar, lo apunta para que la búsqueda de duplicados no
+    lo confunda con el bueno, y avisa de que hay que quitarlo a mano."""
+    try:
+        servicio.videos().delete(id=video_id).execute()
+        logger.info(f"Borrado del canal el video roto {video_id}.")
+        return True
+    except Exception as exc:
+        rotos = almacen.leer(RUTA_SUBIDAS_ROTAS, []) or []
+        if video_id not in rotos:
+            almacen.guardar(RUTA_SUBIDAS_ROTAS, rotos + [video_id])
+        logger.warning(
+            f"No se pudo borrar el video roto {video_id} ({exc}). Quítalo a mano en "
+            f"https://studio.youtube.com/video/{video_id}/edit — se sube uno nuevo igual.")
+        return False
+
+
+def subir_y_verificar(servicio, ruta, metadata, video, publish_at_iso):
+    """Sube y comprueba en YouTube que llegó bien. Si llegó roto, lo borra y
+    lo sube otra vez (una sola vez: si falla dos seguidas, algo más pasa).
+
+    Devuelve (video_id, estado, detalle) como verificar_subida.
+    """
+    for intento in (1, 2):
+        video_id = subir_video(servicio, ruta, metadata, video, publish_at_iso)
+        estado, detalle = verificar_subida(servicio, video_id)
+        if estado not in ("fallida", "no_existe"):
+            return video_id, estado, detalle
+        logger.warning(f"YouTube dice que la subida de {os.path.basename(ruta)} salió mal "
+                       f"({estado}{': ' + detalle if detalle else ''}).")
+        if estado == "fallida":
+            quitar_subida_rota(servicio, video_id)
+        if intento == 1:
+            logger.info("La vuelvo a subir desde el principio.")
+    raise RuntimeError(f"La subida salió mal dos veces seguidas ({estado} {detalle}).")
+
+
+def _por_verificar(p, dias=3):
+    """¿Subido hace menos de `dias` y YouTube aún no dijo que quedó bien?"""
+    if not p.get("video_id") or p.get("verificado") or not p.get("subido_en"):
+        return False
+    try:
+        t = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - t < timedelta(days=dias)
+
+
+def revisar_subidas_recientes(servicio, publicados, dias=3):
+    """Vuelve a mirar los videos subidos en los últimos días que YouTube no
+    había terminado de procesar. Justo al subir, un video sale "uploaded" y
+    el fallo de procesado llega minutos después, así que el primer vistazo
+    no basta.
+
+    Los que salieron rotos se borran del canal y se quitan de publicados:
+    como el archivo sigue en el teléfono, esta misma corrida los vuelve a
+    subir. Devuelve la lista nueva y cuántos se quitaron.
+    """
+    quedan, quitados = [], 0
+    for p in publicados:
+        if not _por_verificar(p, dias):
+            quedan.append(p)
+            continue
+        estado, detalle = verificar_subida(servicio, p["video_id"])
+        if estado == "procesado":
+            p = {**p, "verificado": True}
+        elif estado == "rechazada":
+            p = {**p, "verificado": True, "estado_youtube": f"rechazado: {detalle}"}
+            logger.warning(f"YouTube rechazó {p.get('titulo_youtube')!r} ({detalle}). "
+                           f"No se vuelve a subir: {p.get('url_revision')}")
+        elif estado in ("fallida", "no_existe"):
+            if not os.path.exists(p["ruta"]):
+                p = {**p, "verificado": True, "estado_youtube": f"{estado}: {detalle}, sin archivo local"}
+                logger.warning(f"{p.get('titulo_youtube')!r} salió mal en YouTube y ya no está "
+                               f"en el teléfono para volver a subirlo.")
+            else:
+                logger.warning(f"{p.get('titulo_youtube')!r} salió mal en YouTube "
+                               f"({estado}{': ' + detalle if detalle else ''}); se vuelve a subir.")
+                if estado == "fallida":
+                    quitar_subida_rota(servicio, p["video_id"])
+                quitados += 1
+                continue
+        quedan.append(p)
+    return quedan, quitados
 
 
 def leer_estado_publicacion(servicio, video_id):
@@ -632,6 +882,17 @@ def main(forzar_datos=False):
     publicados = cargar_json(RUTA_PUBLICADOS, [])
     rechazados = cargar_json(RUTA_RECHAZADOS, [])
     almacen_metadata = cargar_json(RUTA_METADATA, {})
+
+    # Antes de decidir qué falta: un video de ayer que YouTube no pudo
+    # procesar sale de publicados aquí y vuelve a subirse en esta corrida.
+    servicio_yt = None
+    if any(_por_verificar(p) for p in publicados):
+        try:
+            servicio_yt = obtener_servicio_youtube()
+            publicados, quitados = revisar_subidas_recientes(servicio_yt, publicados)
+            guardar_json(RUTA_PUBLICADOS, publicados)
+        except Exception as exc:
+            logger.warning(f"No se pudieron revisar las subidas recientes ({exc}).")
     rutas_ya_procesadas = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
 
     pendientes = en_orden_de_serie(
@@ -641,7 +902,6 @@ def main(forzar_datos=False):
         return
 
     client = genai.Client()
-    servicio_yt = None
     max_subidas = cfg.get("max_subidas_por_corrida")
     subidas_en_esta_corrida = 0
 
@@ -696,7 +956,8 @@ def main(forzar_datos=False):
         publish_at_iso = publish_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
         try:
-            video_id = subir_video(servicio_yt, ruta, metadata, video, publish_at_iso)
+            video_id, estado_yt, detalle_yt = subir_y_verificar(
+                servicio_yt, ruta, metadata, video, publish_at_iso)
         except Exception as exc:
             if "uploadLimitExceeded" in str(exc):
                 logger.info(
@@ -706,9 +967,12 @@ def main(forzar_datos=False):
                 break
             # Cualquier otro fallo de subida (red, timeout, error temporal de la
             # API) tampoco descarta el video: se reintenta en la próxima corrida
-            # en vez de quedar rechazado para siempre.
+            # en vez de quedar rechazado para siempre. Si se cortó a medias, la
+            # próxima retoma desde el último trozo (subida_en_curso.json).
             logger.warning(f"Fallo al subir {ruta} (se reintentará más adelante): {exc}")
             continue
+        if estado_yt == "rechazada":
+            logger.warning(f"YouTube rechazó el video ({detalle_yt}); no se vuelve a subir.")
 
         real = leer_estado_publicacion(servicio_yt, video_id)
         programado = avisar_si_no_quedo_programado(real, publish_at_iso, video_id)
@@ -731,6 +995,10 @@ def main(forzar_datos=False):
             # se conserva el archivo local unos días para poder subirlo a
             # mano a TikTok antes de que se borre solo.
             "subido_en": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+            # Sin "verificado", la próxima corrida vuelve a preguntar a YouTube
+            # si terminó de procesarlo bien (ver revisar_subidas_recientes).
+            "verificado": estado_yt in ("procesado", "rechazada"),
+            **({"estado_youtube": f"rechazado: {detalle_yt}"} if estado_yt == "rechazada" else {}),
         })
         guardar_json(RUTA_PUBLICADOS, publicados)
         subidas_en_esta_corrida += 1

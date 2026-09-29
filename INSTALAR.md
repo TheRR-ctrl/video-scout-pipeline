@@ -34,7 +34,7 @@ de megas que no pintan nada en git.
 
 | Qué | Para qué | Cómo conseguirlo |
 |---|---|---|
-| `secretos.env` | Gemini escribe los guiones y la metadata | Clave gratis en [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ponla desde el panel: **Ajustes → Credenciales** |
+| `secretos.env` | Gemini escribe los guiones y la metadata | Clave gratis en [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Ponla desde el panel: **Ajustes → Servicios** |
 | `client_secret.json` | Permiso para subir a YouTube | Google Cloud Console → OAuth de escritorio. Cópialo a la carpeta del proyecto |
 | `youtube_token.json` | Tu sesión de YouTube | `python generar_youtube_token.py` — una sola vez, se abre el navegador del teléfono |
 | `fondo_*.mp4` | El video que va detrás | Los tuyos. Cópialos con nombre `fondo_vertical_1.mp4`, `fondo_vertical_2.mp4`… |
@@ -66,7 +66,7 @@ panel               # abre el panel en el navegador
 python pipeline.py  # una tanda completa sin tocar nada
 ```
 
-Casi todo lo de aquí abajo tiene su botón en **Ajustes → Mantenimiento**, con
+Casi todo lo de aquí abajo tiene su botón en **Ajustes → Tareas**, con
 la orden escrita al lado. La terminal sigue sirviendo para lo mismo; la lista
 del panel está para no tener que acordarse de ellas.
 
@@ -421,7 +421,7 @@ no pasó de 12. No hay ninguno entre 60 y 300: o el feed reparte el video o no
 lo reparte, y cuando no lo reparte el video no se recupera nunca solo.
 
 Un video así no hace nada por el canal, pero la historia sigue sirviendo. En
-**Ajustes → Mantenimiento** están estos, y la revisión quincenal que los corre
+**Ajustes → Tareas** están estos, y la revisión quincenal que los corre
 juntos (más abajo, en «Que corra solo»):
 
 ```bash
@@ -669,7 +669,7 @@ los días 1 y 15 a las 7:30. Correrlo dos veces no duplica nada, y
 `bash instalar_cron.sh --quitar` las borra.
 
 Ese es el horario de fábrica. Para cambiarlo no hay que tocar el script: en
-el panel, **Ajustes → Horario automático** deja elegir los días, la hora y
+el panel, **Ajustes → Automático → Horario automático** deja elegir los días, la hora y
 pausar cada tarea, y «Guardar y aplicar» reescribe el crontab al momento.
 Desde Termux, `python horario.py` dice qué hay programado y cuándo. Lo que
 corre cada tarea no se cambia desde ahí: está fijo en `horario.py`.
@@ -744,7 +744,7 @@ bash revision_quincenal.sh --ver    # solo lista, no borra nada
 bash revision_quincenal.sh          # lo hace
 ```
 
-También está en **Ajustes → Mantenimiento**, en las dos versiones. Hace, por
+También está en **Ajustes → Tareas**, en las dos versiones. Hace, por
 ese orden, `relanzar.py --duplicados --si` y `relanzar.py --sin-vistas --si`
 con las guardas por omisión (14 días, 2 intentos). El orden importa: si se
 hiciera al revés, una historia repetida entraría por `--sin-vistas` y se

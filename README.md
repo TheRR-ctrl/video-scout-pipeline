@@ -94,7 +94,7 @@ schedule (cron, Termux, or GitHub Actions).
    Shorts titled "Parte N de M — …", each ending on "Sigue en la parte N+1" —
    but only when you decide: each long story in the panel's **Cola** tab gets
    a «✂ Partir en N» button. Turning on *Partir solas las historias largas*
-   (Ajustes → Subida, `"partir_automatico": true`) makes `script_writer.py`
+   (Ajustes → Automático, `"partir_automatico": true`) makes `script_writer.py`
    split new stories as it writes them and adds the step to "Todo de una
    pasada"; it's off by default. The text is never rewritten: Gemini
    only picks *between which sentences* to cut, aiming for a cliffhanger, and
@@ -170,7 +170,7 @@ source off. Verify any `@handle` you add by opening it in a browser first — a
 handle that 404s silently wastes a run.
 
 Channels and subreddits can also be added or removed from the panel, in
-**Ajustes → Más opciones → Fuentes** — the panel checks a new channel against YouTube before
+**Ajustes → Fuentes** — the panel checks a new channel against YouTube before
 saving it (same 404-protection as above), and a new subreddit against Reddit
 the same way (one request per add; a 429 is let through unverified rather
 than blocking the add, since Reddit's RSS rate limit is stricter than a
@@ -218,7 +218,7 @@ built in). Never commit `config_trends.json`, `config.json`,
 Set `GEMINI_API_KEY` (free at https://aistudio.google.com/apikey) as an
 environment variable — used by `script_writer.py` and `publisher.py`.
 
-The easier way, on the phone: **Ajustes → Conectar servicios** in the panel.
+The easier way, on the phone: **Ajustes → Servicios** in the panel.
 Each service (Gemini, YouTube search, Pexels, Pixabay, Jamendo) has a card
 saying what it's for, a link to the page where you get the key and the
 steps there; back in the panel, **📋 Pegar** reads the clipboard and the key
@@ -403,7 +403,7 @@ supports them** — flipping neither changes today's output at all.
   hardware video encoder (`h264_mediacodec`, exposed because Termux's ffmpeg
   is built with `--enable-mediacodec`) before falling back to software
   `libx264`. Faster and easier on the battery when it works. Toggle it from
-  the panel (Ajustes → Más opciones → Render, only shown when the server detects Android)
+  the panel (Ajustes → Música y video → Render, only shown when the server detects Android)
   rather than editing the file by hand — that's the fix if a phone's chip
   renders badly. The automatic CPU fallback only catches a hard failure
   (ffmpeg exits non-zero, or the file is empty); a chip that finishes fine
@@ -561,7 +561,7 @@ This rotation runs by itself after every batch of renders — from
 checks) and from the panel (queued right behind the render job). It skips
 itself without WiFi, without `JAMENDO_CLIENT_ID`, or with
 `"musica_rotacion_automatica": false` in `config.json` (there's a switch
-for it in the panel, under Ajustes → Subida). The monthly cron entry still
+for it in the panel, under Ajustes → Automático). The monthly cron entry still
 does the plain top-up.
 
 Attribution (artist, license, Jamendo page) is saved to
@@ -575,14 +575,42 @@ Console as `client_secret.json`. The first run of `publisher.py` (or
 after that, `youtube_token.json` is reused and refreshed automatically — no
 further manual login needed locally.
 
+### When an upload drops
+
+Uploads go in 8 MB chunks (the panel shows `Subiendo X: 41% (8/19 MB)`). If
+the connection drops, `publisher.py` retries for about six minutes, each time
+continuing from the last chunk YouTube confirmed. If it gives up, the upload
+session is kept in `pipeline_state/subida_en_curso.json` (mode 600) and the
+next run resumes it instead of starting over.
+
+After each upload it asks YouTube how it arrived (`uploadStatus`). A video
+marked `failed` is deleted from the channel and uploaded again; one marked
+`rejected` (copyright, duplicate…) is left alone, since uploading it again
+fixes nothing. Processing failures show up minutes later, so every run also
+re-checks uploads from the last 3 days that YouTube hadn't finished, and
+re-uploads the broken ones while the file is still on the phone. Deleting
+needs the `youtube.force-ssl` scope; without it the broken video's id goes to
+`pipeline_state/subidas_rotas.json` (so the duplicate check ignores it) and the
+log says to remove it in Studio.
+
 ## Running it
 
 From the panel, searching chains the rest by default: when a search
 (Reddit or YouTube) finishes, «Escribir guiones» is queued, and when that
 finishes, the stories that fit in a Short are rendered (long ones wait, as
 above). Each step is only queued if there is something for it to do. Turn it
-off in Ajustes → Subida (*Buscar, escribir y grabar seguido*,
+off in Ajustes → Automático (*Buscar, escribir y grabar seguido*,
 `"cadena_automatica": false`) to press each step yourself.
+
+Rendering is what drains the battery most, so anything rendered *on its own*
+(the chain above, or the cron's `pipeline.py`) waits when the battery is below
+60 % and the phone isn't charging (`bateria.py`, via `termux-battery-status`).
+The Cola shows the wait with «Grabar ya igualmente»; with the panel open, it
+starts by itself about a minute after you plug the charger in. Turn it off or
+change the threshold in Ajustes → Automático (*Con poca batería, esperar al
+cargador*, `"cuidar_bateria"` / `"bateria_minima_grabar"`). Render buttons
+pressed by hand never wait. If the battery can't be read (no Termux:API app,
+not Android), nothing waits.
 
 ```bash
 python pipeline.py                # runs all 4 stages
@@ -604,7 +632,7 @@ stay local, no upload needed.
 On the phone, `bash instalar_cron.sh` sets all of this up once: installs
 cronie, writes the crontab, starts `crond` and adds the Termux:Boot script
 so it survives a reboot. After that, **the schedule is edited from the
-panel: Ajustes → Horario automático** — days, time and a pause switch for
+panel: Ajustes → Automático → Horario automático** — days, time and a pause switch for
 each task, saved to `pipeline_state/horario.json` and written to the crontab
 by `horario.py` (`python horario.py` shows what is scheduled). The commands
 themselves are fixed in `horario.py`, so the panel can change *when* a task
