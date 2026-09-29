@@ -29,7 +29,9 @@ CATALOGO = [
      "que_pasa": "La clave funciona, pero el plan gratis ya gastó lo que permite hoy.",
      "que_hacer": "Esperar a que se renueve (una vez al día) y volver a pulsar. "
                   "Crear otra clave en el mismo proyecto no sirve: la cuota es por proyecto. "
-                  "Con facturación activada en ese proyecto desaparece el tope."},
+                  "Con facturación activada en ese proyecto desaparece el tope. "
+                  "Los guiones ya pasan solos a flash-lite, que tiene su propia cuota: "
+                  "si ves esto al escribir guiones, se agotaron las dos."},
     {"id": "gemini_saturado", "tema": "Gemini",
      "patrones": [r"\b503\b.*(gemini|generativelanguage)", r"UNAVAILABLE", r"model is overloaded",
                   r"high demand"],

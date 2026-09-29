@@ -31,6 +31,9 @@ RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
 RUTA_GUION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guion.txt")
 
 MODEL = "gemini-3.6-flash"
+# A este se pasa cuando MODEL agota la cuota del día (ver ClienteConRespaldo).
+# Es el mismo que ya usa publisher.py para los títulos.
+MODEL_RESPALDO = "gemini-3.5-flash-lite"
 
 # Esperas entre reintentos cuando Gemini contesta 503. Cortas: el pico de
 # demanda suele durar segundos, y la corrida entera espera aquí.
@@ -347,6 +350,39 @@ def con_reintentos(fn, *args):
     return fn(*args)
 
 
+class ClienteConRespaldo:
+    """El cliente de Gemini, pero si MODEL agota la cuota del día sigue con
+    MODEL_RESPALDO en vez de cortar la tanda.
+
+    Google cuenta la cuota de cada modelo aparte, así que cuando flash se
+    agota, flash-lite suele tener la suya entera. Los guiones de flash-lite
+    salen algo menos pulidos, pero salen; y al día siguiente se vuelve solo
+    a MODEL, porque esto no se guarda en ningún sitio.
+
+    Se hace pasar por el cliente (client.models.generate_content), así que
+    reescribir_historia, segmentar_transcripcion y partir_historias no
+    cambian. Si flash-lite también se agota, el error sube como siempre:
+    la corrida se corta y la cola queda intacta.
+    """
+
+    def __init__(self, client):
+        self._c = client
+        self.models = self
+        self.files = client.files
+        self.respaldo = False
+
+    def generate_content(self, model=None, contents=None, config=None):
+        if not self.respaldo:
+            try:
+                return self._c.models.generate_content(model=model, contents=contents, config=config)
+            except Exception as exc:
+                if model == MODEL_RESPALDO or (motivo_error_gemini(exc) or ("",))[0] != "sin_cuota":
+                    raise
+                logger.info(f"  {model} sin cuota por hoy: sigo con {MODEL_RESPALDO}.")
+                self.respaldo = True
+        return self._c.models.generate_content(model=MODEL_RESPALDO, contents=contents, config=config)
+
+
 def probar_clave():
     """Comprueba GEMINI_API_KEY con una llamada mínima."""
     clave = (os.environ.get("GEMINI_API_KEY") or "").strip()
@@ -634,7 +670,7 @@ def main(argv=None):
         )
         return
 
-    client = genai.Client()
+    client = ClienteConRespaldo(genai.Client())
     bloques = []
     usados = []      # ids que sí se convirtieron en guion
     descartados = [] # ids que fallaron demasiadas veces
@@ -708,6 +744,9 @@ def main(argv=None):
             raise RuntimeError("ninguna parte se pudo reescribir")
         except Exception as exc:
             motivo = motivo_error_gemini(exc)
+            if motivo and motivo[0] == "sin_cuota" and client.respaldo:
+                motivo = ("sin_cuota", f"Se agotó la cuota de Gemini por hoy, también la de "
+                                       f"{MODEL_RESPALDO}, el modelo de respaldo.")
             if motivo:
                 # Clave mala o cuota agotada: el problema es la configuración,
                 # no esta historia. Se corta aquí, y los candidatos que faltan

@@ -706,3 +706,39 @@ pasa, qué hacer), de lo concreto a lo genérico. El servidor la aplica a la
 salida de cada trabajo y el panel la enseña debajo de la tarjeta y en «Ya
 terminados»; «📖 Errores», en la Cola, abre el diccionario entero con
 buscador. Una entrada nueva es añadir un dict a `CATALOGO`.
+
+## 13. Qué hacer cuando Gemini agota la cuota del día
+
+**El problema.** Con la cuota del día gastada, la escritura de guiones se
+corta y la cadena buscar → guiones → grabar se queda a medias hasta el día
+siguiente.
+
+### Lo que está puesto: pasar a flash-lite — SE ESCRIBIÓ
+
+Google cuenta la cuota **de cada modelo aparte**. `ClienteConRespaldo`, en
+`script_writer.py`, se hace pasar por el cliente de Gemini: si `MODEL`
+contesta cuota agotada, sigue con `MODEL_RESPALDO` (`gemini-3.5-flash-lite`,
+el que ya usa `publisher.py`) el resto de la corrida. Los guiones salen algo
+menos pulidos, pero salen; y como no se guarda nada, al día siguiente se
+vuelve solo al modelo bueno. Si flash-lite también se agota, la corrida se
+corta como siempre, con un motivo que nombra los dos, y la cola queda
+intacta. Gratis y se renueva cada día: por eso ganó a lo de abajo.
+
+### La idea aparcada: DeepSeek con su crédito gratis — NO ACTIVO
+
+Se llegó a escribir y se quitó a petición del dueño del proyecto; el código
+está entero en el commit `4dfd80b` (`deepseek.py`), por si algún día hace falta.
+
+- **Qué hacía.** Mismo truco de hacerse pasar por el cliente de Gemini, pero
+  saltando a DeepSeek (`deepseek-flash`, API compatible con la de OpenAI, en
+  `https://api.deepseek.com`). Antes de cada llamada preguntaba el saldo
+  (`GET /user/balance`, que no gasta) y **solo seguía si quedaba
+  `granted_balance`**, para no tocar nunca saldo pagado. El esquema JSON se
+  describía en el prompt, porque DeepSeek no lo acepta como parámetro; su
+  modo `response_format: json_object` exige la palabra "json" en el prompt.
+- **Por qué se aparcó.** El regalo de DeepSeek (5 M de tokens, unos 8 $) es
+  **de una sola vez y caduca a los ~30 días** de crear la cuenta; no se
+  renueva. Flash-lite cubre el mismo hueco gratis y todos los días.
+- **Si se retoma.** Con `requests`, no con el SDK de OpenAI: arrastra
+  `pydantic-core`, Rust sin rueda de Android (§11.4). Kimi (Moonshot) se
+  miró y tampoco tiene nivel gratis permanente; además cuesta bastante más.
