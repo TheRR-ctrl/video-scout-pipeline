@@ -1487,6 +1487,19 @@ const AVISO_LIMPIAR_COLA =
    reversible y no renumera nada. */
 // «(58)» detrás de «Escribir guiones»: cuántas encontradas esperan guion.
 const nCandidatos = () => E.candidatos ? ` (${E.candidatos})` : '';
+/* Dos formas de escribir: la tanda que respeta la cuota del día de Gemini
+   (MAX_POR_CORRIDA de script_writer) o todos de una vez. Con menos
+   candidatos que la tanda, las dos serían lo mismo y sobra el segundo. */
+function botonesGuiones(destacar){
+  const n = E.candidatos || 0, tanda = E.guiones_por_tanda || 12;
+  const cls = destacar ? 'btn go' : 'btn';
+  if(n <= tanda) return `<button class="${cls}" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>`;
+  return `<button class="${cls}" title="Escribe ${tanda} y deja el resto para otra tanda, sin agotar la cuota del día"
+      onclick="ejecutar('guiones')">✍ Escribir ${tanda} (respeta la cuota)</button>
+    <button class="btn" title="Todos de una vez: si Gemini se queda sin cuota, pasa a los modelos de respaldo"
+      onclick="if(confirm('¿Escribir los ${n} guiones de una vez?\n\nGasta mucha más cuota de Gemini. Si se agota, sigue con los modelos gratis de respaldo; lo que no salga vuelve a la cola.')) ejecutar('guiones_todos')"
+      >✍ Escribir todos (${n})</button>`;
+}
 
 function pintaCola(){
   const todas = E.historias, cont = $('#v-cola');
@@ -1500,7 +1513,7 @@ function pintaCola(){
       <p class="sub">Las ${grabadas} historia(s) de la cola ya tienen video.</p>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
-        <button class="btn go" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
+        ${botonesGuiones(true)}
         <button class="btn" onclick="verGrabadas=true;pintar()">👁 Ver las ya grabadas</button>
         <button class="btn" title="Las pasa al historial y renumera lo que quede"
           onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
@@ -1519,7 +1532,7 @@ function pintaCola(){
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
         <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
-        <button class="btn ${hay?'go':''}" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
+        ${botonesGuiones(hay)}
         <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
         <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
       </div><div style="margin-top:12px">${bloquePartibles([])}</div>`;
@@ -1557,8 +1570,7 @@ function pintaCola(){
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
       recientes primero— para no gastar la cuota del día de una sentada.
-      <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
-        >✍ Escribir guiones</button></div></div></div>`}
+      <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">${botonesGuiones(true)}</div></div></div>`}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">
       ${pestana('todo', 'Todo', h.length)}${pestana('shorts', 'Shorts', cortas.length)}${pestana('videos', 'Videos', largasH.length)}
     </div>
@@ -1590,8 +1602,7 @@ function pintaCola(){
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
           <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
-          <button class="btn" title="Convierte en guion lo que encontraron los buscadores"
-            onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
+          ${botonesGuiones(false)}
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
           <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"

@@ -366,8 +366,22 @@ def _encadenada(accion):
     return None
 
 
+# Cuántos escribe «Escribir guiones» respetando la cuota: el tope por
+# corrida de script_writer. Se lee de su código sin importarlo entero.
+def _guiones_por_tanda():
+    try:
+        with open(os.path.join(BASE_DIR, "script_writer.py"), encoding="utf-8") as f:
+            m = re.search(r"^MAX_POR_CORRIDA\s*=\s*(\d+)", f.read(), re.M)
+        return int(m.group(1)) if m else 12
+    except OSError:
+        return 12
+
+
+GUIONES_POR_TANDA = _guiones_por_tanda()
+
 # Qué va detrás de cada botón cuando la cadena está encendida.
-CADENA = {"buscar": "guiones", "buscar_youtube": "guiones", "guiones": "grabar_nuevas"}
+CADENA = {"buscar": "guiones", "buscar_youtube": "guiones", "guiones": "grabar_nuevas",
+          "guiones_todos": "grabar_nuevas"}
 
 
 def seguir_con_la_cola(terminado):
@@ -1350,6 +1364,7 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "guiones_por_tanda": GUIONES_POR_TANDA,
         "archivadas": len(archivar_largas.archivadas()),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
@@ -1393,6 +1408,10 @@ ACCIONES = {
     "diagnostico_youtube": ("Revisando la búsqueda en YouTube", [sys.executable, "youtube_scout.py", "--diagnostico"]),
     "probar_clave_youtube": ("Probando la clave de YouTube", [sys.executable, "youtube_scout.py", "--probar-clave"]),
     "guiones":    ("Escribiendo guiones", [sys.executable, "script_writer.py"]),
+    # Sin tope: todos los candidatos de una vez. Gasta más cuota, pero con
+    # los modelos de respaldo de script_writer suele llegar; lo que no salga
+    # vuelve a la cola intacto.
+    "guiones_todos": ("Escribiendo todos los guiones", [sys.executable, "script_writer.py", "--max", "0"]),
     "publicar":   ("Publicando en YouTube", [sys.executable, "publisher.py"]),
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),
     "previsualizar": ("Generando comparación de estilos", [sys.executable, "previsualizar_estilos.py"]),
