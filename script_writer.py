@@ -367,47 +367,78 @@ def _no_existe(exc):
 
 
 class ClienteConRespaldo:
-    """El cliente de Gemini, pero si MODEL agota la cuota del día va pasando
-    por MODELOS_RESPALDO en vez de cortar la tanda.
+    """El cliente de Gemini, pero si un modelo no contesta prueba con otro de
+    MODELOS_RESPALDO en vez de cortar la tanda.
 
-    Google cuenta la cuota de cada modelo aparte, así que cuando uno se agota
-    el siguiente suele tener la suya entera. Un modelo que ya no existe se
-    salta igual. Al día siguiente se vuelve solo a MODEL, porque esto no se
-    guarda en ningún sitio.
+    Dos fallos, dos tratos distintos:
+
+    - **Sin cuota o inexistente**: no va a cambiar hoy. Ese modelo se da
+      por perdido el resto de la corrida y ya no se le pregunta.
+    - **Saturado (503)**: es del momento. Se salta al siguiente al instante,
+      sin esperar, pero no se descarta: en cada llamada nueva se vuelve a
+      probar primero el modelo más alto (el mejor texto) y, si sigue
+      saturado, el último que funcionó, antes de recorrer el resto.
+
+    Solo si están todos saturados sube el 503, y entonces con_reintentos
+    espera y vuelve a empezar. Si están todos sin cuota sube el error de
+    cuota: la corrida se corta y la cola queda intacta. Al día siguiente se
+    empieza otra vez por MODEL, porque esto no se guarda en ningún sitio.
 
     Se hace pasar por el cliente (client.models.generate_content), así que
     reescribir_historia, segmentar_transcripcion y partir_historias no
-    cambian. Si se agotan todos, el error sube como siempre: la corrida se
-    corta y la cola queda intacta.
+    cambian.
     """
 
     def __init__(self, client):
         self._c = client
         self.models = self
         self.files = client.files
-        self.actual = None          # el modelo de respaldo en uso, si hay
-        self._probados = set()
+        self.perdidos = set()       # sin cuota o inexistentes: fuera por hoy
+        self.ultimo_bueno = None    # el último que contestó
+        self.respaldo = False       # si se llegó a usar alguno de respaldo
+        self._error_cuota = None    # el último "sin cuota", para subirlo al final
 
-    @property
-    def respaldo(self):
-        return self.actual is not None
+    def _orden(self, model):
+        """El más alto primero; si no, el último que funcionó; luego el resto."""
+        todos = [model] + [m for m in MODELOS_RESPALDO if m != model]
+        vivos = [m for m in todos if m not in self.perdidos]
+        if self.ultimo_bueno in vivos[1:]:
+            vivos.remove(self.ultimo_bueno)
+            vivos.insert(1, self.ultimo_bueno)
+        return vivos
 
     def generate_content(self, model=None, contents=None, config=None):
-        while True:
-            usar = self.actual or model
+        ultimo_error = saturado = None
+        for usar in self._orden(model):
             try:
-                return self._c.models.generate_content(model=usar, contents=contents, config=config)
+                resp = self._c.models.generate_content(model=usar, contents=contents, config=config)
             except Exception as exc:
-                sin_cuota = (motivo_error_gemini(exc) or ("",))[0] == "sin_cuota"
-                if not (sin_cuota or _no_existe(exc)):
+                if es_sobrecarga(exc):
+                    saturado = exc
+                    motivo = "saturado"
+                elif (motivo_error_gemini(exc) or ("",))[0] == "sin_cuota" or _no_existe(exc):
+                    self.perdidos.add(usar)
+                    motivo = "sin cuota por hoy" if not _no_existe(exc) else "no existe"
+                    if motivo != "no existe":
+                        self._error_cuota = exc
+                else:
                     raise
-                self._probados.add(usar)
-                siguiente = next((m for m in MODELOS_RESPALDO if m not in self._probados), None)
-                if siguiente is None:
-                    raise
-                logger.info(f"  {usar} {'sin cuota por hoy' if sin_cuota else 'no existe'}: "
-                            f"sigo con {siguiente}.")
-                self.actual = siguiente
+                ultimo_error = exc
+                logger.info(f"  {usar} {motivo}; pruebo con otro modelo.")
+                continue
+            if usar != self.ultimo_bueno:
+                logger.info(f"  Escribiendo con {usar}.")
+            self.ultimo_bueno = usar
+            self.respaldo = self.respaldo or usar != model
+            return resp
+        # Ninguno contestó. Si alguno estaba solo saturado, sube eso: es lo
+        # que con_reintentos sabe esperar. Si no, el de cuota, que corta.
+        if saturado is not None:
+            raise saturado
+        # El de cuota antes que un "no existe": es el que la corrida sabe
+        # leer como "se acabó por hoy" y corta sin gastar intentos.
+        raise (self._error_cuota or ultimo_error
+               or genai.APIError(404, "NOT_FOUND: ningún modelo de MODELOS_RESPALDO existe"))
 
 
 def probar_clave():
@@ -771,7 +802,7 @@ def main(argv=None):
             raise RuntimeError("ninguna parte se pudo reescribir")
         except Exception as exc:
             motivo = motivo_error_gemini(exc)
-            if motivo and motivo[0] == "sin_cuota" and client.respaldo:
+            if motivo and motivo[0] == "sin_cuota" and len(client.perdidos) > 1:
                 motivo = ("sin_cuota", "Se agotó la cuota de Gemini por hoy, también la de "
                                        "todos los modelos gratis de respaldo.")
             if motivo:
