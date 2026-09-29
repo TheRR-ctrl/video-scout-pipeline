@@ -12,7 +12,8 @@ Añadir una entrada: un "id" nuevo, los "patrones" (expresiones regulares,
 sin distinguir mayúsculas) que lo delatan en la salida, y las tres frases.
 Van de lo más concreto a lo más general: si un 429 de Gemini y un "429"
 suelto casan los dos, gana el primero, y el genérico no se repite detrás.
-"ir" es la pestaña del panel donde se arregla, si la hay.
+"ir" es la pestaña del panel donde se arregla, si la hay; en Ajustes, con
+su pestaña detrás de una barra ("ajustes/servicios").
 
     python errores.py            # lista el diccionario entero
     python errores.py log.txt    # dice qué entradas casan con ese log
@@ -46,8 +47,8 @@ CATALOGO = [
      "titulo": "Gemini: la clave no vale",
      "que_pasa": "Google no reconoce esa clave: está mal copiada, borrada o es de otro servicio.",
      "que_hacer": "Saca una nueva en aistudio.google.com/apikey y pégala en "
-                  "Ajustes → Conectar servicios → Gemini (allí se prueba antes de guardarla).",
-     "ir": "ajustes"},
+                  "Ajustes → Servicios → Gemini (allí se prueba antes de guardarla).",
+     "ir": "ajustes/servicios"},
     {"id": "gemini_sin_permiso", "tema": "Gemini",
      "patrones": [r"SERVICE_DISABLED", r"PERMISSION_DENIED", r"API_KEY_\w+_BLOCKED",
                   r"has not been used in project"],
@@ -55,14 +56,14 @@ CATALOGO = [
      "que_pasa": "La clave existe, pero la API de Gemini no está habilitada en su proyecto "
                  "o la clave está restringida a otras APIs.",
      "que_hacer": "Lo más rápido: crear la clave en aistudio.google.com/apikey, que ya la deja "
-                  "habilitada, y pegarla en Ajustes → Conectar servicios.",
-     "ir": "ajustes"},
+                  "habilitada, y pegarla en Ajustes → Servicios.",
+     "ir": "ajustes/servicios"},
     {"id": "gemini_falta", "tema": "Gemini",
      "patrones": [r"Falta GEMINI_API_KEY", r"GEMINI_API_KEY.*(no está|vac[ií]a|falta)", r"UNAUTHENTICATED"],
      "titulo": "Falta la clave de Gemini",
      "que_pasa": "Sin ella no se pueden escribir guiones ni títulos.",
-     "que_hacer": "Ajustes → Conectar servicios → Gemini. Es gratis y lleva un minuto.",
-     "ir": "ajustes"},
+     "que_hacer": "Ajustes → Servicios → Gemini. Es gratis y lleva un minuto.",
+     "ir": "ajustes/servicios"},
     {"id": "gemini_bloqueo", "tema": "Gemini",
      "patrones": [r"finish_?reason.*SAFETY", r"blocked.*safety", r"PROHIBITED_CONTENT", r"blockReason"],
      "titulo": "Gemini se negó a escribir esa historia",
@@ -83,15 +84,15 @@ CATALOGO = [
      "patrones": [r"Casi todo el /top/ del día ya se usó"],
      "titulo": "Lo mejor de hoy en Reddit ya lo usaste",
      "que_pasa": "Los posts que Reddit enseña hoy ya se convirtieron en guion antes.",
-     "que_hacer": "Añade subreddits en Ajustes → Más opciones → Fuentes, o espera a mañana.",
-     "ir": "ajustes"},
+     "que_hacer": "Añade subreddits en Ajustes → Fuentes, o espera a mañana.",
+     "ir": "ajustes/fuentes"},
     {"id": "busqueda_nada_nuevo", "tema": "Búsqueda",
      "patrones": [r"No hay nada nuevo que cumpla los filtros", r"NUEVOS\s*:\s*0\b"],
      "titulo": "La búsqueda no trajo nada nuevo",
      "que_pasa": "Se leyeron posts o videos, pero todos estaban ya usados, en la cola, "
                  "o eran demasiado cortos o largos. El detalle dice cuántos de cada.",
      "que_hacer": "Si hay candidatos esperando, pulsa «Escribir guiones». Si no, añade fuentes "
-                  "en Ajustes → Más opciones → Fuentes o prueba mañana."},
+                  "en Ajustes → Fuentes o prueba mañana."},
     {"id": "youtube_api_cuota", "tema": "Búsqueda",
      "patrones": [r"quotaExceeded", r"dailyLimitExceeded"],
      "titulo": "YouTube: se acabó la cuota de la API del día",
@@ -122,7 +123,7 @@ CATALOGO = [
      "que_hacer": "En Termux: python generar_youtube_token.py y sigue el enlace. "
                   "Para que no caduque cada semana, pon la app en «En producción» "
                   "(ver README, «Generating the YOUTUBE_TOKEN secret»).",
-     "ir": "ajustes"},
+     "ir": "ajustes/servicios"},
     {"id": "youtube_forbidden", "tema": "Subida",
      "patrones": [r"forbidden.*youtube", r"insufficientPermissions", r"youtubeSignupRequired"],
      "titulo": "YouTube rechazó la subida por permisos",
@@ -155,16 +156,16 @@ CATALOGO = [
      "patrones": [r"No hay pistas", r"sin fondo musical", r"sin música"],
      "titulo": "No hay música descargada",
      "que_pasa": "Los videos saldrán solo con la voz.",
-     "que_hacer": "Ajustes → Música y fondos → «Rellenar». Necesita la clave de Jamendo "
-                  "(Ajustes → Conectar servicios).",
-     "ir": "ajustes"},
+     "que_hacer": "Ajustes → Música y video → «Rellenar». Necesita la clave de Jamendo "
+                  "(Ajustes → Servicios).",
+     "ir": "ajustes/material"},
     {"id": "sin_fondos", "tema": "Grabar",
      "patrones": [r"No hay (videos de )?fondos?", r"sin fondos?\b", r"Plantilla: falta"],
      "titulo": "No hay videos de fondo",
      "que_pasa": "El render necesita al menos un clip de fondo en la carpeta.",
-     "que_hacer": "Ajustes → Música y fondos → «Re-enlazar material», o bajar fondos de Pexels "
+     "que_hacer": "Ajustes → Música y video → «Re-enlazar material», o bajar fondos de Pexels "
                   "(necesita su clave en Conectar servicios).",
-     "ir": "ajustes"},
+     "ir": "ajustes/material"},
 
     # ---- El teléfono ------------------------------------------------------
     {"id": "sin_espacio", "tema": "Teléfono",
@@ -172,7 +173,7 @@ CATALOGO = [
      "titulo": "El teléfono se quedó sin espacio",
      "que_pasa": "No cabe el archivo que se estaba escribiendo; lo que salió a medias no sirve.",
      "que_hacer": "Libera espacio: en Revisar, borra videos ya subidos; en la Cola, «Limpiar»; "
-                  "y en Ajustes → Más opciones, «Recomprimir» los que pesan de más. "
+                  "y en Ajustes → Tareas, «Recomprimir» los que pesan de más. "
                   "Luego vuelve a lanzar lo que falló."},
     {"id": "bateria_espera", "tema": "Teléfono",
      "patrones": [r"Grabación en espera", r"sin cargador \(el mínimo"],
@@ -181,15 +182,15 @@ CATALOGO = [
                  "que se graba solo no empezó. No es un fallo: no se perdió nada.",
      "que_hacer": "Conecta el cargador con el panel abierto y empieza sola en un minuto. Si "
                   "no quieres esperar, «Grabar ya igualmente» en la Cola; para que no vuelva "
-                  "a esperar, apágalo o baja el mínimo en Ajustes → Subida.",
-     "ir": "ajustes"},
+                  "a esperar, apágalo o baja el mínimo en Ajustes → Automático.",
+     "ir": "ajustes/auto"},
     {"id": "sin_wifi", "tema": "Teléfono",
      "patrones": [r"sin WiFi(?!, pero)", r"solo con WiFi"],
      "titulo": "Esperando WiFi",
      "que_pasa": "Está puesto para no gastar datos móviles, y ahora no hay WiFi. No es un fallo.",
-     "que_hacer": "Conéctate a una WiFi, o apaga «Solo subir con WiFi» en Ajustes → Subida "
+     "que_hacer": "Conéctate a una WiFi, o apaga «Solo subir con WiFi» en Ajustes → Automático "
                   "si no te importa gastar datos.",
-     "ir": "ajustes"},
+     "ir": "ajustes/auto"},
     {"id": "sin_red", "tema": "Teléfono",
      "patrones": [r"NameResolutionError", r"Temporary failure in name resolution",
                   r"Failed to resolve", r"Max retries exceeded", r"ConnectionError",
@@ -216,14 +217,14 @@ CATALOGO = [
      "titulo": "Jamendo: falta la clave o no vale",
      "que_pasa": "Sin ella no se descarga música nueva.",
      "que_hacer": "Sácala en devportal.jamendo.com/admin/applications y pégala en "
-                  "Ajustes → Conectar servicios → Jamendo.",
-     "ir": "ajustes"},
+                  "Ajustes → Servicios → Jamendo.",
+     "ir": "ajustes/servicios"},
     {"id": "pexels", "tema": "Servicios",
      "patrones": [r"api\.pexels\.com.*\b(401|403)\b", r"PEXELS_API_KEY.*(falta|no)"],
      "titulo": "Pexels: falta la clave o no vale",
      "que_pasa": "Sin ella no se bajan fondos nuevos de Pexels.",
-     "que_hacer": "Ajustes → Conectar servicios → Pexels, que trae el enlace y la prueba.",
-     "ir": "ajustes"},
+     "que_hacer": "Ajustes → Servicios → Pexels, que trae el enlace y la prueba.",
+     "ir": "ajustes/servicios"},
 
     # ---- Lo genérico va al final ------------------------------------------
     {"id": "limite_generico", "tema": "General",

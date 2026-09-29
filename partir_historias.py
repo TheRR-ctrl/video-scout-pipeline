@@ -13,7 +13,7 @@ Nada se parte solo salvo que lo pidas. Por omisión se decide a mano:
       python partir_historias.py --si         # parte todas las largas de la cola
       python partir_historias.py --solo 3 --si  # solo la historia 3
   (en el panel: el botón «✂ Partir» de cada historia larga en la Cola.)
-Con "partir_automatico": true en config.json (Ajustes → Subida), además
+Con "partir_automatico": true en config.json (Ajustes → Automático), además
 script_writer.py parte al escribirla la historia que nace larga, y la tanda
 de mantenimiento parte las que haya en la cola.
 

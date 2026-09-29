@@ -74,6 +74,12 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
      fondo oscuro casi no se lee. */
   a{color:var(--accent);text-underline-offset:2px}
   .acciones-aviso{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  /* Pestañas de Ajustes: ruedan de lado en un renglón, como las de arriba. */
+  .tabs-aj{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:4px -14px 6px;
+    padding:2px 14px 6px}
+  .tabs-aj::-webkit-scrollbar{display:none}
+  .tabs-aj .btn{flex-shrink:0;white-space:nowrap}
+  .tabs-aj .btn[aria-selected="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
   .temas{display:flex;gap:6px;flex-wrap:wrap}
   .temas .btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
   .colores{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
@@ -467,7 +473,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   <section class="view" id="v-ajustes"></section>
 </div>
 
-<button class="mini" id="mini-job" hidden title="Ir a la tarjeta de arriba">
+<button class="mini" id="mini-job" hidden title="Ver el trabajo en curso">
   <div class="mini-top">
     <span class="pill acc" id="mini-estado"></span>
     <span class="q" id="mini-paso"></span>
@@ -576,7 +582,7 @@ function vigilarTarjeta(caja){
    que hay que leer. */
 /* Las historias que no caben en un short. Partirlas es decisión tuya: aquí
    se ofrece, historia por historia, y nada se parte solo salvo que actives
-   el modo automático en Ajustes → Subida. */
+   el modo automático en Ajustes → Automático. */
 function bloquePartibles(h){
   const largas = h.filter(x => x.larga && !x.renderizada);
   const guardadas = (E && E.archivadas) || 0;
@@ -765,7 +771,7 @@ function bloqueExplicacion(ex){
       <div class="m" style="margin-top:2px">${esc(e.que_pasa)}</div>
       <div style="margin-top:5px"><b>Qué hacer:</b> ${esc(e.que_hacer)}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:7px">
-        ${e.ir ? `<button class="btn sm" onclick="irA('${e.ir}')">Ir a ${NOMBRE_VISTA[e.ir]||e.ir}</button>` : ''}
+        ${e.ir ? `<button class="btn sm" onclick="irA('${e.ir}')">Ir a ${NOMBRE_VISTA[e.ir.split('/')[0]]||e.ir}</button>` : ''}
         <button class="btn sm" onclick="abrirDiccionario()">📖 Todos los errores</button>
       </div>
     </div></div>`).join('')}</div>`;
@@ -899,8 +905,21 @@ function avisoTerminado(texto){
   }
 }
 
+/* La tarjeta grande del trabajo (y la lista de en espera / ya terminados)
+   sale solo en la pestaña de lo que está haciendo: grabar en la Cola,
+   publicar en Subidos… En las demás basta la barra de abajo. El servidor
+   dice cuál es («vista»); si no lo sabe, sale en todas. Sin trabajo en
+   curso manda el último terminado. */
+function trabajoEnEstaPestana(){
+  const ref = (E && E.trabajo) || (E && E.hechos && E.hechos[E.hechos.length-1]);
+  return !ref || !ref.vista || ref.vista === vistaActual();
+}
+
 function pintaJob(){
   const j = E && E.trabajo, slot = $('#job-slot');
+  const aqui = trabajoEnEstaPestana();
+  slot.hidden = !aqui;
+  $('#cola-slot').hidden = !aqui;
   if(!j){
     slot.innerHTML=''; jobMontado=null;
     if(vigilante){ vigilante.disconnect(); vigilante = null; }
@@ -1741,7 +1760,7 @@ function pintaCola(){
           ${botonesGuiones(false)}
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
-          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"
+          <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Tareas"
             onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
           <button class="btn go" id="b-render">▶ Grabar</button>
         </div>
@@ -1751,7 +1770,7 @@ function pintaCola(){
 
     <h3 class="sec">Música de cada una</h3>
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
-      Ve a <b>Ajustes → Música y fondos</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
+      Ve a <b>Ajustes → Música y video</b> y actualízalas, o los videos saldrán sin fondo musical.</div></div>`
     : !elegidas.length ? `<div class="aviso"><span>·</span><div>Selecciona historias arriba para elegirles música.</div></div>`
     : `<p class="sub">Por omisión sale una al azar de la emoción que detectó el guion. Si eliges
        una a mano, óyela antes — así no descubres que no pegaba después de esperar el render.
@@ -2675,7 +2694,20 @@ let secretosCache = [];
 // Horario automático: lo que dice el servidor, y lo que llevas cambiado sin
 // aplicar. Mismo motivo que cxBorrador: Ajustes se repinta entero.
 let horarioCache = null, horarioBorrador = null;
-let masOpciones = false;  // ¿«Más opciones» abierto en Ajustes?
+/* Ajustes va en pestañas: todo junto en una sola página era una lista
+   interminable. Se pintan todas y se ocultan las demás (así cada botón
+   sigue enganchado igual); cuál está abierta se recuerda en el teléfono. */
+const GRUPOS_AJUSTES = [['auto','⚙ Automático'], ['servicios','🔑 Servicios'],
+  ['material','🎵 Música y video'], ['fuentes','🔎 Fuentes'], ['apariencia','🎨 Apariencia'],
+  ['tareas','🧰 Tareas']];
+let grupoAjustes = (()=>{ try{ const g = localStorage.getItem('grupoAjustes');
+  return GRUPOS_AJUSTES.some(x=>x[0]===g) ? g : 'auto'; }catch(e){ return 'auto'; } })();
+function abrirGrupoAjustes(g){
+  grupoAjustes = g;
+  try{ localStorage.setItem('grupoAjustes', g); }catch(e){}
+  document.querySelectorAll('[data-grupo-aj]').forEach(b => b.setAttribute('aria-selected', b.dataset.grupoAj === g));
+  document.querySelectorAll('.aj-grupo').forEach(x => x.hidden = x.dataset.grupo !== g);
+}
 let conectarCache = null, cxAbierto = new Set(), cxBorrador = {}, cxNota = {};
 let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
 /* Tema claro/oscuro y color de acento. Se guarda en el teléfono, así que
@@ -3006,12 +3038,12 @@ function pintaAjustes(){
 
   $('#v-ajustes').innerHTML = `
     <h2>Ajustes</h2>
-    <p class="sub">Lo que se usa arriba. Lo demás está plegado en «Más opciones», al final.</p>
+    <div class="tabs-aj" role="tablist">${GRUPOS_AJUSTES.map(([g,txt])=>`
+      <button class="btn sm" role="tab" data-grupo-aj="${g}" aria-selected="${g===grupoAjustes}">${txt}</button>`).join('')}
+    </div>
 
-    <h3 class="sec">Conectar servicios</h3>
-    ${bloqueConectar(cr)}
-
-    <h3 class="sec">Subida</h3>
+    <section class="aj-grupo" data-grupo="auto" ${grupoAjustes==='auto'?'':'hidden'}>
+    <h3 class="sec">Lo que se hace solo</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
@@ -3020,7 +3052,7 @@ function pintaAjustes(){
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Cambiar la música sola</div><div class="m">Después de cada tanda de renders, aparta
           las pistas que ya sonaron y baja otras. ${E.musica_hay_clave ? 'Se salta sin WiFi.'
-            : 'Hace falta la clave de Jamendo (Conectar servicios, arriba).'}</div></div>
+            : 'Hace falta la clave de Jamendo (pestaña 🔑 Servicios).'}</div></div>
         <button class="btn sm" id="b-musica-auto">${E.musica_auto?'activado':'desactivado'}</button>
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
@@ -3064,6 +3096,42 @@ function pintaAjustes(){
         <b>cambiar la música usada</b>. Se ven pasar en la pestaña Cola y puedes
         quitar cualquiera a mitad.</div>
     </div>
+    </section>
+
+    <section class="aj-grupo" data-grupo="servicios" ${grupoAjustes==='servicios'?'':'hidden'}>
+    <h3 class="sec">Conectar servicios</h3>
+    ${bloqueConectar(cr)}
+
+    <h3 class="sec">Añadir una API nueva</h3>
+    <div class="list"><div class="row" style="display:block">
+      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
+        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
+        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
+      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
+             spellcheck="false" style="width:100%;margin-bottom:6px">
+      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
+             style="width:100%;margin-bottom:8px">
+      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
+      <button class="btn sm" id="b-api-nueva">Guardar</button>
+      <div class="m" id="api-nota" style="margin-top:8px"></div>
+    </div></div>
+
+    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
+    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
+      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
+         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
+    <div class="list">${secretosCache.map(s=>`
+      <div class="row" style="grid-template-columns:1fr auto auto">
+        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
+          <div class="m">${esc(s.pista)}</div></div>
+        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
+        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
+          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
+          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
+      </div>`).join('')}</div>
+    </section>
+
+    <section class="aj-grupo" data-grupo="material" ${grupoAjustes==='material'?'':'hidden'}>
     <h3 class="sec">Música y fondos</h3>
     <div class="grid2">
       <div class="card">
@@ -3107,13 +3175,6 @@ function pintaAjustes(){
       al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
       «Re-enlazar material» y clasifícalas aquí.</div>`}
 
-    <h3 class="sec">Apariencia</h3>
-    ${bloqueApariencia()}
-
-    <details class="mas" id="mas-opciones" ${masOpciones ? 'open' : ''}>
-      <summary>Más opciones</summary>
-      <p class="sub">Para ajustar a fondo: mezcla, fuentes, render, claves de GitHub y cada
-        tarea de mantenimiento por separado. No hace falta tocarlas para el uso diario.</p>
     <h3 class="sec">Mezcla de audio</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr 190px">
@@ -3135,6 +3196,20 @@ function pintaAjustes(){
     <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
       Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
 
+    ${E.es_android ? `
+    <h3 class="sec">Render</h3>
+    <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
+          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
+          apaga esto si falla demasiado seguido.</div></div>
+        <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
+          <span class="rail"></span></label>
+      </div>
+    </div>` : ''}
+    </section>
+
+    <section class="aj-grupo" data-grupo="fuentes" ${grupoAjustes==='fuentes'?'':'hidden'}>
     <h3 class="sec">Fuentes</h3>
     <p class="sub" style="margin-top:-6px">Canales de YouTube y subreddits de Reddit que rastrean
       <code style="font:11.5px var(--mono)">youtube_scout.py</code> y
@@ -3185,47 +3260,14 @@ function pintaAjustes(){
         <button class="btn sm" id="b-fu-sub">Agregar subreddit</button>
       </div>
     </div>
+    </section>
 
-    ${E.es_android ? `
-    <h3 class="sec">Render</h3>
-    <div class="list">
-      <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
-          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
-          apaga esto si falla demasiado seguido.</div></div>
-        <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
-          <span class="rail"></span></label>
-      </div>
-    </div>` : ''}
+    <section class="aj-grupo" data-grupo="apariencia" ${grupoAjustes==='apariencia'?'':'hidden'}>
+    <h3 class="sec">Apariencia</h3>
+    ${bloqueApariencia()}
+    </section>
 
-    <h3 class="sec">Copiar a los Secrets de GitHub</h3>
-    <div class="aviso warn"><span>⚠</span><div>Son credenciales reales. Cópialas solo para pegarlas en
-      <a href="https://github.com/TheRR-ctrl/video-scout-pipeline/settings/secrets/actions" target="_blank" rel="noopener"
-         style="color:var(--accent)">Settings → Secrets</a>, y no las pegues en ningún otro lado.</div></div>
-    <div class="list">${secretosCache.map(s=>`
-      <div class="row" style="grid-template-columns:1fr auto auto">
-        <div><div class="t" style="font:12.5px var(--mono)">${esc(s.nombre)}</div>
-          <div class="m">${esc(s.pista)}</div></div>
-        <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
-        <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
-          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
-          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
-      </div>`).join('')}</div>
-
-    <h3 class="sec">Añadir una API nueva</h3>
-    <div class="list"><div class="row" style="display:block">
-      <div class="m" style="margin-bottom:8px">Para un servicio que el proyecto todavía no
-        trae de serie. Se guarda en <code>secretos.env</code> igual que las de arriba, y a
-        partir de ahí sale en esta lista y se puede copiar a GitHub.</div>
-      <input id="api-nombre" placeholder="PIXABAY_API_KEY" autocapitalize="characters"
-             spellcheck="false" style="width:100%;margin-bottom:6px">
-      <input id="api-valor" placeholder="la clave" autocomplete="off" spellcheck="false"
-             style="width:100%;margin-bottom:8px">
-      <div class="m" style="margin-bottom:8px">Solo MAYÚSCULAS, números y guion bajo.</div>
-      <button class="btn sm" id="b-api-nueva">Guardar</button>
-      <div class="m" id="api-nota" style="margin-top:8px"></div>
-    </div></div>
-
+    <section class="aj-grupo" data-grupo="tareas" ${grupoAjustes==='tareas'?'':'hidden'}>
     <h3 class="sec">Tareas sueltas</h3>
     <p class="sub">Y de uno en uno, lo que si no habría que escribir a mano en Termux. Debajo de cada uno
       está la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
@@ -3243,7 +3285,7 @@ function pintaAjustes(){
       que le escribas la ruta nueva, y
       <code style="font:11.5px var(--mono)">tiktok_publisher.py --marcar-subidos</code>, que te va
       preguntando cuáles marcar.</div>
-    </details>`;
+    </section>`;
 
   // Sliders: se muestra en vivo, se guarda al soltar (un POST por pixel
   // arrastrado reescribiría config.json decenas de veces por segundo).
@@ -3271,8 +3313,7 @@ function pintaAjustes(){
   });
   enlazarConectar();
   enlazarHorario();
-  const mas = $('#mas-opciones');
-  if(mas) mas.ontoggle = ()=>{ masOpciones = mas.open; };
+  document.querySelectorAll('[data-grupo-aj]').forEach(b => b.onclick = ()=>abrirGrupoAjustes(b.dataset.grupoAj));
   const bApi = $('#b-api-nueva');
   if(bApi) bApi.onclick = async ()=>{
     const nota = $('#api-nota');
@@ -3533,7 +3574,12 @@ function pintaPaso(){
 }
 // Cambiar de pestaña desde un botón, llevando también la tira de pestañas:
 // en un teléfono Ajustes queda fuera de la vista, a la derecha.
+/* «ajustes/servicios» abre Ajustes ya en esa pestaña: lo usa el
+   diccionario de errores para llevar justo a donde se arregla. */
 function irA(vista){
+  const [v, grupo] = String(vista).split('/');
+  if(grupo) abrirGrupoAjustes(grupo);
+  vista = v;
   const b = document.querySelector(`.tabs button[data-v="${vista}"]`);
   if(!b) return;
   b.click();
@@ -3562,7 +3608,12 @@ async function refrescar(){
 
 // Tocar la barra de abajo sube a la tarjeta, que es donde están el detalle y
 // los botones de pausar y abortar.
-$('#mini-job').onclick = ()=>window.scrollTo({top:0, behavior:'smooth'});
+// Si la tarjeta es de otra pestaña, la barra lleva a esa pestaña.
+$('#mini-job').onclick = ()=>{
+  const v = E && E.trabajo && E.trabajo.vista;
+  if(v && v !== vistaActual()) irA(v);
+  else window.scrollTo({top:0, behavior:'smooth'});
+};
 
 /* La tira de pestañas rueda de lado, así que hay que avisar de que queda
    alguna fuera del borde derecho. */

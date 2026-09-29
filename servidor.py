@@ -220,7 +220,39 @@ class Trabajo:
                 else lineas[-4:] if self.estado in ("corriendo", "pausado")
                 else lineas[-15:]),
             "modelos": resumen_modelos(self.modelos),
+            "vista": vista_del_trabajo(self.nombre, self.cmd),
         }
+
+
+# En qué pestaña del panel sale la tarjeta grande de cada trabajo; en las
+# demás solo se ve la barra de abajo. Va por el script que corre y no por
+# la acción pulsada, porque lo que la cadena arranca sola (grabar después
+# de escribir guiones) no pasa por ningún botón. Lo que no esté aquí sale
+# en todas, como antes.
+VISTA_POR_SCRIPT = {
+    "trend_scout.py": "cola", "youtube_scout.py": "cola", "script_writer.py": "cola",
+    "generar_video_maestro.py": "cola", "partir_historias.py": "cola",
+    "limpiar_cola.py": "cola", "archivar_largas.py": "cola",
+    "calidad.py": "revisar", "calidad_ia.py": "revisar", "preparar_metadata.py": "revisar",
+    "publisher.py": "publicados",
+    "tiktok_publisher.py": "tiktok", "demo_tiktok.py": "tiktok",
+    "relanzar.py": "canal", "revision_quincenal.sh": "canal", "formato.py": "canal",
+    "previsualizar_estilos.py": "estilo",
+    "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
+    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes",
+}
+
+
+def vista_del_trabajo(nombre, cmd):
+    if "--probar-clave" in cmd:      # se prueba desde Ajustes → Servicios
+        return "ajustes"
+    if nombre == "Rehaciendo":       # «Rehacer» se pulsa mirando el video
+        return "revisar"
+    for parte in cmd:
+        vista = VISTA_POR_SCRIPT.get(os.path.basename(str(parte)))
+        if vista:
+            return vista
+    return None
 
 
 # "cola" son los que esperan turno; "hechos", los últimos terminados. Los
@@ -328,7 +360,7 @@ def cadena_automatica():
 
     Encendido por omisión: buscar sin más deja 60 candidatos que no se ven en
     ningún sitio hasta que alguien sabe que falta «Escribir guiones», y eso
-    parecía que la búsqueda no había servido. Se apaga en Ajustes → Subida
+    parecía que la búsqueda no había servido. Se apaga en Ajustes → Automático
     para quien prefiera grabar a mano (grabar gasta batería y minutos).
     """
     return bool(leer_json(RUTA_CONFIG, {}).get("cadena_automatica", True))
@@ -453,7 +485,8 @@ def seguir_con_la_cola(terminado):
         _SIGUIENTE_HECHO[0] += 1
         hecho = {"id": _SIGUIENTE_HECHO[0], "nombre": terminado.nombre,
                  "estado": terminado.estado,
-                 "segundos": int(time.time() - terminado.inicio)}
+                 "segundos": int(time.time() - terminado.inicio),
+                 "vista": vista_del_trabajo(terminado.nombre, terminado.cmd)}
         # De los que fallaron se guarda el final de la salida: es lo que hay
         # que leer para saber por qué, y al arrancar el siguiente deja de
         # estar a la vista.
@@ -1157,13 +1190,13 @@ def siguiente_paso(credenciales, historias, videos, candidatos, trabajo):
         return None
     tiene = {c["nombre"]: c["ok"] for c in credenciales}
     if not tiene.get("GEMINI_API_KEY"):
-        return {"titulo": "Conecta Gemini", "boton": "Conectar", "ir": "ajustes",
+        return {"titulo": "Conecta Gemini", "boton": "Conectar", "ir": "ajustes/servicios",
                 "detalle": "Es lo que escribe los guiones. Es gratis y lleva un minuto: "
                            "sacas la clave con el enlace y la pegas."}
 
     sin_revisar = [v for v in videos if not v.get("publicado")]
     if sin_revisar and not tiene.get("youtube_token.json"):
-        return {"titulo": "Autoriza la subida a YouTube", "boton": "Ver cómo", "ir": "ajustes",
+        return {"titulo": "Autoriza la subida a YouTube", "boton": "Ver cómo", "ir": "ajustes/servicios",
                 "detalle": f"Hay {len(sin_revisar)} video(s) listos, pero sin ese permiso no se "
                            "pueden subir. Se concede una sola vez."}
     if sin_revisar:

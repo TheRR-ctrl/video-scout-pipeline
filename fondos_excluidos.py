@@ -11,7 +11,7 @@ Se guarda en pipeline_state/fondos_excluidos.json, por nombre de archivo:
 
     {"fondo_vertical_3.mp4": {"entero": false, "tramos": [[42.0, 65.5]]}}
 
-Se edita desde el panel (Ajustes → Música y fondos → «✂ Tramos»), mirando
+Se edita desde el panel (Ajustes → Música y video → «✂ Tramos»), mirando
 el video y pulsando «Marcar inicio» / «Marcar fin».
 """
 import os

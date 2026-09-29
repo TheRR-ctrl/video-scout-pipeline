@@ -12,7 +12,7 @@ conectas el cargador (o se apaga el ajuste), graba solo.
 Los botones de grabar a mano no pasan por aquí: si lo pulsas, es que
 quieres grabar ahora.
 
-Se apaga en Ajustes → Subida («Con poca batería, esperar al cargador»),
+Se apaga en Ajustes → Automático («Con poca batería, esperar al cargador»),
 que escribe "cuidar_bateria" en config.json.
 
 Lee la batería con termux-battery-status (paquete termux-api, que ya
