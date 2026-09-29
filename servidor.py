@@ -87,6 +87,37 @@ def _solo_desde_el_panel():
 # =========================================================
 # TRABAJOS EN SEGUNDO PLANO
 # =========================================================
+# Las dos frases con las que script_writer.ClienteConRespaldo cuenta qué
+# hace con cada modelo. Si cambian allí, hay que cambiarlas aquí.
+_RE_MODELO_FALLA = re.compile(r"(gemini-[\w.\-]+) (saturado|sin cuota por hoy|no existe); pruebo")
+_RE_MODELO_USA = re.compile(r"Escribiendo con (gemini-[\w.\-]+)\.")
+
+
+def _anotar_modelo(modelos, linea):
+    m = _RE_MODELO_USA.search(linea)
+    if m:
+        # Solo uno está en uso a la vez: el anterior vuelve a "disponible".
+        for k, v in list(modelos.items()):
+            if v == "en uso":
+                del modelos[k]
+        modelos[m.group(1)] = "en uso"
+        return
+    m = _RE_MODELO_FALLA.search(linea)
+    if m:
+        modelos[m.group(1)] = {"saturado": "saturado", "no existe": "no existe"}.get(
+            m.group(2), "sin cuota")
+
+
+def resumen_modelos(modelos):
+    """{"en_uso", "sin_cuota", "saturados", "no_existen"} para el panel, o None."""
+    if not modelos:
+        return None
+    de = lambda estado: [k for k, v in modelos.items() if v == estado]
+    uso = de("en uso")
+    return {"en_uso": uso[0] if uso else None, "sin_cuota": de("sin cuota"),
+            "saturados": de("saturado"), "no_existen": de("no existe")}
+
+
 class Trabajo:
     """Un comando corriendo, con su salida en vivo.
 
@@ -105,6 +136,11 @@ class Trabajo:
         self.luego = None           # acción que se encola sola si este acaba bien
         self.inicio = time.time()
         self._lock = threading.Lock()
+        # Qué le pasa a cada modelo de Gemini en esta tanda, según lo que va
+        # contando script_writer.ClienteConRespaldo. Se lleva aparte y no se
+        # saca de `lineas` porque esas se recortan: en una tanda larga el
+        # "sin cuota" del principio ya no estaría ahí.
+        self.modelos = {}
 
     def arrancar(self):
         self.proc = subprocess.Popen(
@@ -126,6 +162,7 @@ class Trabajo:
                 continue
             with self._lock:
                 self.lineas.append(limpia)
+                _anotar_modelo(self.modelos, limpia)
                 if len(self.lineas) > 400:
                     del self.lineas[:100]
         self.proc.wait()
@@ -173,8 +210,14 @@ class Trabajo:
             "segundos": int(time.time() - self.inicio),
             "lineas": lineas,
             # Lo que el diccionario de errores reconoce en la salida, en
-            # castellano llano y con qué hacer. Ver errores.py.
-            "explicacion": errores.explicar(lineas),
+            # castellano llano y con qué hacer. Ver errores.py. Salvo si
+            # falló, solo lo último: un "saturado" de hace diez guiones ya se
+            # resolvió, y explicarlo ahora (o en uno que acabó bien) confunde.
+            "explicacion": errores.explicar(
+                lineas if self.estado == "error"
+                else lineas[-4:] if self.estado in ("corriendo", "pausado")
+                else lineas[-15:]),
+            "modelos": resumen_modelos(self.modelos),
         }
 
 
@@ -348,6 +391,8 @@ def seguir_con_la_cola(terminado):
         # que explica es justo por qué no hubo historias.
         if final["explicacion"]:
             hecho["explicacion"] = final["explicacion"]
+        if final["modelos"]:
+            hecho["modelos"] = final["modelos"]
         TRABAJO["hechos"].append(hecho)
         del TRABAJO["hechos"][:-HECHOS_QUE_SE_RECUERDAN]
 

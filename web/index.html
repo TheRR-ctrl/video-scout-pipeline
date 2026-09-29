@@ -550,6 +550,22 @@ function enlazarArchivadas(){
 
 /* ---------- diccionario de errores (errores.py) ---------- */
 const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar'};
+/* Qué modelo de Gemini está escribiendo y cuáles se quedaron por el camino
+   (sin cuota, saturados, retirados). Lo cuenta el servidor a partir de lo
+   que va diciendo script_writer. */
+const corto = m => String(m).replace(/^gemini-/, '');
+function bloqueModelos(mo, vivo){
+  if(!mo) return '';
+  const fila = (ico, txt, lista) => lista && lista.length
+    ? `<div>${ico} ${txt}: <b>${lista.map(corto).map(esc).join(', ')}</b></div>` : '';
+  return `<div class="m" style="margin-top:8px;line-height:1.6">
+    ${mo.en_uso ? `<div>🟢 ${vivo ? 'Escribiendo con' : 'Último usado'}: <b>${esc(corto(mo.en_uso))}</b></div>` : ''}
+    ${fila('⛔', 'Sin cuota hoy', mo.sin_cuota)}
+    ${fila('⏳', 'Saturados en el último intento', mo.saturados)}
+    ${fila('🚫', 'No existen', mo.no_existen)}
+  </div>`;
+}
+
 function bloqueExplicacion(ex){
   if(!ex || !ex.length) return '';
   return `<div class="explica">${ex.map(e=>`
@@ -640,6 +656,7 @@ function pintaColaTrabajos(){
             <span class="t">${esc(h.nombre)}</span>
             ${!h.explicacion ? '' : h.explicacion.map(e=>`<div class="m" style="margin-top:3px">
               💡 <b>${esc(e.titulo)}.</b> ${esc(e.que_hacer)}</div>`).join('')}
+            ${h.modelos ? bloqueModelos(h.modelos, false) : ''}
             ${!h.lineas ? '' : `<div class="m" style="font:11px var(--mono);
               color:var(--ink-faint);white-space:pre-wrap">${esc(h.lineas.join('\n'))}</div>`}
           </div>
@@ -703,6 +720,7 @@ function pintaJob(){
           <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
         </div>
         <div class="paso" id="job-paso"></div>
+        <div id="job-modelos"></div>
         <div id="job-explica"></div>
         <div class="barra"><i id="job-barra"></i></div>
         <button class="btn sm" id="b-detalle" style="margin-top:9px">Ver detalle</button>
@@ -761,6 +779,11 @@ function pintaJob(){
   // Solo se repinta si cambió: si no, el botón «Ir a…» se recrearía cada
   // segundo y medio y se perdería el toque a medias.
   const ex = JSON.stringify(j.explicacion || []);
+  const cajaMod = $('#job-modelos'), fm = JSON.stringify(j.modelos || null);
+  if(cajaMod.dataset.firma !== fm){
+    cajaMod.dataset.firma = fm;
+    cajaMod.innerHTML = bloqueModelos(j.modelos, j.estado==='corriendo' || j.estado==='pausado');
+  }
   const cajaEx = $('#job-explica');
   if(cajaEx.dataset.firma !== ex){
     cajaEx.dataset.firma = ex;
