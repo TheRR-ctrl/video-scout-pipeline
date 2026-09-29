@@ -420,6 +420,49 @@ class GestorTemporales:
     def limpiar(self):
         self._tmp.cleanup()
 
+class UsoDelProceso:
+    """Qué parte del procesador se está comiendo un proceso nuestro (ffmpeg).
+
+    El uso total del teléfono no se puede saber: desde Android 8 las apps no
+    leen /proc/stat. Pero cada programa sí puede leer /proc/<pid>/stat de
+    sus propios procesos, y ahí están los ticks de CPU que ha gastado (todos
+    sus hilos juntos). Entre dos lecturas, ticks / (segundos × núcleos) es
+    la fracción del procesador entero: 100 % = todos los núcleos al máximo.
+    """
+
+    def __init__(self, pid):
+        self.pid = pid
+        self.nucleos = os.cpu_count() or 1
+        try:
+            self.hz = os.sysconf("SC_CLK_TCK")
+        except (ValueError, OSError, AttributeError):
+            self.hz = 100
+        self.antes = None
+        self.valor = None
+
+    def _ticks(self):
+        with open(f"/proc/{self.pid}/stat") as f:
+            # El nombre del programa va entre paréntesis y puede tener
+            # espacios: se cuenta desde el último ")".
+            campos = f.read().rsplit(")", 1)[1].split()
+        return int(campos[11]) + int(campos[12])   # utime + stime
+
+    def medir(self):
+        """El último porcentaje (0-100), o None si no se puede leer."""
+        try:
+            ahora, ticks = time.monotonic(), self._ticks()
+        except (OSError, ValueError, IndexError):
+            return self.valor
+        if self.antes and ahora - self.antes[0] >= 1.5:
+            seg = ahora - self.antes[0]
+            uso = (ticks - self.antes[1]) / self.hz / seg / self.nucleos * 100
+            self.valor = max(0, min(100, round(uso)))
+            self.antes = (ahora, ticks)
+        elif not self.antes:
+            self.antes = (ahora, ticks)
+        return self.valor
+
+
 def obtener_metricas_hardware(old_cpu, old_gpu, old_ram, old_disk):
     cpu_str, gpu_str, ram_str, disk_str = old_cpu, old_gpu, old_ram, old_disk
     cpu_ok = False
@@ -2186,6 +2229,7 @@ def renderizar_una_historia(contenido, num=1):
             current_size = "0.0MB"
             current_speed = 0.0
             eta_str = "--:--"
+            uso = UsoDelProceso(proc.pid)
 
             # stderr viene mezclado aquí y se consume para sacar el progreso.
             # Guardamos las últimas líneas que NO son progreso: si el render
@@ -2213,6 +2257,9 @@ def renderizar_una_historia(contenido, num=1):
 
                     linea_barra = f"{txt_ren} [{pct:5.1f}%] [{'█'*bl}{' '*(anch-bl)}]"
                     linea_metricas = f" ├─ ⏱️ ETA: {eta_str} | 💾 {current_size} | ⚡ {current_speed}x"
+                    # servidor._RE_USO_PROCESADOR lee este «Procesador: N%».
+                    if (u := uso.medir()) is not None:
+                        linea_metricas += f" | 🧠 Procesador: {u}%"
 
                     actualizar_hud([linea_barra, linea_metricas])
             proc.wait()
@@ -2230,8 +2277,8 @@ def renderizar_una_historia(contenido, num=1):
                 if not exito_render:
                     logger.warning(
                         f"Render con el chip de video (h264_mediacodec) falló para el video {num}, "
-                        "reintentando con CPU (libx264). Si vuelve a fallar en más videos, apaga el "
-                        "interruptor «Usar el chip de video» en Ajustes."
+                        "reintentando con el procesador (libx264). Si vuelve a fallar en más videos, apaga el "
+                        "interruptor «Comprimir con el chip de video» en Ajustes → Música y video."
                     )
                     exito_render, txt_ren = ejecutar_render(flags_cpu)
             else:
@@ -2239,11 +2286,11 @@ def renderizar_una_historia(contenido, num=1):
         else:
             exito_render, txt_ren = ejecutar_render(flags_gpu, "tarjeta NVIDIA")
             if not exito_render:
-                logger.warning(f"Render GPU falló para video {num}, reintentando con CPU (libx264).")
+                logger.warning(f"Render con la tarjeta NVIDIA falló para el video {num}, reintentando con el procesador (libx264).")
                 exito_render, txt_ren = ejecutar_render(flags_cpu)
 
         if not exito_render:
-            raise RuntimeError("El render final falló tanto en GPU/chip como en CPU.")
+            raise RuntimeError("El render final falló tanto con el chip o la tarjeta como con el procesador.")
 
         actualizar_hud([f"{txt_ren} [100.0%] [{'█'*anch}]", ""], True)
         

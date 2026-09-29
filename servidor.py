@@ -100,6 +100,8 @@ _RE_MODELO_USA = re.compile(r"Escribiendo con (gemini-[\w.\-]+)\.")
 # la tarjeta sin abrir el detalle. Si a media tanda cae del chip al
 # procesador, cambia.
 _RE_CODIFICADOR = re.compile(r"Render \((chip de video|procesador|tarjeta NVIDIA)\)")
+# Y cuánto del procesador se come ffmpeg mientras (UsoDelProceso, allí).
+_RE_USO_PROCESADOR = re.compile(r"Procesador: (\d+)%")
 
 
 def _anotar_modelo(modelos, linea):
@@ -151,6 +153,7 @@ class Trabajo:
         # "sin cuota" del principio ya no estaría ahí.
         self.modelos = {}
         self.codificador = None   # "chip de video" | "procesador" | "tarjeta NVIDIA"
+        self.uso_procesador = None   # % del procesador entero que usa ffmpeg
 
     def arrancar(self):
         self.proc = subprocess.Popen(
@@ -176,6 +179,9 @@ class Trabajo:
                 m = _RE_CODIFICADOR.search(limpia)
                 if m:
                     self.codificador = m.group(1)
+                m = _RE_USO_PROCESADOR.search(limpia)
+                if m:
+                    self.uso_procesador = int(m.group(1))
                 if len(self.lineas) > 400:
                     del self.lineas[:100]
         self.proc.wait()
@@ -233,6 +239,7 @@ class Trabajo:
             "modelos": resumen_modelos(self.modelos),
             "vista": vista_del_trabajo(self.nombre, self.cmd),
             "codificador": self.codificador,
+            "uso_procesador": self.uso_procesador,
         }
 
 

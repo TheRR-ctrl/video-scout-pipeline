@@ -196,7 +196,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .job-top{display:flex;align-items:center;gap:8px}
   .job-tit{flex:1 1 0;min-width:0}
   .job-tit b{display:block;overflow-wrap:anywhere;line-height:1.25}
-  .job-meta{display:flex;gap:8px;align-items:center;margin-top:4px}
+  .job-meta{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap;margin-top:4px}
   .job-top > .tbtn{flex-shrink:0}
   .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
     min-height:2.9em;display:flex;align-items:center;
@@ -940,6 +940,7 @@ function pintaJob(){
               <span class="pill acc" id="job-estado"></span>
               <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
               <span class="pill" id="job-cod" hidden></span>
+              <span class="pill idle" id="job-uso" hidden title="Cuánto del procesador entero usa el render (100% = todos los núcleos)"></span>
             </div>
           </div>
           <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
@@ -988,7 +989,7 @@ function pintaJob(){
   // barra vacía.
   const RE_PCT = /(\d{1,3}(?:\.\d)?)\s*%/;
   const recientes = j.lineas.slice(-4).reverse();
-  const ultima = recientes.find(l => RE_PCT.test(l) && !/RAM:|CPU:/.test(l))
+  const ultima = recientes.find(l => RE_PCT.test(l) && !/RAM:|CPU:|Procesador:/.test(l))
     || (j.lineas.length ? j.lineas[j.lineas.length-1] : '(arrancando…)');
   $('#job-paso').textContent = ultima;
   const m = ultima.match(RE_PCT);
@@ -1001,6 +1002,12 @@ function pintaJob(){
   const cod = $('#job-cod'), c = COD[j.codificador];
   cod.hidden = !c;
   if(c){ cod.textContent = c[0]; cod.className = 'pill ' + c[1]; cod.title = c[2]; }
+  // Y cuánto del procesador se come: con el chip no baja a cero, porque
+  // subtítulos, tarjeta y recortes se montan igual en el procesador; solo la
+  // compresión final se va al chip.
+  const uso = $('#job-uso');
+  uso.hidden = !corriendo || j.uso_procesador == null;
+  if(!uso.hidden) uso.textContent = `🧠 ${j.uso_procesador}% procesador`;
   $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
   // Una barra llena al 100% no dice nada que no diga ya la etiqueta "ok":
   // en cuanto termina se va, y queda el resultado a secas.
@@ -3217,9 +3224,10 @@ function pintaAjustes(){
     <h3 class="sec">Render</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
-          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
-          apaga esto si falla demasiado seguido.</div></div>
+        <div><div>Comprimir con el chip de video</div><div class="m">Lo hace el chip del teléfono
+          dedicado al video (MediaCodec): más rápido, menos batería y menos calor. Apagado, lo hace
+          el procesador (libx264). Si el chip falla, sigue solo con el procesador; si un video sale
+          con colores raros, apágalo.</div></div>
         <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
           <span class="rail"></span></label>
       </div>
@@ -3403,8 +3411,8 @@ function pintaAjustes(){
   if(chkChip) chkChip.onchange = async ()=>{
     const val = chkChip.checked;
     try{ const j = await post('/api/video/chip_android', {usar_chip_android: val});
-      toast(j.usar_chip_android ? 'Se probará el chip de video en el próximo render'
-                                 : 'Vuelve a renderizar por CPU (libx264)');
+      toast(j.usar_chip_android ? 'El próximo render comprime con el chip de video'
+                                 : 'Vuelve a comprimir con el procesador (libx264)');
       E.usar_chip_android = j.usar_chip_android;
     }catch(e){ chkChip.checked = !val; toast(e.message); }
   };
