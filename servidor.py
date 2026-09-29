@@ -95,6 +95,15 @@ _RE_MODELO_FALLA = re.compile(r"(gemini-[\w.\-]+) (saturado|sin cuota por hoy|no
 _RE_MODELO_USA = re.compile(r"Escribiendo con (gemini-[\w.\-]+)\.")
 
 
+# La línea de avance del render dice con qué codifica
+# (generar_video_maestro.ejecutar_render): se guarda aparte para enseñarlo en
+# la tarjeta sin abrir el detalle. Si a media tanda cae del chip al
+# procesador, cambia.
+_RE_CODIFICADOR = re.compile(r"Render \((chip de video|procesador|tarjeta NVIDIA)\)")
+# Y cuánto del procesador se come ffmpeg mientras (UsoDelProceso, allí).
+_RE_USO_PROCESADOR = re.compile(r"Procesador: (\d+)%")
+
+
 def _anotar_modelo(modelos, linea):
     m = _RE_MODELO_USA.search(linea)
     if m:
@@ -143,6 +152,8 @@ class Trabajo:
         # saca de `lineas` porque esas se recortan: en una tanda larga el
         # "sin cuota" del principio ya no estaría ahí.
         self.modelos = {}
+        self.codificador = None   # "chip de video" | "procesador" | "tarjeta NVIDIA"
+        self.uso_procesador = None   # % del procesador entero que usa ffmpeg
 
     def arrancar(self):
         self.proc = subprocess.Popen(
@@ -165,6 +176,12 @@ class Trabajo:
             with self._lock:
                 self.lineas.append(limpia)
                 _anotar_modelo(self.modelos, limpia)
+                m = _RE_CODIFICADOR.search(limpia)
+                if m:
+                    self.codificador = m.group(1)
+                m = _RE_USO_PROCESADOR.search(limpia)
+                if m:
+                    self.uso_procesador = int(m.group(1))
                 if len(self.lineas) > 400:
                     del self.lineas[:100]
         self.proc.wait()
@@ -221,6 +238,8 @@ class Trabajo:
                 else lineas[-15:]),
             "modelos": resumen_modelos(self.modelos),
             "vista": vista_del_trabajo(self.nombre, self.cmd),
+            "codificador": self.codificador,
+            "uso_procesador": self.uso_procesador,
         }
 
 
@@ -1308,6 +1327,7 @@ def _resumen_canal():
 
     historial = leer_json(relanzar.RUTA_HISTORIAL, [])
     ultima = historial[-1]["borrado_en"] if historial else None
+    problemas, problemas_cuando = relanzar.problemas_guardados()
 
     try:
         politica = formato.politica()
@@ -1331,6 +1351,10 @@ def _resumen_canal():
         "ultima_revision": ultima,
         "borrados_en_total": len(historial),
         "largos": politica,
+        # Lo que YouTube quitó, rechazó o limitó, de la última vez que se
+        # miró (relanzar.py --problemas, también en la revisión del 1 y 15).
+        "problemas": problemas,
+        "problemas_cuando": problemas_cuando,
     }
 
 
@@ -1541,6 +1565,8 @@ ACCIONES = {
     "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
     "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
     "vistas": ("Releyendo las vistas del canal", [sys.executable, "relanzar.py", "--refrescar-vistas"]),
+    "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
+                          [sys.executable, "relanzar.py", "--problemas"]),
     "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
     "revision": ("Revisión del canal: borrar y rehacer", ["bash", "revision_quincenal.sh"]),
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
@@ -1973,6 +1999,19 @@ def api_horario_guardar():
     if not ok:
         datos["error"] = f"Guardado, pero no se aplicó. {mensaje}"
     return jsonify(datos), (200 if ok else 409)
+
+
+@app.post("/api/canal/problema/visto")
+def api_canal_problema_visto():
+    """«Ya lo vi» en un aviso de YouTube: deja de salir, también en las
+    revisiones siguientes."""
+    vid = str((request.json or {}).get("video_id") or "")
+    if not re.fullmatch(r"[\w-]{6,20}", vid):
+        return jsonify({"error": "Falta el video."}), 400
+    import relanzar
+    relanzar.ignorar_problema(vid)
+    _RESUMEN_CANAL["datos"] = None
+    return jsonify({"ok": True})
 
 
 @app.post("/api/cadena/auto")

@@ -133,6 +133,17 @@ CATALOGO = [
                   "es que el permiso de borrar no está en el token: bórralo en YouTube Studio "
                   "(el enlace sale en el detalle). Si falla dos veces seguidas, mira el video en "
                   "Revisar: puede que el archivo esté dañado."},
+    {"id": "youtube_quito", "tema": "Subida",
+     "patrones": [r"YouTube quitó o limitó"],
+     "titulo": "YouTube quitó o limitó un video",
+     "que_pasa": "Un video subido ya no está, lo rechazaron, quedó solo para mayores o está "
+                 "bloqueado en algunos países. El pipeline no lo vuelve a subir solo: si la causa "
+                 "fue un clip de fondo, subirlo igual podría costar otra advertencia.",
+     "que_hacer": "En Canal sale la lista con el motivo. Si fue por el fondo, quita ese tramo en "
+                  "Ajustes → Música y video → «✂ Tramos que no se usan» antes de rehacer la "
+                  "historia. Si crees que es un error, apela desde Studio. «Ya lo vi» lo quita "
+                  "del aviso.",
+     "ir": "canal"},
     {"id": "youtube_token", "tema": "Subida",
      "patrones": [r"invalid_grant", r"Token has been expired or revoked", r"RefreshError",
                   r"youtube_token\.json.*(no existe|falta|No such file)"],

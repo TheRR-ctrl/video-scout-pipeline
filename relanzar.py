@@ -54,6 +54,10 @@ import limpiar_cola
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 RUTA_TOKEN = os.path.join(BASE_DIR, "youtube_token.json")
 RUTA_HISTORIAL = os.path.join(publisher.CARPETA_ESTADO, "relanzados.json")
+# Lo que YouTube quitó, rechazó o limitó, de la última vez que se miró
+# (--problemas). El panel lo enseña en Canal; "ignorados" son los que ya
+# marcaste como vistos, para que no vuelvan a salir en cada revisión.
+RUTA_PROBLEMAS = os.path.join(publisher.CARPETA_ESTADO, "problemas_youtube.json")
 
 # Las vistas leídas la última vez. El panel las pinta desde aquí en vez de
 # preguntarle a YouTube en cada refresco: pintar la pestaña no puede depender
@@ -344,6 +348,138 @@ def sin_vistas(registros, max_vistas, dias_minimos=0, max_intentos=0):
 
 
 # ---------------------------------------------------------
+# Lo que YouTube quitó o limitó
+# ---------------------------------------------------------
+# rejectionReason de la API, en castellano llano.
+MOTIVOS_RECHAZO = {
+    "claim": "reclamación de derechos", "copyright": "derechos de autor",
+    "duplicate": "YouTube lo ve duplicado", "inappropriate": "contenido inapropiado",
+    "legal": "motivo legal", "length": "demasiado largo",
+    "termsOfUse": "incumple las normas de la comunidad", "trademark": "marca registrada",
+    "uploaderAccountClosed": "cuenta cerrada", "uploaderAccountSuspended": "cuenta suspendida",
+}
+
+
+def problemas_en_youtube(servicio, registros):
+    """Los videos de publicados.json que YouTube quitó, rechazó o limitó.
+
+    Solo avisa: no borra ni vuelve a subir nada. Si el problema vino de un
+    clip de fondo, subir la misma historia otra vez puede costar otra
+    advertencia; qué hacer lo decides tú (quitar el tramo del fondo en
+    Ajustes, apelar en Studio, rehacerla).
+
+    Devuelve la lista, o None si no se pudo preguntar: sin respuesta no se
+    puede decir que un video «ya no está».
+    """
+    ids = [p["video_id"] for p in registros if p.get("video_id")]
+    vistos = {}
+    for i in range(0, len(ids), 50):
+        trozo = ids[i:i + 50]
+        try:
+            resp = servicio.videos().list(part="status,contentDetails",
+                                          id=",".join(trozo)).execute()
+        except Exception as exc:
+            logger.warning(f"No se pudo preguntar a YouTube por {len(trozo)} video(s): {exc}")
+            return None
+        for item in resp.get("items", []):
+            vistos[item["id"]] = item
+
+    problemas = []
+    for p in registros:
+        vid = p.get("video_id")
+        if not vid:
+            continue
+        item = vistos.get(vid)
+        if item is None:
+            tipo, detalle = "quitado", ("YouTube ya no lo tiene: lo quitó por sus normas, "
+                                        "o se borró a mano desde Studio")
+        else:
+            st, cd = item.get("status", {}), item.get("contentDetails", {})
+            bloqueado = (cd.get("regionRestriction") or {}).get("blocked") or []
+            if st.get("uploadStatus") == "rejected":
+                razon = st.get("rejectionReason") or ""
+                tipo, detalle = "rechazado", MOTIVOS_RECHAZO.get(razon, razon or "sin motivo")
+            elif st.get("uploadStatus") == "failed":
+                tipo, detalle = "fallido", "la subida quedó rota y no se reproduce"
+            elif (cd.get("contentRating") or {}).get("ytRating") == "ytAgeRestricted":
+                tipo, detalle = "restringido", "solo para mayores de 18: lo ve mucha menos gente"
+            elif bloqueado:
+                tipo, detalle = "bloqueado", f"no se ve en {len(bloqueado)} país(es), casi siempre por la música"
+            else:
+                continue
+        problemas.append({
+            "video_id": vid, "titulo": p.get("titulo_youtube") or "(sin título)",
+            "tipo": tipo, "detalle": detalle,
+            "url": f"https://studio.youtube.com/video/{vid}/edit",
+            "ruta": p.get("ruta"),
+        })
+    return problemas
+
+
+def problemas_guardados():
+    """(problemas sin los ignorados, cuándo se miró) para el panel. Sin red."""
+    datos = almacen.leer(RUTA_PROBLEMAS, {}) or {}
+    if not isinstance(datos, dict):
+        return [], None
+    ignorados = set(datos.get("ignorados") or [])
+    return ([x for x in datos.get("videos") or [] if x.get("video_id") not in ignorados],
+            datos.get("cuando"))
+
+
+def guardar_problemas(problemas):
+    datos = almacen.leer(RUTA_PROBLEMAS, {}) or {}
+    ignorados = list(datos.get("ignorados") or []) if isinstance(datos, dict) else []
+    almacen.guardar(RUTA_PROBLEMAS, {
+        "cuando": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "videos": problemas, "ignorados": ignorados})
+
+
+def ignorar_problema(video_id):
+    """«Ya lo vi»: ese video deja de salir en el aviso, también en las
+    revisiones siguientes."""
+    datos = almacen.leer(RUTA_PROBLEMAS, {}) or {}
+    if not isinstance(datos, dict):
+        datos = {}
+    ignorados = list(datos.get("ignorados") or [])
+    if video_id not in ignorados:
+        ignorados.append(video_id)
+    datos["ignorados"] = ignorados
+    almacen.guardar(RUTA_PROBLEMAS, datos)
+
+
+ICONO_PROBLEMA = {"quitado": "⛔", "rechazado": "⛔", "fallido": "⚠️ ",
+                  "restringido": "🔞", "bloqueado": "🌐"}
+
+
+def revisar_problemas():
+    registros = [p for p in publisher.cargar_json(publisher.RUTA_PUBLICADOS, [])
+                 if p.get("video_id")]
+    if not registros:
+        print("\n  No hay videos subidos que revisar.\n")
+        return 0
+    servicio = publisher.obtener_servicio_youtube()
+    problemas = problemas_en_youtube(servicio, registros)
+    if problemas is None:
+        print("\n  No se pudo preguntar a YouTube (¿sin red?). No se cambia nada.\n")
+        return 1
+    guardar_problemas(problemas)
+    nuevos, _ = problemas_guardados()
+    if not nuevos:
+        print(f"\n  ✓ Ningún problema en YouTube entre {len(registros)} video(s).\n")
+        return 0
+    # Estas líneas las reconoce errores.py («YouTube quitó o limitó»).
+    print(f"\n  YouTube quitó o limitó {len(nuevos)} video(s):\n")
+    for x in nuevos:
+        print(f"  {ICONO_PROBLEMA.get(x['tipo'], '·')} {x['titulo'][:50]}")
+        print(f"       {x['tipo']}: {x['detalle']}")
+        print(f"       {x['url']}")
+    print("\n  No se borra ni se vuelve a subir nada solo. Si fue por un clip de fondo,")
+    print("  quita ese tramo en Ajustes → Música y video → «✂ Tramos que no se usan»")
+    print("  antes de rehacer la historia. Desde Studio se puede apelar.\n")
+    return 0
+
+
+# ---------------------------------------------------------
 # Volver a la cola
 # ---------------------------------------------------------
 def apodo_de_registro(p):
@@ -584,7 +720,12 @@ def main(argv=None):
     ap.add_argument("--si", action="store_true", help="Hacerlo de verdad.")
     ap.add_argument("--refrescar-vistas", dest="refrescar_vistas", action="store_true",
                     help="Solo releer las vistas del canal y guardarlas para el panel.")
+    ap.add_argument("--problemas", action="store_true",
+                    help="Solo avisar de lo que YouTube quitó, rechazó o limitó. No toca nada.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+
+    if args.problemas:
+        return revisar_problemas()
 
     if args.duplicados and args.sin_vistas:
         raise SystemExit(

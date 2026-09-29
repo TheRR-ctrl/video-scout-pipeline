@@ -196,7 +196,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .job-top{display:flex;align-items:center;gap:8px}
   .job-tit{flex:1 1 0;min-width:0}
   .job-tit b{display:block;overflow-wrap:anywhere;line-height:1.25}
-  .job-meta{display:flex;gap:8px;align-items:center;margin-top:4px}
+  .job-meta{display:flex;gap:6px 8px;align-items:center;flex-wrap:wrap;margin-top:4px}
   .job-top > .tbtn{flex-shrink:0}
   .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
     min-height:2.9em;display:flex;align-items:center;
@@ -746,7 +746,7 @@ async function guardarFondo(cambio, luego){
 }
 
 /* ---------- diccionario de errores (errores.py) ---------- */
-const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar'};
+const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar', canal:'Canal'};
 /* Qué modelo de Gemini está escribiendo y cuáles se quedaron por el camino
    (sin cuota, saturados, retirados). Lo cuenta el servidor a partir de lo
    que va diciendo script_writer. */
@@ -939,6 +939,8 @@ function pintaJob(){
             <div class="job-meta">
               <span class="pill acc" id="job-estado"></span>
               <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+              <span class="pill" id="job-cod" hidden></span>
+              <span class="pill idle" id="job-uso" hidden title="Cuánto del procesador entero usa el render (100% = todos los núcleos)"></span>
             </div>
           </div>
           <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
@@ -981,9 +983,31 @@ function pintaJob(){
   // El paso actual es la última línea con contenido. El HUD del render ya
   // trae el porcentaje entre corchetes: se saca de ahí para la barra en vez
   // de inventar un avance que no se puede saber.
-  const ultima = j.lineas.length ? j.lineas[j.lineas.length-1] : '(arrancando…)';
+  // El HUD del render escribe varias líneas por vuelta (avance, ETA, RAM):
+  // si la última no trae porcentaje, se usa la más reciente de las últimas
+  // cuatro que sí lo trae. Si no, la tarjeta enseñaba «ETA: 00:13» con la
+  // barra vacía.
+  const RE_PCT = /(\d{1,3}(?:\.\d)?)\s*%/;
+  const recientes = j.lineas.slice(-4).reverse();
+  const ultima = recientes.find(l => RE_PCT.test(l) && !/RAM:|CPU:|Procesador:/.test(l))
+    || (j.lineas.length ? j.lineas[j.lineas.length-1] : '(arrancando…)');
   $('#job-paso').textContent = ultima;
-  const m = ultima.match(/(\d{1,3}(?:\.\d)?)\s*%/);
+  const m = ultima.match(RE_PCT);
+  // Con qué se está renderizando, a la vista y con su nombre real: el chip
+  // que solo codifica video (MediaCodec), el procesador (libx264) o, en un
+  // PC, la tarjeta NVIDIA (NVENC). Sale de la línea de avance.
+  const COD = {'chip de video': ['⚡ Chip de video', 'ok', 'MediaCodec: el bloque del teléfono que solo codifica video'],
+               'procesador': ['🖥 Procesador', 'idle', 'libx264: por software, con todos los núcleos'],
+               'tarjeta NVIDIA': ['⚡ Tarjeta NVIDIA', 'ok', 'NVENC']};
+  const cod = $('#job-cod'), c = COD[j.codificador];
+  cod.hidden = !c;
+  if(c){ cod.textContent = c[0]; cod.className = 'pill ' + c[1]; cod.title = c[2]; }
+  // Y cuánto del procesador se come: con el chip no baja a cero, porque
+  // subtítulos, tarjeta y recortes se montan igual en el procesador; solo la
+  // compresión final se va al chip.
+  const uso = $('#job-uso');
+  uso.hidden = !corriendo || j.uso_procesador == null;
+  if(!uso.hidden) uso.textContent = `🧠 ${j.uso_procesador}% procesador`;
   $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
   // Una barra llena al 100% no dice nada que no diga ya la etiqueta "ok":
   // en cuanto termina se va, y queda el resultado a secas.
@@ -2202,6 +2226,46 @@ function haceCuanto(iso){
   return d === 1 ? 'ayer' : `hace ${d} días`;
 }
 
+/* Lo que YouTube quitó, rechazó o limitó. Solo avisa: volver a subir un
+   video que YouTube quitó por un clip de fondo puede costar otra
+   advertencia, así que qué hacer lo decides tú. Lo llena la revisión del 1
+   y 15 (relanzar.py --problemas) o el botón de aquí. */
+const PROBLEMA_YT = {quitado: ['⛔', 'Quitado', 'crit'], rechazado: ['⛔', 'Rechazado', 'crit'],
+  fallido: ['⚠', 'Roto', 'crit'], restringido: ['🔞', 'Solo +18', 'warn'],
+  bloqueado: ['🌐', 'Bloqueado en países', 'warn']};
+function bloqueProblemasYoutube(c){
+  const ps = c.problemas || [];
+  const cuando = haceCuanto(c.problemas_cuando);
+  const pie = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <span class="m" style="flex-grow:1">${cuando ? `Mirado ${cuando}.` : 'Todavía no se ha mirado.'}
+        Se mira solo los días 1 y 15.</span>
+      <button class="btn sm" onclick="ejecutar('problemas_youtube')">🔎 Mirar ahora</button></div>`;
+  if(!ps.length) return `<div class="card" style="margin-bottom:14px">
+      <div class="muted">✓ YouTube no ha quitado ni limitado ningún video.</div>${pie}</div>`;
+  return `<div class="aviso crit" style="margin-bottom:14px"><span>⛔</span><div style="flex-grow:1">
+    <b>YouTube quitó o limitó ${ps.length === 1 ? 'un video' : ps.length + ' videos'}.</b>
+    No se borra ni se vuelve a subir nada solo. Si fue por un clip de fondo, quita ese tramo
+    antes de rehacer la historia; si crees que es un error, se puede apelar desde Studio.
+    <div class="list" style="margin-top:9px">${ps.map(x => {
+      const [ico, txt, tono] = PROBLEMA_YT[x.tipo] || ['·', x.tipo, 'idle'];
+      return `<div class="row" style="grid-template-columns:1fr auto">
+        <div style="min-width:0"><div class="t dos">${ico} ${esc(x.titulo)}</div>
+          <div class="meta"><span class="pill ${tono}">${esc(txt)}</span>
+            <span class="m">${esc(x.detalle)}</span></div>
+          <div class="acciones-aviso">
+            <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Abrir en Studio ↗</a>
+            <button class="btn sm" onclick="irA('ajustes/material'); abrirFondos()">✂ Tramos de fondo</button>
+          </div></div>
+        <button class="btn sm" data-problema-visto="${esc(x.video_id)}" title="Deja de salir aquí">Ya lo vi</button>
+      </div>`; }).join('')}</div>
+    ${pie}
+  </div></div>`;
+}
+async function problemaVisto(vid){
+  try{ await post('/api/canal/problema/visto', {video_id: vid}); toast('Quitado del aviso'); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+
 function pintaCanal(){
   const c = E.canal;
   if(!c){ $('#v-canal').innerHTML = '<h2>Canal</h2><p class="sub">Sin datos.</p>'; return; }
@@ -2243,6 +2307,8 @@ function pintaCanal(){
       pero la revisión solo podrá listar. Para arreglarlo, una vez, en Termux:
       <div style="margin-top:7px"><code style="font:12px var(--mono)">rm youtube_token.json && python generar_youtube_token.py</code></div>
     </div></div>` : ''}
+
+    ${bloqueProblemasYoutube(c)}
 
     ${!c.total ? `<div class="aviso"><span>·</span><div>Todavía no hay nada subido al canal.</div></div>` : `
     <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -2302,6 +2368,8 @@ function pintaCanal(){
 
     ${c.total ? `<h3 class="sec">Uno por uno</h3>
     <div class="list">${c.videos.map(fila).join('')}</div>` : ''}`;
+  document.querySelectorAll('[data-problema-visto]').forEach(b =>
+    b.onclick = () => problemaVisto(b.dataset.problemaVisto));
 }
 
 /* =========================================================
@@ -3200,9 +3268,10 @@ function pintaAjustes(){
     <h3 class="sec">Render</h3>
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
-        <div><div>Usar el chip de video del teléfono</div><div class="m">Más rápido y gasta menos batería que
-          renderizar por CPU (libx264). Si un video falla con el chip, esa misma tanda cae sola a CPU;
-          apaga esto si falla demasiado seguido.</div></div>
+        <div><div>Comprimir con el chip de video</div><div class="m">Lo hace el chip del teléfono
+          dedicado al video (MediaCodec): más rápido, menos batería y menos calor. Apagado, lo hace
+          el procesador (libx264). Si el chip falla, sigue solo con el procesador; si un video sale
+          con colores raros, apágalo.</div></div>
         <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
           <span class="rail"></span></label>
       </div>
@@ -3386,8 +3455,8 @@ function pintaAjustes(){
   if(chkChip) chkChip.onchange = async ()=>{
     const val = chkChip.checked;
     try{ const j = await post('/api/video/chip_android', {usar_chip_android: val});
-      toast(j.usar_chip_android ? 'Se probará el chip de video en el próximo render'
-                                 : 'Vuelve a renderizar por CPU (libx264)');
+      toast(j.usar_chip_android ? 'El próximo render comprime con el chip de video'
+                                 : 'Vuelve a comprimir con el procesador (libx264)');
       E.usar_chip_android = j.usar_chip_android;
     }catch(e){ chkChip.checked = !val; toast(e.message); }
   };
@@ -3530,7 +3599,8 @@ function pintar(){
   contador('#c-col', E.historias.filter(h=>!h.renderizada).length);
   contador('#c-pub', E.publicados.length);
   // En Canal el número que importa es lo que la revisión se llevaría.
-  contador('#c-can', E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0);
+  contador('#c-can', E.canal ? (E.canal.repetidas + E.canal.rehacibles
+                               + (E.canal.problemas || []).length) : 0);
   contador('#c-tk', (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0);
   pintaJob();
   pintaColaTrabajos();
@@ -3551,7 +3621,9 @@ function pintar(){
 let firmaPaso = null;
 function pintaPaso(){
   const s = E && E.siguiente, v = vistaActual();
-  const visible = s && (v === 'revisar' || v === 'cola');
+  // Si el paso solo lleva a la pestaña en la que ya estás («Revisa 40
+  // videos» estando en Revisar), el botón no haría nada: no se enseña.
+  const visible = s && (v === 'revisar' || v === 'cola') && !(s.ir && !s.accion && s.ir === v);
   const f = visible ? JSON.stringify(s) + v : '';
   if(f === firmaPaso) return;
   firmaPaso = f;
