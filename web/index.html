@@ -533,6 +533,39 @@ function bloquePartibles(h){
     ${guardadas ? pie(false) : ''}</div></div>`;
 }
 
+/* «✂ Recortes», en la pestaña Shorts: las largas que sí salen como shorts
+   si se parten. Es la otra cara del bloque de arriba: allí se ven como videos
+   que esperan, aquí como shorts que se pueden sacar ya. */
+function bloqueRecortes(h){
+  const partibles = h.filter(x => x.larga && !x.renderizada && x.partes > 1);
+  if(!partibles.length) return '';
+  const total = partibles.reduce((a,x)=>a + x.partes, 0);
+  return `<h3 class="sec">✂ Recortes: ${total} shorts más si partes ${partibles.length === 1 ? 'esta' : 'estas ' + partibles.length}</h3>
+    <div class="list">${partibles.map(x=>`
+      <div class="row" style="grid-template-columns:1fr auto auto;gap:8px">
+        <span class="t" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.titulo)}</span>
+        <span class="m">${x.duracion}</span>
+        <button class="btn sm" style="white-space:nowrap" data-partir="${x.n}" data-partes="${x.partes}">✂ En ${x.partes}</button>
+      </div>`).join('')}</div>
+    <p class="sub" style="margin-top:6px">Cada una sale como «Parte 1 de 2…», cortada entre frases y sin
+      cambiar el texto. La original queda entera en el historial.</p>`;
+}
+
+/* En «Todo» las largas no se despliegan: una línea dice cuántas hay y lleva
+   a la pestaña Videos, que es donde se deciden. */
+function lineaLargas(h){
+  const largas = h.filter(x => x.larga && !x.renderizada).length;
+  const guardadas = (E && E.archivadas) || 0;
+  if(!largas && !guardadas) return '';
+  return `<div class="aviso"><span>🎞</span><div>
+    ${largas ? `<b>${largas} ${largas===1?'no cabe':'no caben'} en un short.</b> ` : ''}${guardadas
+      ? `${guardadas} guardada${guardadas>1?'s':''} para los videos largos. ` : ''}
+    <a href="#" onclick="filtroCola='videos';pintar();return false">Verlas en Videos</a>
+    ${h.some(x=>x.larga && x.partes>1 && !x.renderizada)
+      ? ` · <a href="#" onclick="filtroCola='shorts';pintar();return false">partirlas en Shorts</a>` : ''}
+  </div></div>`;
+}
+
 function enlazarArchivadas(){
   const bArch = $('#b-archivar-largas');
   if(bArch) bArch.onclick = ()=>{
@@ -1340,8 +1373,11 @@ function olvidarLoQueSeRenumero(){
   });
 }
 
+// Qué parte de la cola se ve: todo, lo que cabe en un short, o lo largo.
+let filtroCola = 'todo';
+
 function firmaCola(){
-  return [E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
+  return [filtroCola, E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
           E.historias.map(h=>h.larga?1:0).join('')].join('~');
@@ -1416,6 +1452,10 @@ function pintaCola(){
   // Antes esto no se veía en ningún sitio, así que buscar en Reddit parecía
   // no traer nada: la lista seguía enseñando las mismas de siempre.
   const esperando = E.candidatos || 0;
+  const cortas = h.filter(x=>!x.larga), largasH = h.filter(x=>x.larga);
+  const hv = filtroCola === 'shorts' ? cortas : filtroCola === 'videos' ? largasH : h;
+  const pestana = (id, txt, n) => `<button class="btn sm ${filtroCola===id?'go':''}"
+      data-filtro="${id}">${txt} <span style="opacity:.75">${n}</span></button>`;
   cont.innerHTML = `
     <h2>${h.length === 1 ? 'Una historia' : h.length + ' historias'} en la cola</h2>
     ${!grabadas ? '' : `<p class="sub">${verGrabadas
@@ -1429,16 +1469,23 @@ function pintaCola(){
       recientes primero— para no gastar la cuota del día de una sentada.
       <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
         >✍ Escribir guiones</button></div></div></div>`}
-    ${bloquePartibles(h)}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">
+      ${pestana('todo', 'Todo', h.length)}${pestana('shorts', 'Shorts', cortas.length)}${pestana('videos', 'Videos', largasH.length)}
+    </div>
+    ${filtroCola === 'todo' ? lineaLargas(h) : filtroCola === 'videos' ? bloquePartibles(h) : ''}
     <div class="list">
       <div class="list-head">
-        <div><b>Elige cuáles grabar</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
+        <div><b>${filtroCola === 'videos' ? 'Videos largos' : filtroCola === 'shorts' ? 'Shorts para grabar' : 'Elige cuáles grabar'}</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn sm" id="q-todas">Todas</button>
           <button class="btn sm" id="q-ning">Ninguna</button>
         </div>
       </div>
-      <div id="caja-lista" style="max-height:340px;overflow:auto">${h.map(x=>`
+      ${filtroCola === 'videos' ? `<div class="m" style="padding:8px 14px 0">Mientras los largos estén
+        bloqueados, estas no se graban: se aplazan. Pártelas en Shorts o archívalas arriba.</div>` : ''}
+      ${!hv.length ? `<div class="m" style="padding:12px 14px">${filtroCola === 'videos'
+          ? 'Ninguna larga en la cola.' : 'Ninguna cabe en un short ahora mismo.'}</div>` : ''}
+      <div id="caja-lista" style="max-height:340px;overflow:auto">${hv.map(x=>`
         <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
           <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
           <span class="n">${String(x.n).padStart(2,'0')}</span>
@@ -1463,6 +1510,7 @@ function pintaCola(){
         </div>
       </div>
     </div>
+    ${filtroCola === 'shorts' ? bloqueRecortes(h) : ''}
 
     <h3 class="sec">Música de cada una</h3>
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
@@ -1520,7 +1568,9 @@ function pintaCola(){
     ejecutar('partir_una', {numero: +b.dataset.partir});
   });
   enlazarArchivadas();
-  $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintar(); };
+  cont.querySelectorAll('[data-filtro]').forEach(b => b.onclick = ()=>{ filtroCola = b.dataset.filtro; pintar(); });
+  // «Todas» marca las de la pestaña que se ve, no las escondidas.
+  $('#q-todas').onclick = ()=>{ tocado=true; hv.forEach(x=>seleccion.add(x.n)); pintar(); };
   $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintar(); };
   $('#b-render').onclick = ()=>{
     const mus = {};
