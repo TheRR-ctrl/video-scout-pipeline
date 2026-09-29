@@ -684,3 +684,25 @@ grande de los tres.
 Por eso la app nativa se añade **al lado** de la de Termux y no en su lugar.
 Son dos formas de usar el mismo repo, y hoy la que se actualiza en diez
 segundos sigue siendo la de Termux.
+
+## 12. Diccionario de errores en el panel — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Lo que falla sale en el panel tal cual lo escupe la
+librería: un `429` con el JSON de Google, un `invalid_grant`, un
+`Errno 28`. Desde el teléfono no se sabe qué es ni en qué pantalla se
+arregla.
+
+**Qué se encontró.** `aroberge/friendly-traceback` (MIT) explica en lenguaje
+llano las excepciones de Python, pensado para quien aprende a programar:
+dice qué es un `KeyError`, no que la cuota de Gemini se renueva a diario ni
+que el token de YouTube caduca si la app sigue en «Prueba». Lo que hace
+falta aquí son los fallos de *estos* servicios, y eso no lo trae nadie.
+Buscar "error message explainer" en GitHub solo devuelve librerías de
+expresiones regulares.
+
+**Qué se hizo.** `errores.py`, sin dependencias: una lista de entradas con
+los patrones que delatan cada fallo en la salida y tres frases (qué es, qué
+pasa, qué hacer), de lo concreto a lo genérico. El servidor la aplica a la
+salida de cada trabajo y el panel la enseña debajo de la tarjeta y en «Ya
+terminados»; «📖 Errores», en la Cola, abre el diccionario entero con
+buscador. Una entrada nueva es añadir un dict a `CATALOGO`.
