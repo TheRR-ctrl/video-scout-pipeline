@@ -428,6 +428,7 @@ juntos (más abajo, en «Que corra solo»):
 python relanzar.py                  # las vistas reales de cada video subido
 python relanzar.py --duplicados     # copias repetidas que no tuvieron ni una vista
 python relanzar.py --sin-vistas     # los que no vio nadie, para rehacerlos
+python relanzar.py --problemas      # lo que YouTube quitó, rechazó o limitó (solo avisa)
 ```
 
 Sin `--si` solo enseñan el listado. Con `--si`:
@@ -744,7 +745,11 @@ bash revision_quincenal.sh --ver    # solo lista, no borra nada
 bash revision_quincenal.sh          # lo hace
 ```
 
-También está en **Ajustes → Tareas**, en las dos versiones. Hace, por
+También está en **Ajustes → Tareas**, en las dos versiones. Primero mira
+qué quitó, rechazó o limitó YouTube (`relanzar.py --problemas`): eso **solo
+avisa**, en el log y en la pestaña Canal, y no vuelve a subir nada, porque
+un video quitado por un clip de fondo, subido otra vez igual, puede costar
+otra advertencia. Después hace, por
 ese orden, `relanzar.py --duplicados --si` y `relanzar.py --sin-vistas --si`
 con las guardas por omisión (14 días, 2 intentos). El orden importa: si se
 hiciera al revés, una historia repetida entraría por `--sin-vistas` y se

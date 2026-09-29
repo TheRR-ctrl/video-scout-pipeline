@@ -1327,6 +1327,7 @@ def _resumen_canal():
 
     historial = leer_json(relanzar.RUTA_HISTORIAL, [])
     ultima = historial[-1]["borrado_en"] if historial else None
+    problemas, problemas_cuando = relanzar.problemas_guardados()
 
     try:
         politica = formato.politica()
@@ -1350,6 +1351,10 @@ def _resumen_canal():
         "ultima_revision": ultima,
         "borrados_en_total": len(historial),
         "largos": politica,
+        # Lo que YouTube quitó, rechazó o limitó, de la última vez que se
+        # miró (relanzar.py --problemas, también en la revisión del 1 y 15).
+        "problemas": problemas,
+        "problemas_cuando": problemas_cuando,
     }
 
 
@@ -1560,6 +1565,8 @@ ACCIONES = {
     "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
     "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
     "vistas": ("Releyendo las vistas del canal", [sys.executable, "relanzar.py", "--refrescar-vistas"]),
+    "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
+                          [sys.executable, "relanzar.py", "--problemas"]),
     "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
     "revision": ("Revisión del canal: borrar y rehacer", ["bash", "revision_quincenal.sh"]),
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
@@ -1992,6 +1999,19 @@ def api_horario_guardar():
     if not ok:
         datos["error"] = f"Guardado, pero no se aplicó. {mensaje}"
     return jsonify(datos), (200 if ok else 409)
+
+
+@app.post("/api/canal/problema/visto")
+def api_canal_problema_visto():
+    """«Ya lo vi» en un aviso de YouTube: deja de salir, también en las
+    revisiones siguientes."""
+    vid = str((request.json or {}).get("video_id") or "")
+    if not re.fullmatch(r"[\w-]{6,20}", vid):
+        return jsonify({"error": "Falta el video."}), 400
+    import relanzar
+    relanzar.ignorar_problema(vid)
+    _RESUMEN_CANAL["datos"] = None
+    return jsonify({"ok": True})
 
 
 @app.post("/api/cadena/auto")

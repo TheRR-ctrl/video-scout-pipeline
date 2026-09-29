@@ -25,6 +25,13 @@ echo "=============================================================="
 echo "  Revisión del canal — $(date '+%Y-%m-%d %H:%M')"
 echo "=============================================================="
 
+# Antes de nada, lo que YouTube quitó o limitó. Solo avisa (en el log y en
+# la pestaña Canal): volver a subir un video que YouTube quitó por un clip
+# de fondo puede costar otra advertencia, así que eso no se hace solo.
+echo
+echo "-- Lo que YouTube quitó o limitó -----------------------------"
+"$PYTHON" relanzar.py --problemas
+
 # Primero las repetidas: se borra el refrito y no se rehace, que la historia
 # ya está contada en la copia que sí funcionó. Si se hiciera al revés, la
 # historia repetida entraría por --sin-vistas y volvería a grabarse.

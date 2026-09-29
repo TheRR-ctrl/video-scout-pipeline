@@ -746,7 +746,7 @@ async function guardarFondo(cambio, luego){
 }
 
 /* ---------- diccionario de errores (errores.py) ---------- */
-const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar'};
+const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar', canal:'Canal'};
 /* Qué modelo de Gemini está escribiendo y cuáles se quedaron por el camino
    (sin cuota, saturados, retirados). Lo cuenta el servidor a partir de lo
    que va diciendo script_writer. */
@@ -2226,6 +2226,46 @@ function haceCuanto(iso){
   return d === 1 ? 'ayer' : `hace ${d} días`;
 }
 
+/* Lo que YouTube quitó, rechazó o limitó. Solo avisa: volver a subir un
+   video que YouTube quitó por un clip de fondo puede costar otra
+   advertencia, así que qué hacer lo decides tú. Lo llena la revisión del 1
+   y 15 (relanzar.py --problemas) o el botón de aquí. */
+const PROBLEMA_YT = {quitado: ['⛔', 'Quitado', 'crit'], rechazado: ['⛔', 'Rechazado', 'crit'],
+  fallido: ['⚠', 'Roto', 'crit'], restringido: ['🔞', 'Solo +18', 'warn'],
+  bloqueado: ['🌐', 'Bloqueado en países', 'warn']};
+function bloqueProblemasYoutube(c){
+  const ps = c.problemas || [];
+  const cuando = haceCuanto(c.problemas_cuando);
+  const pie = `<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px">
+      <span class="m" style="flex-grow:1">${cuando ? `Mirado ${cuando}.` : 'Todavía no se ha mirado.'}
+        Se mira solo los días 1 y 15.</span>
+      <button class="btn sm" onclick="ejecutar('problemas_youtube')">🔎 Mirar ahora</button></div>`;
+  if(!ps.length) return `<div class="card" style="margin-bottom:14px">
+      <div class="muted">✓ YouTube no ha quitado ni limitado ningún video.</div>${pie}</div>`;
+  return `<div class="aviso crit" style="margin-bottom:14px"><span>⛔</span><div style="flex-grow:1">
+    <b>YouTube quitó o limitó ${ps.length === 1 ? 'un video' : ps.length + ' videos'}.</b>
+    No se borra ni se vuelve a subir nada solo. Si fue por un clip de fondo, quita ese tramo
+    antes de rehacer la historia; si crees que es un error, se puede apelar desde Studio.
+    <div class="list" style="margin-top:9px">${ps.map(x => {
+      const [ico, txt, tono] = PROBLEMA_YT[x.tipo] || ['·', x.tipo, 'idle'];
+      return `<div class="row" style="grid-template-columns:1fr auto">
+        <div style="min-width:0"><div class="t dos">${ico} ${esc(x.titulo)}</div>
+          <div class="meta"><span class="pill ${tono}">${esc(txt)}</span>
+            <span class="m">${esc(x.detalle)}</span></div>
+          <div class="acciones-aviso">
+            <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Abrir en Studio ↗</a>
+            <button class="btn sm" onclick="irA('ajustes/material'); abrirFondos()">✂ Tramos de fondo</button>
+          </div></div>
+        <button class="btn sm" data-problema-visto="${esc(x.video_id)}" title="Deja de salir aquí">Ya lo vi</button>
+      </div>`; }).join('')}</div>
+    ${pie}
+  </div></div>`;
+}
+async function problemaVisto(vid){
+  try{ await post('/api/canal/problema/visto', {video_id: vid}); toast('Quitado del aviso'); refrescar(); }
+  catch(e){ toast(e.message); }
+}
+
 function pintaCanal(){
   const c = E.canal;
   if(!c){ $('#v-canal').innerHTML = '<h2>Canal</h2><p class="sub">Sin datos.</p>'; return; }
@@ -2267,6 +2307,8 @@ function pintaCanal(){
       pero la revisión solo podrá listar. Para arreglarlo, una vez, en Termux:
       <div style="margin-top:7px"><code style="font:12px var(--mono)">rm youtube_token.json && python generar_youtube_token.py</code></div>
     </div></div>` : ''}
+
+    ${bloqueProblemasYoutube(c)}
 
     ${!c.total ? `<div class="aviso"><span>·</span><div>Todavía no hay nada subido al canal.</div></div>` : `
     <div class="card" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
@@ -2326,6 +2368,8 @@ function pintaCanal(){
 
     ${c.total ? `<h3 class="sec">Uno por uno</h3>
     <div class="list">${c.videos.map(fila).join('')}</div>` : ''}`;
+  document.querySelectorAll('[data-problema-visto]').forEach(b =>
+    b.onclick = () => problemaVisto(b.dataset.problemaVisto));
 }
 
 /* =========================================================
@@ -3555,7 +3599,8 @@ function pintar(){
   contador('#c-col', E.historias.filter(h=>!h.renderizada).length);
   contador('#c-pub', E.publicados.length);
   // En Canal el número que importa es lo que la revisión se llevaría.
-  contador('#c-can', E.canal ? (E.canal.repetidas + E.canal.rehacibles) : 0);
+  contador('#c-can', E.canal ? (E.canal.repetidas + E.canal.rehacibles
+                               + (E.canal.problemas || []).length) : 0);
   contador('#c-tk', (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0);
   pintaJob();
   pintaColaTrabajos();
