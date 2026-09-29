@@ -160,7 +160,8 @@ python limpiar_cola.py --si  # lo hace, guardando antes una copia
 
 Empareja por título contra los `.mp4` de la carpeta de salida **y** contra
 `resultado_lote.json`, así que también quita las que se grabaron y luego se
-borraron del teléfono a los 7 días.
+borraron del teléfono al cumplir su plazo (14 días sin subir a TikTok,
+7 si ya están allí; ver Ajustes → Automático).
 
 Ojo con la numeración: el video se llama `NN_Titulo.mp4`, donde `NN` es la
 posición dentro de `guion.txt`. Al quitar historias, las que quedan se

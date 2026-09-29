@@ -114,9 +114,10 @@ schedule (cron, Termux, or GitHub Actions).
    start of the description so YouTube renders them as clickable chips.
    Every published video's description credits the original subreddit and
    author, with a link back to the source Reddit post. Uploads only run
-   while connected to WiFi, and local video files are kept for 7 days after
-   upload (so you can still cross-post them to TikTok manually) before
-   being deleted automatically.
+   while connected to WiFi, and local video files are kept after upload so
+   you can still cross-post them to TikTok manually: 14 days while they're
+   not on TikTok yet (`"dias_espera_tiktok"`, changeable in Ajustes →
+   Automático), 7 once they are. Then they're deleted automatically.
 6. **`pipeline.py`** — orchestrates every stage in one command, so the
    whole thing can be triggered by cron/CI without babysitting it.
 

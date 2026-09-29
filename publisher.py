@@ -22,6 +22,7 @@ import re
 import json
 import time
 import logging
+import unicodedata
 import subprocess
 from datetime import datetime, timedelta, timezone
 
@@ -92,6 +93,11 @@ CARPETA_SALIDA_DEFAULT = (
 
 CONFIG_DEFAULT = {
     "carpeta_salida": CARPETA_SALIDA_DEFAULT,
+    # Días que un video ya subido a YouTube se queda en el teléfono mientras
+    # no esté en TikTok, para que dé tiempo a pasarlo. Los que ya están en
+    # TikTok se borran a los DIAS_RETENCION_LOCAL. Se cambia en Ajustes →
+    # Automático.
+    "dias_espera_tiktok": 14,
     # Con crond corriendo publisher.py a diario (ver README), esto deja el
     # video en revisión hasta ~6pm hora local el mismo día — buena hora pico
     # para Shorts en español. Súbelo si el cron de publicar corre más tarde.
@@ -804,14 +810,50 @@ def avisar_si_no_quedo_programado(real, pedido_iso, video_id):
     return False
 
 
+# Lo que ya está en TikTok no hace falta en el teléfono: se borra a los 7
+# días de subirlo a YouTube, como siempre. Lo que todavía no está espera
+# "dias_espera_tiktok" (14 de fábrica), para poder pasarlo a mano.
 DIAS_RETENCION_LOCAL = 7
+# El registro de tiktok_publisher.py. Va por ruta y no importando el módulo:
+# tiktok_publisher importa este, y al revés sería un import circular.
+RUTA_TIKTOK_SUBIDOS = os.path.join(CARPETA_ESTADO, "tiktok_subidos.json")
+
+
+def _nombre_archivo(ruta):
+    # NFC: en la SD los nombres con acentos pueden venir normalizados
+    # distinto y la misma ruta no compararía igual (ver estado.py).
+    return unicodedata.normalize("NFC", os.path.basename(ruta or ""))
+
+
+def nombres_en_tiktok():
+    """Los archivos que ya se subieron a TikTok (por la API o marcados a mano)."""
+    registro = almacen.leer(RUTA_TIKTOK_SUBIDOS, []) or []
+    return {_nombre_archivo(v.get("ruta")) for v in registro if isinstance(v, dict)}
+
+
+def dias_espera_tiktok(cfg=None):
+    cfg = cargar_config() if cfg is None else cfg
+    try:
+        return max(1, min(90, int(cfg.get("dias_espera_tiktok", 14))))
+    except (TypeError, ValueError):
+        return 14
+
+
+def dias_de_retencion(registro, cfg=None, en_tiktok=None):
+    """Cuántos días se queda en el teléfono este video tras subirlo a YouTube."""
+    en_tiktok = nombres_en_tiktok() if en_tiktok is None else en_tiktok
+    if _nombre_archivo(registro.get("ruta")) in en_tiktok:
+        return DIAS_RETENCION_LOCAL
+    return dias_espera_tiktok(cfg)
 
 
 def limpiar_videos_locales_vencidos():
-    """Borra los .mp4 locales de videos que ya llevan DIAS_RETENCION_LOCAL
-    días subidos a YouTube — deja esa ventana a propósito para poder
-    subirlos a mano a TikTok u otras plataformas antes de que se borren."""
+    """Borra los .mp4 locales de videos ya subidos a YouTube cuando cumplen
+    su plazo (dias_de_retencion): 7 días si ya están en TikTok, y
+    "dias_espera_tiktok" si todavía no, para que dé tiempo a subirlos a mano
+    a TikTok u otras plataformas antes de que se borren."""
     publicados = cargar_json(RUTA_PUBLICADOS, [])
+    cfg, en_tiktok = cargar_config(), nombres_en_tiktok()
     ahora = datetime.now(timezone.utc)
     cambios = False
 
@@ -823,12 +865,13 @@ def limpiar_videos_locales_vencidos():
         except ValueError:
             continue
 
-        if ahora - fecha_subida >= timedelta(days=DIAS_RETENCION_LOCAL):
+        limite = dias_de_retencion(p, cfg, en_tiktok)
+        if ahora - fecha_subida >= timedelta(days=limite):
             ruta = p["ruta"]
             if os.path.exists(ruta):
                 try:
                     os.remove(ruta)
-                    logger.info(f"🗑️  Borrado local (cumplió {DIAS_RETENCION_LOCAL} días subido): {os.path.basename(ruta)}")
+                    logger.info(f"🗑️  Borrado local (cumplió {limite} días subido): {os.path.basename(ruta)}")
                 except Exception as exc:
                     logger.warning(f"No se pudo borrar {ruta}: {exc}")
             p["_borrado_local"] = True

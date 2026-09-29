@@ -140,7 +140,7 @@ def main():
         lote = leer_json(os.path.join(carpeta_salida, "resultado_lote.json"), {})
         completados = lote.get("completados", [])
         # resultado_lote.json puede citar videos cuyo archivo ya no está (los
-        # borró la retención de 7 días, o se limpiaron a mano). Distinguirlo
+        # borró la retención de 7 o 14 días, o se limpiaron a mano). Distinguirlo
         # importa: si no, "pendientes de publicar" cuenta videos inexistentes
         # y publisher.py los rechaza uno por uno al no encontrarlos.
         #

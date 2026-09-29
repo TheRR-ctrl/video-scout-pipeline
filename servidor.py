@@ -1068,7 +1068,7 @@ def api_borrar_video(archivo):
     Lo mismo con publicados.json: lo que se subió a YouTube se subió, y el
     historial no cambia porque el archivo local ya no esté. Lo que sí se
     marca es _borrado_local, que es como publisher.py anota los que se llevó
-    la limpieza de los siete días; sin eso la pestaña Publicados seguiría
+    la limpieza por plazo (7 días, o 14 sin TikTok); sin eso la pestaña Publicados seguiría
     diciendo que el video está en el teléfono hasta que venciera el plazo.
     """
     nombre = os.path.basename(archivo)
@@ -1358,6 +1358,22 @@ def _resumen_canal():
     }
 
 
+def _publisher():
+    import publisher
+    return publisher
+
+
+def publisher_cfg_y_tiktok():
+    """La config del publicador y lo que ya está en TikTok, para calcular
+    cuántos días le quedan a cada video en el teléfono."""
+    pub = _publisher()
+    try:
+        cfg = pub.cargar_config()
+    except Exception:
+        cfg = dict(pub.CONFIG_DEFAULT)
+    return cfg, pub.nombres_en_tiktok()
+
+
 def tiktok_resumen():
     """Lo que el panel enseña de TikTok: registro, pendientes y días de disco.
 
@@ -1379,6 +1395,7 @@ def tiktok_resumen():
 
     ahora = datetime.now(timezone.utc)
     dias_por_ruta = {}
+    cfg_pub, en_tiktok = publisher_cfg_y_tiktok()
     for p in leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), []):
         if not p.get("subido_en") or p.get("_borrado_local"):
             continue
@@ -1386,7 +1403,8 @@ def tiktok_resumen():
             s = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-        dias_por_ruta[p["ruta"]] = max(0, 7 - (ahora - s).days)
+        dias_por_ruta[p["ruta"]] = max(0, _publisher().dias_de_retencion(p, cfg_pub, en_tiktok)
+                                       - (ahora - s).days)
 
     return {
         "activo": cfg["activo"],
@@ -1433,12 +1451,14 @@ def api_estado():
     import relanzar
     vistas_guardadas, _ = relanzar.vistas_guardadas()
     pubs = []
+    cfg_pub, en_tiktok = publisher_cfg_y_tiktok()
     for p in publicados:
         dias = None
         if p.get("subido_en") and not p.get("_borrado_local"):
             try:
                 s = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                dias = max(0, 7 - (ahora - s).days)
+                dias = max(0, _publisher().dias_de_retencion(p, cfg_pub, en_tiktok)
+                               - (ahora - s).days)
             except ValueError:
                 pass
         pubs.append({
@@ -1479,6 +1499,7 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "dias_espera_tiktok": _publisher().dias_espera_tiktok(publisher_cfg_y_tiktok()[0]),
         "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
                     "espera": bateria.en_espera()},
         "guiones_por_tanda": GUIONES_POR_TANDA,
@@ -2021,6 +2042,21 @@ def api_cadena_auto():
     cfg["cadena_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["cadena_automatica"]})
+
+
+@app.post("/api/tiktok/espera")
+def api_tiktok_espera():
+    """Días que un video subido a YouTube espera en el teléfono a pasar a TikTok."""
+    try:
+        dias = int((request.json or {}).get("dias"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Tiene que ser un número de días."}), 400
+    if not 1 <= dias <= 90:
+        return jsonify({"error": "Entre 1 y 90 días."}), 400
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["dias_espera_tiktok"] = dias
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "dias": dias})
 
 
 @app.post("/api/bateria/cuidar")
