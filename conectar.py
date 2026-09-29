@@ -61,16 +61,6 @@ SERVICIOS = {
                   "En esa página, la clave sale en el apartado «Parameters», junto a «key»."],
         "patron": r"^\d+-[0-9a-f]{20,40}$",
     },
-    "DEEPSEEK_API_KEY": {
-        "nombre": "DeepSeek (respaldo)",
-        "para": "Sigue escribiendo guiones cuando Gemini agota su cuota del día. Solo usa el "
-                "crédito gratis de la cuenta nueva (no se renueva): sin él, no se usa. Opcional.",
-        "obligatoria": False,
-        "url": "https://platform.deepseek.com/api_keys",
-        "pasos": ["Crea la cuenta (con correo o Google). No hace falta tarjeta.",
-                  "En «API keys», pulsa «Create new API key» y cópiala: solo se enseña una vez."],
-        "patron": r"^sk-[0-9A-Za-z]{20,64}$",
-    },
     "JAMENDO_CLIENT_ID": {
         "nombre": "Jamendo",
         "para": "Baja música libre para los videos. Opcional.",
@@ -159,26 +149,6 @@ def probar(clave, valor):
     elif clave == "PIXABAY_API_KEY":
         pedir = lambda: requests.get("https://pixabay.com/api/videos/",
                                      params={"key": valor, "q": "rain", "per_page": 3}, timeout=TIEMPO)
-    elif clave == "DEEPSEEK_API_KEY":
-        # La prueba es el saldo: no gasta nada y dice si queda regalo, que
-        # es lo único que este pipeline se permite usar.
-        import deepseek
-        try:
-            s = deepseek.Cliente(valor).saldo()
-        except requests.RequestException:
-            return {"ok": True, "comprobada": False,
-                    "mensaje": "Sin conexión con DeepSeek ahora mismo; guardada igual."}
-        except Exception as exc:                  # noqa: BLE001 — APIError con el código
-            codigo = getattr(exc, "code", 0)
-            if codigo in (401, 403):
-                return {"ok": False, "comprobada": True,
-                        "mensaje": "DeepSeek no acepta esa clave. Cópiala otra vez, entera."}
-            return {"ok": True, "comprobada": False, "mensaje": f"DeepSeek contestó {codigo}; guardada igual."}
-        if s["regalado"] > 0:
-            return {"ok": True, "comprobada": True,
-                    "mensaje": f"Funciona. Guardada. Crédito gratis: {s['regalado']:.2f} {s['moneda']}."}
-        return {"ok": True, "comprobada": True,
-                "mensaje": "La clave vale, pero no queda crédito gratis: no se usará (solo gratis)."}
     elif clave == "JAMENDO_CLIENT_ID":
         pedir = lambda: requests.get("https://api.jamendo.com/v3.0/tracks/",
                                      params={"client_id": valor, "limit": 1, "format": "json"}, timeout=TIEMPO)

@@ -706,25 +706,3 @@ pasa, qué hacer), de lo concreto a lo genérico. El servidor la aplica a la
 salida de cada trabajo y el panel la enseña debajo de la tarjeta y en «Ya
 terminados»; «📖 Errores», en la Cola, abre el diccionario entero con
 buscador. Una entrada nueva es añadir un dict a `CATALOGO`.
-
-## 13. DeepSeek como respaldo de Gemini — SE ESCRIBIÓ, solo con crédito gratis
-
-**El problema.** Cuando Gemini agota la cuota del día, la escritura de
-guiones se corta y la cadena buscar → guiones → grabar se queda a medias
-hasta el día siguiente.
-
-**Qué se miró.** El SDK oficial es el de OpenAI (DeepSeek habla su mismo
-protocolo), y pide `pydantic` → `pydantic-core`, que es Rust sin rueda de
-Android: el mismo muro de §11.4. Kimi (Moonshot) tampoco tiene nivel
-gratis permanente y cuesta bastante más. DeepSeek regala crédito una sola
-vez al crear la cuenta; **no se renueva** y puede caducar.
-
-**Qué se hizo.** `deepseek.py`, unas cien líneas con `requests`. `ConRespaldo`
-se hace pasar por el cliente de Gemini, así que `script_writer.py` y
-`partir_historias.py` no cambian: si Gemini contesta cuota agotada, siguen
-con DeepSeek. **Antes de cada llamada se pregunta el saldo**
-(`GET /user/balance`, que no gasta) **y solo se usa si queda crédito
-regalado** (`granted_balance`): aunque la cuenta tuviera saldo pagado, este
-pipeline no lo toca. Sin regalo, la corrida se corta como antes y los
-candidatos vuelven a la cola intactos. DeepSeek no acepta esquema JSON, así
-que el esquema se le describe en el prompt con su modo `json_object`.

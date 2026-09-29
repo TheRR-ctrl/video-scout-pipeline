@@ -25,7 +25,6 @@ import partir_historias  # la historia que no cabe en un short entra ya partida
 
 import gemini as genai
 from gemini import types as genai_types
-import deepseek  # respaldo cuando Gemini se queda sin cuota (solo crédito gratis)
 
 CARPETA_ESTADO = cola.CARPETA_ESTADO
 RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
@@ -281,8 +280,6 @@ def motivo_error_gemini(exc):
                 "Esa clave existe, pero no tiene permiso para la API de Gemini "
                 "(generativelanguage): o está restringida a otras APIs, o es de "
                 "otro proyecto de Google Cloud.")
-    if deepseek.SIN_CREDITO in texto:
-        return ("sin_cuota", "Se agotó la cuota de Gemini, y también el crédito gratis de DeepSeek.")
     if "RESOURCE_EXHAUSTED" in texto or "429" in texto or "quota" in texto.lower():
         return ("sin_cuota", "Se agotó la cuota de Gemini por ahora.")
     if "UNAUTHENTICATED" in texto:
@@ -637,13 +634,7 @@ def main(argv=None):
         )
         return
 
-    # Si Gemini se queda sin cuota a mitad, sigue con DeepSeek mientras le
-    # quede crédito gratis (nunca con saldo pagado). Sin DEEPSEEK_API_KEY
-    # esto se comporta exactamente como el cliente de Gemini a secas.
-    client = deepseek.ConRespaldo(
-        genai.Client(),
-        es_cuota=lambda exc: (motivo_error_gemini(exc) or ("",))[0] == "sin_cuota",
-    )
+    client = genai.Client()
     bloques = []
     usados = []      # ids que sí se convirtieron en guion
     descartados = [] # ids que fallaron demasiadas veces
