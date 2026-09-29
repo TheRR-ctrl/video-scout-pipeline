@@ -2223,7 +2223,7 @@ def renderizar_una_historia(contenido, num=1):
 
         if ES_ANDROID:
             if usar_chip_android:
-                exito_render, txt_ren = ejecutar_render(flags_chip_android, "chip")
+                exito_render, txt_ren = ejecutar_render(flags_chip_android, "GPU")
                 if not exito_render:
                     logger.warning(
                         f"Render con el chip de video (h264_mediacodec) falló para el video {num}, "

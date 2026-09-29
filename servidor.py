@@ -95,6 +95,12 @@ _RE_MODELO_FALLA = re.compile(r"(gemini-[\w.\-]+) (saturado|sin cuota por hoy|no
 _RE_MODELO_USA = re.compile(r"Escribiendo con (gemini-[\w.\-]+)\.")
 
 
+# La línea de avance del render dice con qué codifica
+# (generar_video_maestro.ejecutar_render): se guarda aparte para enseñarlo en
+# la tarjeta sin abrir el detalle. Si a media tanda cae de GPU a CPU, cambia.
+_RE_CODIFICADOR = re.compile(r"Render \((GPU|CPU)\)")
+
+
 def _anotar_modelo(modelos, linea):
     m = _RE_MODELO_USA.search(linea)
     if m:
@@ -143,6 +149,7 @@ class Trabajo:
         # saca de `lineas` porque esas se recortan: en una tanda larga el
         # "sin cuota" del principio ya no estaría ahí.
         self.modelos = {}
+        self.codificador = None   # "GPU" | "CPU" mientras renderiza
 
     def arrancar(self):
         self.proc = subprocess.Popen(
@@ -165,6 +172,9 @@ class Trabajo:
             with self._lock:
                 self.lineas.append(limpia)
                 _anotar_modelo(self.modelos, limpia)
+                m = _RE_CODIFICADOR.search(limpia)
+                if m:
+                    self.codificador = m.group(1)
                 if len(self.lineas) > 400:
                     del self.lineas[:100]
         self.proc.wait()
@@ -221,6 +231,7 @@ class Trabajo:
                 else lineas[-15:]),
             "modelos": resumen_modelos(self.modelos),
             "vista": vista_del_trabajo(self.nombre, self.cmd),
+            "codificador": self.codificador,
         }
 
 
