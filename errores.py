@@ -114,6 +114,25 @@ CATALOGO = [
      "titulo": "YouTube: límite de subidas del día",
      "que_pasa": "YouTube no deja subir más videos hoy desde este canal. No se pierde nada.",
      "que_hacer": "Nada: lo que falta se sube solo en la siguiente vuelta de «Publicar»."},
+    {"id": "subida_cortada", "tema": "Subida",
+     "patrones": [r"Se cortó la conexión subiendo", r"Fallo al subir .*(timed out|Timeout|"
+                  r"Connection|Network is unreachable|SSL)"],
+     "titulo": "Se cortó la conexión a media subida",
+     "que_pasa": "La WiFi o los datos se fueron mientras subía. Lo que ya llegó a YouTube no "
+                 "se pierde: cada reintento sigue desde el último trozo que llegó.",
+     "que_hacer": "Nada si al final dice ✅: se recuperó sola. Si se rindió, pulsa «Publicar» "
+                  "cuando vuelva la conexión (o espera al horario) y retoma donde se quedó, "
+                  "sin volver a mandar el video entero."},
+    {"id": "subida_rota", "tema": "Subida",
+     "patrones": [r"salió mal en YouTube", r"YouTube dice que la subida .* salió mal",
+                  r"La subida salió mal dos veces"],
+     "titulo": "YouTube recibió el video roto",
+     "que_pasa": "El archivo llegó a medias o YouTube no pudo procesarlo (lo marca como "
+                 "«failed»). Un video así se queda en el canal sin reproducirse.",
+     "que_hacer": "Nada: se borra del canal y se vuelve a subir solo. Si pide quitarlo a mano "
+                  "es que el permiso de borrar no está en el token: bórralo en YouTube Studio "
+                  "(el enlace sale en el detalle). Si falla dos veces seguidas, mira el video en "
+                  "Revisar: puede que el archivo esté dañado."},
     {"id": "youtube_token", "tema": "Subida",
      "patrones": [r"invalid_grant", r"Token has been expired or revoked", r"RefreshError",
                   r"youtube_token\.json.*(no existe|falta|No such file)"],

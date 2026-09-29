@@ -575,6 +575,24 @@ Console as `client_secret.json`. The first run of `publisher.py` (or
 after that, `youtube_token.json` is reused and refreshed automatically — no
 further manual login needed locally.
 
+### When an upload drops
+
+Uploads go in 8 MB chunks (the panel shows `Subiendo X: 41% (8/19 MB)`). If
+the connection drops, `publisher.py` retries for about six minutes, each time
+continuing from the last chunk YouTube confirmed. If it gives up, the upload
+session is kept in `pipeline_state/subida_en_curso.json` (mode 600) and the
+next run resumes it instead of starting over.
+
+After each upload it asks YouTube how it arrived (`uploadStatus`). A video
+marked `failed` is deleted from the channel and uploaded again; one marked
+`rejected` (copyright, duplicate…) is left alone, since uploading it again
+fixes nothing. Processing failures show up minutes later, so every run also
+re-checks uploads from the last 3 days that YouTube hadn't finished, and
+re-uploads the broken ones while the file is still on the phone. Deleting
+needs the `youtube.force-ssl` scope; without it the broken video's id goes to
+`pipeline_state/subidas_rotas.json` (so the duplicate check ignores it) and the
+log says to remove it in Studio.
+
 ## Running it
 
 From the panel, searching chains the rest by default: when a search
