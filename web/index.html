@@ -124,6 +124,10 @@
     padding:12px 14px;margin-bottom:16px}
   .job.err{background:var(--crit-soft);border-color:var(--crit)}
   .job.fin{background:var(--ok-soft);border-color:var(--ok)}
+  .job-fin{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:-2px 0 10px;
+    padding:10px 12px;border-radius:8px;background:var(--ok);color:var(--ground);font-weight:600}
+  .job-fin.err{background:var(--crit)}
+  .job-fin span{flex-grow:1;font-size:15px}
   .job-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
   .job-top b{flex-grow:1}
   .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
@@ -820,6 +824,17 @@ async function vaciarCola(){
   catch(e){ toast(e.message); }
 }
 
+const TITULO_BASE = document.title;
+function avisoTerminado(texto){
+  try{ if(navigator.vibrate) navigator.vibrate(200); }catch(e){}
+  if(document.hidden){
+    document.title = texto + ' · ' + TITULO_BASE;
+    document.addEventListener('visibilitychange', function volver(){
+      if(!document.hidden){ document.title = TITULO_BASE; document.removeEventListener('visibilitychange', volver); }
+    });
+  }
+}
+
 function pintaJob(){
   const j = E && E.trabajo, slot = $('#job-slot');
   if(!j){
@@ -834,6 +849,7 @@ function pintaJob(){
     jobMontado = id;
     slot.innerHTML = `
       <div class="job" id="job-caja">
+        <div id="job-fin"></div>
         <div class="job-top">
           <b id="job-nom"></b>
           <span class="pill acc" id="job-estado"></span>
@@ -890,6 +906,26 @@ function pintaJob(){
   // algún día cambia cómo se saca el porcentaje, cambia en un solo sitio.
   // La barra de abajo es para seguir el avance sin subir: terminado el
   // trabajo no hay avance que seguir, así que desaparece.
+  // «¡Trabajo terminado!»: cuando acaba lo último y no queda nada esperando.
+  // Mientras hay cola no se dice, porque enseguida arranca lo siguiente.
+  const todoAcabado = !corriendo && !((E.cola || []).length);
+  const pendientes = (E.videos || []).filter(v => !v.publicado).length;
+  const errores = (E.hechos || []).filter(h => h.estado === 'error').length;
+  const fin = !todoAcabado ? '' : JSON.stringify([j.estado, pendientes, errores]);
+  const cajaFin = $('#job-fin');
+  if(cajaFin.dataset.firma !== fin){
+    cajaFin.dataset.firma = fin;
+    cajaFin.className = !todoAcabado ? '' : 'job-fin' + (j.estado === 'error' || errores ? ' err' : '');
+    cajaFin.innerHTML = !todoAcabado ? '' : `
+      <span>${j.estado === 'abortado' ? '⏹ Detenido' : j.estado === 'error' ? '⚠ Terminado, con error'
+        : errores ? `✅ ¡Trabajo terminado! (${errores} con error, míralo abajo)` : '✅ ¡Trabajo terminado!'}</span>
+      ${pendientes ? `<button class="btn sm" onclick="irA('revisar')">Revisar ${pendientes} video${pendientes>1?'s':''} →</button>` : ''}`;
+  }
+  // Si terminó con el panel en segundo plano, que se note al volver: el
+  // título de la pestaña cambia y el teléfono vibra una vez.
+  if(hayTrabajo && todoAcabado){
+    avisoTerminado(j.estado === 'error' || errores ? '⚠ Terminado con error' : '✅ Trabajo terminado');
+  }
   hayTrabajo = corriendo;
   $('#mini-job').className = 'mini' + (j.estado==='error' ? ' err' : (j.estado==='ok' ? ' fin' : ''));
   $('#mini-estado').textContent = j.estado;
