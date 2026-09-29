@@ -1526,6 +1526,15 @@ const nCandidatos = () => E.candidatos ? ` (${E.candidatos})` : '';
 /* Dos formas de escribir: la tanda que respeta la cuota del día de Gemini
    (MAX_POR_CORRIDA de script_writer) o todos de una vez. Con menos
    candidatos que la tanda, las dos serían lo mismo y sobra el segundo. */
+// La confirmación va aquí y no en el onclick: dentro de la plantilla, un
+// "\n" se vuelve un salto de línea de verdad en el atributo, y eso rompía el
+// JavaScript del botón (pulsarlo no hacía nada).
+function escribirTodos(){
+  const n = E.candidatos || 0;
+  if(!confirm(`¿Escribir los ${n} guiones de una vez?\n\nGasta mucha más cuota de Gemini. `
+    + 'Si se agota, sigue con los modelos gratis de respaldo; lo que no salga vuelve a la cola.')) return;
+  ejecutar('guiones_todos');
+}
 function botonesGuiones(destacar){
   const n = E.candidatos || 0, tanda = E.guiones_por_tanda || 12;
   const cls = destacar ? 'btn go' : 'btn';
@@ -1533,7 +1542,7 @@ function botonesGuiones(destacar){
   return `<button class="${cls}" title="Escribe ${tanda} y deja el resto para otra tanda, sin agotar la cuota del día"
       onclick="ejecutar('guiones')">✍ Escribir ${tanda} (respeta la cuota)</button>
     <button class="btn" title="Todos de una vez: si Gemini se queda sin cuota, pasa a los modelos de respaldo"
-      onclick="if(confirm('¿Escribir los ${n} guiones de una vez?\n\nGasta mucha más cuota de Gemini. Si se agota, sigue con los modelos gratis de respaldo; lo que no salga vuelve a la cola.')) ejecutar('guiones_todos')"
+      onclick="escribirTodos()"
       >✍ Escribir todos (${n})</button>`;
 }
 
