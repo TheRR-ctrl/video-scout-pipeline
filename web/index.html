@@ -8,6 +8,46 @@
 <meta name="theme-color" content="#12151a">
 <link rel="icon" href="/icono-192.png">
 <meta name="mobile-web-app-capable" content="yes">
+<script>
+/* Tema y color, antes de que se pinte nada: puesto más abajo, el panel
+   parpadearía en oscuro cada vez que se abre en claro. Se guarda en este
+   teléfono (localStorage), no en el servidor: es cosa de quien mira. */
+const ACENTOS = {
+  turquesa:{o:'#4db4a8', c:'#1d7d72'}, azul:{o:'#6ea8fe', c:'#1f5fbf'},
+  morado:{o:'#b596f2', c:'#6a3fc0'},   rosa:{o:'#f08ab4', c:'#b3326b'},
+  dorado:{o:'#e3c552', c:'#8a6d00'},
+};
+function prefTema(){
+  try { return JSON.parse(localStorage.getItem('apariencia')) || {}; } catch(e){ return {}; }
+}
+function aplicarTema(){
+  const p = prefTema(), raiz = document.documentElement;
+  const modo = p.modo === 'claro' || p.modo === 'oscuro' ? p.modo
+    : (matchMedia('(prefers-color-scheme: light)').matches ? 'claro' : 'oscuro');
+  raiz.dataset.tema = modo;
+  const a = ACENTOS[p.acento] || (/^#[0-9a-f]{6}$/i.test(p.acento || '') ? {o:p.acento, c:p.acento} : null);
+  for(const v of ['--accent','--accent-soft','--accent-ink']) raiz.style.removeProperty(v);
+  if(a && p.acento !== 'turquesa'){
+    const col = modo === 'claro' ? a.c : a.o;
+    raiz.style.setProperty('--accent', col);
+    raiz.style.setProperty('--accent-soft', `color-mix(in srgb, ${col} ${modo==='claro'?16:22}%, ${modo==='claro'?'#fff':'#12151a'})`);
+    // Texto sobre el color: negro o blanco según lo claro que sea el color,
+    // para que un color elegido a mano no deje los botones ilegibles.
+    const [r,g,b] = [1,3,5].map(i => parseInt(col.slice(i,i+2),16)/255)
+      .map(x => x <= .03928 ? x/12.92 : ((x+.055)/1.055)**2.4);
+    raiz.style.setProperty('--accent-ink', .2126*r + .7152*g + .0722*b > .25 ? '#0b0f14' : '#fff');
+  }
+  const meta = document.querySelector('meta[name="theme-color"]');
+  if(meta) meta.content = modo === 'claro' ? '#edeff1' : '#12151a';
+}
+function guardarTema(cambio){
+  const p = Object.assign(prefTema(), cambio);
+  try { localStorage.setItem('apariencia', JSON.stringify(p)); } catch(e){}
+  aplicarTema();
+}
+aplicarTema();
+try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', aplicarTema); } catch(e){}
+</script>
 <style>
   :root {
     --ground:#12151a; --surface:#1b2027; --surface-2:#232932;
@@ -20,13 +60,29 @@
     --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
     --body:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
   }
-  @media (prefers-color-scheme:light){
-    :root{ --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8;
+  /* Claro u oscuro lo decide data-tema, que pone el script de arriba del
+     todo: en «Automático» sigue al teléfono, pero también se puede fijar a
+     mano en Ajustes → Apariencia. Sin JS se queda en oscuro. */
+  :root{color-scheme:dark}
+  :root[data-tema="claro"]{ color-scheme:light;
+      --ground:#edeff1; --surface:#fff; --surface-2:#f5f6f8;
       --line:#d9dde2; --line-soft:#e6e9ed; --ink:#191d23; --ink-dim:#5b6572;
       --ink-faint:#939ba6; --accent:#1d7d72; --accent-ink:#fff; --accent-soft:#dcefec;
       --warn:#9a6416; --warn-soft:#f7ead6; --crit:#b4402f; --crit-soft:#f8dfda;
       --ok:#35754a; --ok-soft:#dff0e3; }
-  }
+  /* Los enlaces sin estilo salían en el azul del navegador, que sobre el
+     fondo oscuro casi no se lee. */
+  a{color:var(--accent);text-underline-offset:2px}
+  .acciones-aviso{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .temas{display:flex;gap:6px;flex-wrap:wrap}
+  .temas .btn[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+  .colores{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+  .colores button,.colores label{width:34px;height:34px;border-radius:50%;cursor:pointer;
+    border:2px solid var(--line);padding:0;position:relative}
+  .colores [aria-pressed="true"]{outline:2px solid var(--ink);outline-offset:2px}
+  .colores label{display:flex;align-items:center;justify-content:center;font-size:15px;
+    background:conic-gradient(#e66,#ec5,#6c8,#5ae,#a7e,#e66)}
+  .colores input{position:absolute;inset:0;opacity:0;cursor:pointer}
   *{box-sizing:border-box}
   /* Sin esto, un .sangria (display:flex) marcado con hidden se sigue viendo:
      la regla del navegador para [hidden] la pisa cualquier display del autor. */
@@ -128,8 +184,14 @@
     padding:10px 12px;border-radius:8px;background:var(--ok);color:var(--ground);font-weight:600}
   .job-fin.err{background:var(--crit)}
   .job-fin span{flex-grow:1;font-size:15px}
-  .job-top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-  .job-top b{flex-grow:1}
+  /* Sin plegar: con un nombre largo («Escribiendo todos los guiones») el
+     renglón se partía y el ⏹ caía solo a la línea de abajo. Ahora es el
+     nombre el que se parte en dos líneas y los botones se quedan en su sitio. */
+  .job-top{display:flex;align-items:center;gap:8px}
+  .job-tit{flex:1 1 0;min-width:0}
+  .job-tit b{display:block;overflow-wrap:anywhere;line-height:1.25}
+  .job-meta{display:flex;gap:8px;align-items:center;margin-top:4px}
+  .job-top > .tbtn{flex-shrink:0}
   .paso{margin-top:9px;font:12px/1.45 var(--mono);color:var(--ink);
     min-height:2.9em;display:flex;align-items:center;
     overflow:hidden;text-overflow:ellipsis}
@@ -138,7 +200,7 @@
     transition:width .4s linear}
   .log{margin-top:9px;background:#0c0f13;border-radius:7px;padding:9px 10px;
     font:11.5px/1.5 var(--mono);color:#c8d2dc;height:170px;overflow:auto;white-space:pre-wrap}
-  @media (prefers-color-scheme:light){ .log{background:#171b20} }
+  :root[data-tema="claro"] .log{background:#171b20}
   .tbtn{width:36px;height:36px;border-radius:8px;border:1px solid var(--line);
     background:var(--surface);color:var(--ink);font-size:14px;cursor:pointer}
 
@@ -566,9 +628,11 @@ function lineaLargas(h){
   return `<div class="aviso"><span>🎞</span><div>
     ${largas ? `<b>${largas} ${largas===1?'no cabe':'no caben'} en un short.</b> ` : ''}${guardadas
       ? `${guardadas} guardada${guardadas>1?'s':''} para los videos largos. ` : ''}
-    <a href="#" onclick="filtroCola='videos';pintar();return false">Verlas en Videos</a>
-    ${h.some(x=>x.larga && x.partes>1 && !x.renderizada)
-      ? ` · <a href="#" onclick="filtroCola='shorts';pintar();return false">partirlas en Shorts</a>` : ''}
+    <div class="acciones-aviso">
+      <button class="btn sm" onclick="filtroCola='videos';pintar()">🎞 Verlas en Videos</button>
+      ${h.some(x=>x.larga && x.partes>1 && !x.renderizada)
+        ? `<button class="btn sm" onclick="filtroCola='shorts';pintar()">✂ Partirlas en Shorts</button>` : ''}
+    </div>
   </div></div>`;
 }
 
@@ -851,9 +915,13 @@ function pintaJob(){
       <div class="job" id="job-caja">
         <div id="job-fin"></div>
         <div class="job-top">
-          <b id="job-nom"></b>
-          <span class="pill acc" id="job-estado"></span>
-          <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+          <div class="job-tit">
+            <b id="job-nom"></b>
+            <div class="job-meta">
+              <span class="pill acc" id="job-estado"></span>
+              <span id="job-t" style="font:11.5px var(--mono);color:var(--ink-dim)"></span>
+            </div>
+          </div>
           <button class="tbtn" id="b-pausa" title="Pausar">⏸</button>
           <button class="tbtn" id="b-abort" title="Abortar" style="color:var(--crit)">⏹</button>
           <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
@@ -1609,8 +1677,8 @@ function pintaCola(){
     ${!grabadas ? '' : `<p class="sub">${verGrabadas
       ? `Se ven también las ${grabadas} que ya tienen video.`
       : `${grabadas} más ya tienen video y no se enseñan.`}
-      <a href="#" onclick="verGrabadas=${!verGrabadas};pintar();return false"
-        >${verGrabadas ? 'ocultarlas' : 'verlas'}</a></p>`}
+      <button class="btn sm" style="margin-left:4px" onclick="verGrabadas=${!verGrabadas};pintar()"
+        >${verGrabadas ? 'Ocultarlas' : 'Verlas'}</button></p>`}
     ${!esperando ? '' : `<div class="aviso warn"><span>✍</span><div>
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
@@ -2587,6 +2655,45 @@ let horarioCache = null, horarioBorrador = null;
 let masOpciones = false;  // ¿«Más opciones» abierto en Ajustes?
 let conectarCache = null, cxAbierto = new Set(), cxBorrador = {}, cxNota = {};
 let fuentesResultadosCanal = null;  // null = sin buscar; [] = sin resultados; array = resultados
+/* Tema claro/oscuro y color de acento. Se guarda en el teléfono, así que
+   cambiarlo no toca el servidor ni la firma de Ajustes: se marca en su sitio. */
+function bloqueApariencia(){
+  const p = prefTema(), modo = p.modo || 'auto', acento = p.acento || 'turquesa';
+  const propio = !ACENTOS[acento];
+  return `<div class="card" id="apariencia" style="margin-bottom:14px">
+    <div style="font-size:13.5px;margin-bottom:8px">Tema</div>
+    <div class="temas">
+      ${[['auto','📱 Automático'],['claro','☀ Claro'],['oscuro','🌙 Oscuro']].map(([v,t]) =>
+        `<button class="btn sm" data-modo="${v}" aria-pressed="${modo===v}">${t}</button>`).join('')}
+    </div>
+    <div class="muted" style="margin:6px 0 14px">Automático sigue el modo del teléfono.</div>
+    <div style="font-size:13.5px;margin-bottom:8px">Color</div>
+    <div class="colores">
+      ${Object.entries(ACENTOS).map(([n,c]) => `<button data-acento="${n}" title="${n}"
+        aria-pressed="${acento===n}" style="background:${c.o}"></button>`).join('')}
+      <label title="Elegir otro color" aria-pressed="${propio}"
+        ${propio ? `style="background:${esc(acento)}"` : ''}>🎨
+        <input type="color" id="acento-propio" value="${propio ? esc(acento) : '#4db4a8'}"></label>
+    </div>
+  </div>`;
+}
+function enlazarApariencia(){
+  const caja = $('#apariencia');
+  if(!caja) return;
+  const marcar = ()=>{
+    const p = prefTema(), modo = p.modo || 'auto', acento = p.acento || 'turquesa';
+    caja.querySelectorAll('[data-modo]').forEach(b => b.setAttribute('aria-pressed', b.dataset.modo === modo));
+    caja.querySelectorAll('[data-acento]').forEach(b => b.setAttribute('aria-pressed', b.dataset.acento === acento));
+    const lab = caja.querySelector('label');
+    lab.setAttribute('aria-pressed', !ACENTOS[acento]);
+    lab.style.background = ACENTOS[acento] ? '' : acento;
+  };
+  caja.querySelectorAll('[data-modo]').forEach(b => b.onclick = ()=>{ guardarTema({modo: b.dataset.modo}); marcar(); });
+  caja.querySelectorAll('[data-acento]').forEach(b => b.onclick = ()=>{ guardarTema({acento: b.dataset.acento}); marcar(); });
+  // «input» mientras se arrastra en el selector, para ver el color en vivo.
+  $('#acento-propio').oninput = e => { guardarTema({acento: e.target.value}); marcar(); };
+}
+
 function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
@@ -2966,6 +3073,9 @@ function pintaAjustes(){
       al teléfono como <code style="font:11.5px var(--mono)">musica_algo.mp3</code>, pulsa
       «Re-enlazar material» y clasifícalas aquí.</div>`}
 
+    <h3 class="sec">Apariencia</h3>
+    ${bloqueApariencia()}
+
     <details class="mas" id="mas-opciones" ${masOpciones ? 'open' : ''}>
       <summary>Más opciones</summary>
       <p class="sub">Para ajustar a fondo: mezcla, fuentes, render, claves de GitHub y cada
@@ -3167,6 +3277,7 @@ function pintaAjustes(){
       refrescar();
     }catch(e){ toast(e.message); }
   };
+  enlazarApariencia();
   $('#b-cadena-auto').onclick = async ()=>{
     try{ const j = await post('/api/cadena/auto',{auto: !E.cadena_auto});
       toast(j.auto ? 'Buscar seguirá solo con guiones y grabación'
