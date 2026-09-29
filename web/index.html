@@ -306,9 +306,10 @@
   .aviso > div{min-width:0}
   /* Diccionario de errores: hoja a pantalla completa, fuera de las vistas
      para que el repintado de cada 1,5 s no se la lleve por delante. */
-  #dicc{position:fixed;inset:0;z-index:60;background:var(--ground);overflow-y:auto;
+  #dicc, #hoja-fondos{position:fixed;inset:0;z-index:60;background:var(--ground);overflow-y:auto;
     padding:16px;display:none}
-  #dicc.on{display:block}
+  #dicc.on, #hoja-fondos.on{display:block}
+  #hoja-fondos video{width:100%;max-height:52vh;background:#000;border-radius:10px;margin-top:10px}
   #dicc .e{background:var(--surface);border:1px solid var(--line);border-radius:10px;
     padding:11px 13px;margin-top:8px}
   #dicc .e > b{display:block}
@@ -388,6 +389,7 @@
   <div id="paso-slot"></div>
   <div id="job-slot"></div>
   <div id="dicc"></div>
+  <div id="hoja-fondos"></div>
   <div id="cola-slot"></div>
 
   <section class="view on" id="v-revisar"></section>
@@ -533,6 +535,39 @@ function bloquePartibles(h){
     ${guardadas ? pie(false) : ''}</div></div>`;
 }
 
+/* «✂ Recortes», en la pestaña Shorts: las largas que sí salen como shorts
+   si se parten. Es la otra cara del bloque de arriba: allí se ven como videos
+   que esperan, aquí como shorts que se pueden sacar ya. */
+function bloqueRecortes(h){
+  const partibles = h.filter(x => x.larga && !x.renderizada && x.partes > 1);
+  if(!partibles.length) return '';
+  const total = partibles.reduce((a,x)=>a + x.partes, 0);
+  return `<h3 class="sec">✂ Recortes: ${total} shorts más si partes ${partibles.length === 1 ? 'esta' : 'estas ' + partibles.length}</h3>
+    <div class="list">${partibles.map(x=>`
+      <div class="row" style="grid-template-columns:1fr auto auto;gap:8px">
+        <span class="t" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(x.titulo)}</span>
+        <span class="m">${x.duracion}</span>
+        <button class="btn sm" style="white-space:nowrap" data-partir="${x.n}" data-partes="${x.partes}">✂ En ${x.partes}</button>
+      </div>`).join('')}</div>
+    <p class="sub" style="margin-top:6px">Cada una sale como «Parte 1 de 2…», cortada entre frases y sin
+      cambiar el texto. La original queda entera en el historial.</p>`;
+}
+
+/* En «Todo» las largas no se despliegan: una línea dice cuántas hay y lleva
+   a la pestaña Videos, que es donde se deciden. */
+function lineaLargas(h){
+  const largas = h.filter(x => x.larga && !x.renderizada).length;
+  const guardadas = (E && E.archivadas) || 0;
+  if(!largas && !guardadas) return '';
+  return `<div class="aviso"><span>🎞</span><div>
+    ${largas ? `<b>${largas} ${largas===1?'no cabe':'no caben'} en un short.</b> ` : ''}${guardadas
+      ? `${guardadas} guardada${guardadas>1?'s':''} para los videos largos. ` : ''}
+    <a href="#" onclick="filtroCola='videos';pintar();return false">Verlas en Videos</a>
+    ${h.some(x=>x.larga && x.partes>1 && !x.renderizada)
+      ? ` · <a href="#" onclick="filtroCola='shorts';pintar();return false">partirlas en Shorts</a>` : ''}
+  </div></div>`;
+}
+
 function enlazarArchivadas(){
   const bArch = $('#b-archivar-largas');
   if(bArch) bArch.onclick = ()=>{
@@ -548,8 +583,112 @@ function enlazarArchivadas(){
   };
 }
 
+/* ---------- tramos de los fondos que no se usan (fondos_excluidos.py) ----------
+   Hoja a pantalla completa, fuera de las vistas: el repintado periódico
+   no la toca, así que el video no se reinicia mientras marcas. */
+let fondosCache = [], fondoAbierto = null, marca = {inicio:null, fin:null};
+const mmss = t => { t = Math.max(0, +t||0); const m = Math.floor(t/60), s = t - m*60;
+  return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`; };
+function cerrarFondos(){
+  const v = $('#hoja-fondos video'); if(v) v.pause();
+  $('#hoja-fondos').classList.remove('on'); document.body.style.overflow = '';
+}
+async function abrirFondos(archivo){
+  const hoja = $('#hoja-fondos');
+  try{ fondosCache = await api('/api/fondos'); }
+  catch(e){ return toast('No se pudo cargar la lista de fondos: ' + e.message); }
+  fondoAbierto = archivo || null; marca = {inicio:null, fin:null};
+  hoja.classList.add('on'); document.body.style.overflow = 'hidden'; hoja.scrollTop = 0;
+  fondoAbierto ? pintaEditorFondo() : pintaListaFondos();
+}
+function pintaListaFondos(){
+  $('#hoja-fondos').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center">
+      <h2 style="flex-grow:1;margin:0">✂ Tramos que no se usan</h2>
+      <button class="btn" onclick="cerrarFondos()">✕ Cerrar</button></div>
+    <p class="sub">El render corta trozos de 6 a 12 segundos de estos videos, en puntos al azar.
+      Abre uno, míralo y marca lo que no quieres que salga: ningún corte lo volverá a pisar.</p>
+    ${!fondosCache.length ? '<p class="sub">No hay videos de fondo en la carpeta.</p>' : `<div class="list">${fondosCache.map(f=>`
+      <div class="row" style="grid-template-columns:1fr auto;gap:8px">
+        <div style="min-width:0"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.archivo)}</div>
+          <div class="m">${mmss(f.duracion)} · ${f.mb} MB · ${f.entero ? '🚫 no se usa'
+            : f.tramos.length ? `✂ ${f.tramos.length} tramo${f.tramos.length>1?'s':''} fuera` : 'se usa entero'}</div></div>
+        <button class="btn sm" data-abrir-fondo="${esc(f.archivo)}">Abrir</button>
+      </div>`).join('')}</div>`}`;
+  document.querySelectorAll('[data-abrir-fondo]').forEach(b => b.onclick = ()=>{
+    fondoAbierto = b.dataset.abrirFondo; marca = {inicio:null, fin:null}; pintaEditorFondo();
+  });
+}
+function pintaEditorFondo(){
+  const f = fondosCache.find(x=>x.archivo===fondoAbierto);
+  if(!f) return pintaListaFondos();
+  $('#hoja-fondos').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn sm" id="fx-volver">← Fondos</button>
+      <b style="flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.archivo)}</b>
+      <button class="btn sm" onclick="cerrarFondos()">✕</button></div>
+    <video id="fx-video" controls playsinline preload="metadata" src="/fondo/${encodeURIComponent(f.archivo)}"></video>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" id="fx-ini">⏱ Marcar inicio</button>
+      <button class="btn" id="fx-fin">⏱ Marcar fin</button>
+      <button class="btn go" id="fx-guardar" disabled>✂ Excluir este tramo</button>
+    </div>
+    <div class="m" id="fx-marca" style="margin-top:6px"></div>
+    <div id="fx-tramos"></div>
+    <div style="margin-top:14px"><button class="btn" id="fx-entero">${f.entero ? '✅ Volver a usar este fondo' : '🚫 No usar este fondo nunca'}</button></div>`;
+  const v = $('#fx-video');
+  const pintaMarca = ()=>{
+    $('#fx-marca').textContent = `Inicio: ${marca.inicio===null ? '—' : mmss(marca.inicio)} · Fin: ${marca.fin===null ? '—' : mmss(marca.fin)}`;
+    $('#fx-guardar').disabled = marca.inicio===null || marca.fin===null;
+  };
+  const pintaTramos = ()=>{
+    const g = fondosCache.find(x=>x.archivo===fondoAbierto) || f;
+    $('#fx-tramos').innerHTML = !g.tramos.length ? `<p class="sub" style="margin-top:10px">Ningún tramo fuera: se usa entero.</p>`
+      : `<h3 class="sec" style="margin-top:14px">Tramos que no se usan</h3><div class="list">${g.tramos.map((t,i)=>`
+        <div class="row" style="grid-template-columns:1fr auto auto;gap:8px">
+          <span class="t">${mmss(t[0])} – ${mmss(t[1])}</span>
+          <button class="btn sm" data-ir="${t[0]}">▶ Ver</button>
+          <button class="tbtn" title="Quitar este tramo" data-quitar="${i}">✕</button>
+        </div>`).join('')}</div>`;
+    document.querySelectorAll('[data-ir]').forEach(b => b.onclick = ()=>{ v.currentTime = +b.dataset.ir; v.play(); });
+    document.querySelectorAll('[data-quitar]').forEach(b => b.onclick = ()=> guardarFondo({quitar: +b.dataset.quitar}, pintaTramos));
+  };
+  $('#fx-volver').onclick = ()=>{ v.pause(); fondoAbierto = null; pintaListaFondos(); };
+  $('#fx-ini').onclick = ()=>{ marca.inicio = v.currentTime; pintaMarca(); };
+  $('#fx-fin').onclick = ()=>{ marca.fin = v.currentTime; pintaMarca(); };
+  $('#fx-guardar').onclick = ()=> guardarFondo({inicio: marca.inicio, fin: marca.fin}, ()=>{
+    marca = {inicio:null, fin:null}; pintaMarca(); pintaTramos(); toast('✓ Ese tramo ya no se usará');
+  });
+  $('#fx-entero').onclick = ()=>{
+    const g = fondosCache.find(x=>x.archivo===fondoAbierto) || f;
+    guardarFondo({entero: !g.entero}, ()=>{ v.pause(); pintaEditorFondo();
+      toast(g.entero ? '✓ Se vuelve a usar' : '✓ Este fondo ya no se usará'); });
+  };
+  pintaMarca(); pintaTramos();
+}
+async function guardarFondo(cambio, luego){
+  try{ fondosCache = await post('/api/fondos/excluir', Object.assign({archivo: fondoAbierto}, cambio)); luego(); }
+  catch(e){ toast(e.message); }
+}
+
 /* ---------- diccionario de errores (errores.py) ---------- */
 const NOMBRE_VISTA = {ajustes:'Ajustes', cola:'la Cola', revisar:'Revisar'};
+/* Qué modelo de Gemini está escribiendo y cuáles se quedaron por el camino
+   (sin cuota, saturados, retirados). Lo cuenta el servidor a partir de lo
+   que va diciendo script_writer. */
+const corto = m => String(m).replace(/^gemini-/, '');
+function bloqueModelos(mo, vivo){
+  if(!mo) return '';
+  const fila = (ico, txt, lista) => lista && lista.length
+    ? `<div>${ico} ${txt}: <b>${lista.map(corto).map(esc).join(', ')}</b></div>` : '';
+  return `<div class="m" style="margin-top:8px;line-height:1.6">
+    ${mo.en_uso ? `<div>🟢 ${vivo ? 'Escribiendo con' : 'Último usado'}: <b>${esc(corto(mo.en_uso))}</b></div>` : ''}
+    ${fila('⛔', 'Sin cuota hoy', mo.sin_cuota)}
+    ${fila('⏳', 'Saturados en el último intento', mo.saturados)}
+    ${fila('🚫', 'No existen', mo.no_existen)}
+  </div>`;
+}
+
 function bloqueExplicacion(ex){
   if(!ex || !ex.length) return '';
   return `<div class="explica">${ex.map(e=>`
@@ -640,6 +779,7 @@ function pintaColaTrabajos(){
             <span class="t">${esc(h.nombre)}</span>
             ${!h.explicacion ? '' : h.explicacion.map(e=>`<div class="m" style="margin-top:3px">
               💡 <b>${esc(e.titulo)}.</b> ${esc(e.que_hacer)}</div>`).join('')}
+            ${h.modelos ? bloqueModelos(h.modelos, false) : ''}
             ${!h.lineas ? '' : `<div class="m" style="font:11px var(--mono);
               color:var(--ink-faint);white-space:pre-wrap">${esc(h.lineas.join('\n'))}</div>`}
           </div>
@@ -703,6 +843,7 @@ function pintaJob(){
           <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
         </div>
         <div class="paso" id="job-paso"></div>
+        <div id="job-modelos"></div>
         <div id="job-explica"></div>
         <div class="barra"><i id="job-barra"></i></div>
         <button class="btn sm" id="b-detalle" style="margin-top:9px">Ver detalle</button>
@@ -761,6 +902,11 @@ function pintaJob(){
   // Solo se repinta si cambió: si no, el botón «Ir a…» se recrearía cada
   // segundo y medio y se perdería el toque a medias.
   const ex = JSON.stringify(j.explicacion || []);
+  const cajaMod = $('#job-modelos'), fm = JSON.stringify(j.modelos || null);
+  if(cajaMod.dataset.firma !== fm){
+    cajaMod.dataset.firma = fm;
+    cajaMod.innerHTML = bloqueModelos(j.modelos, j.estado==='corriendo' || j.estado==='pausado');
+  }
   const cajaEx = $('#job-explica');
   if(cajaEx.dataset.firma !== ex){
     cajaEx.dataset.firma = ex;
@@ -1317,8 +1463,11 @@ function olvidarLoQueSeRenumero(){
   });
 }
 
+// Qué parte de la cola se ve: todo, lo que cabe en un short, o lo largo.
+let filtroCola = 'todo';
+
 function firmaCola(){
-  return [E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
+  return [filtroCola, E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
           E.historias.map(h=>h.larga?1:0).join('')].join('~');
@@ -1338,6 +1487,19 @@ const AVISO_LIMPIAR_COLA =
    reversible y no renumera nada. */
 // «(58)» detrás de «Escribir guiones»: cuántas encontradas esperan guion.
 const nCandidatos = () => E.candidatos ? ` (${E.candidatos})` : '';
+/* Dos formas de escribir: la tanda que respeta la cuota del día de Gemini
+   (MAX_POR_CORRIDA de script_writer) o todos de una vez. Con menos
+   candidatos que la tanda, las dos serían lo mismo y sobra el segundo. */
+function botonesGuiones(destacar){
+  const n = E.candidatos || 0, tanda = E.guiones_por_tanda || 12;
+  const cls = destacar ? 'btn go' : 'btn';
+  if(n <= tanda) return `<button class="${cls}" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>`;
+  return `<button class="${cls}" title="Escribe ${tanda} y deja el resto para otra tanda, sin agotar la cuota del día"
+      onclick="ejecutar('guiones')">✍ Escribir ${tanda} (respeta la cuota)</button>
+    <button class="btn" title="Todos de una vez: si Gemini se queda sin cuota, pasa a los modelos de respaldo"
+      onclick="if(confirm('¿Escribir los ${n} guiones de una vez?\n\nGasta mucha más cuota de Gemini. Si se agota, sigue con los modelos gratis de respaldo; lo que no salga vuelve a la cola.')) ejecutar('guiones_todos')"
+      >✍ Escribir todos (${n})</button>`;
+}
 
 function pintaCola(){
   const todas = E.historias, cont = $('#v-cola');
@@ -1351,7 +1513,7 @@ function pintaCola(){
       <p class="sub">Las ${grabadas} historia(s) de la cola ya tienen video.</p>
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button class="btn go" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
-        <button class="btn go" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
+        ${botonesGuiones(true)}
         <button class="btn" onclick="verGrabadas=true;pintar()">👁 Ver las ya grabadas</button>
         <button class="btn" title="Las pasa al historial y renumera lo que quede"
           onclick="if(confirm(AVISO_LIMPIAR_COLA)) ejecutar('limpiar_cola')">🧹 Limpiar</button>
@@ -1370,7 +1532,7 @@ function pintaCola(){
       <div style="display:flex;gap:7px;flex-wrap:wrap">
         <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
         <button class="btn ${hay?'':'go'}" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
-        <button class="btn ${hay?'go':''}" onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
+        ${botonesGuiones(hay)}
         <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 ¿Por qué no hay historias?</button>
         <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
       </div><div style="margin-top:12px">${bloquePartibles([])}</div>`;
@@ -1393,6 +1555,10 @@ function pintaCola(){
   // Antes esto no se veía en ningún sitio, así que buscar en Reddit parecía
   // no traer nada: la lista seguía enseñando las mismas de siempre.
   const esperando = E.candidatos || 0;
+  const cortas = h.filter(x=>!x.larga), largasH = h.filter(x=>x.larga);
+  const hv = filtroCola === 'shorts' ? cortas : filtroCola === 'videos' ? largasH : h;
+  const pestana = (id, txt, n) => `<button class="btn sm ${filtroCola===id?'go':''}"
+      data-filtro="${id}">${txt} <span style="opacity:.75">${n}</span></button>`;
   cont.innerHTML = `
     <h2>${h.length === 1 ? 'Una historia' : h.length + ' historias'} en la cola</h2>
     ${!grabadas ? '' : `<p class="sub">${verGrabadas
@@ -1404,18 +1570,24 @@ function pintaCola(){
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
       recientes primero— para no gastar la cuota del día de una sentada.
-      <div style="margin-top:7px"><button class="btn go" onclick="ejecutar('guiones')"
-        >✍ Escribir guiones</button></div></div></div>`}
-    ${bloquePartibles(h)}
+      <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">${botonesGuiones(true)}</div></div></div>`}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">
+      ${pestana('todo', 'Todo', h.length)}${pestana('shorts', 'Shorts', cortas.length)}${pestana('videos', 'Videos', largasH.length)}
+    </div>
+    ${filtroCola === 'todo' ? lineaLargas(h) : filtroCola === 'videos' ? bloquePartibles(h) : ''}
     <div class="list">
       <div class="list-head">
-        <div><b>Elige cuáles grabar</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
+        <div><b>${filtroCola === 'videos' ? 'Videos largos' : filtroCola === 'shorts' ? 'Shorts para grabar' : 'Elige cuáles grabar'}</b><div id="cuenta" style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px"></div></div>
         <div style="display:flex;gap:5px;flex-wrap:wrap">
           <button class="btn sm" id="q-todas">Todas</button>
           <button class="btn sm" id="q-ning">Ninguna</button>
         </div>
       </div>
-      <div id="caja-lista" style="max-height:340px;overflow:auto">${h.map(x=>`
+      ${filtroCola === 'videos' ? `<div class="m" style="padding:8px 14px 0">Mientras los largos estén
+        bloqueados, estas no se graban: se aplazan. Pártelas en Shorts o archívalas arriba.</div>` : ''}
+      ${!hv.length ? `<div class="m" style="padding:12px 14px">${filtroCola === 'videos'
+          ? 'Ninguna larga en la cola.' : 'Ninguna cabe en un short ahora mismo.'}</div>` : ''}
+      <div id="caja-lista" style="max-height:340px;overflow:auto">${hv.map(x=>`
         <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
           <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
           <span class="n">${String(x.n).padStart(2,'0')}</span>
@@ -1430,8 +1602,7 @@ function pintaCola(){
         <div style="display:flex;gap:7px;flex-wrap:wrap">
           <button class="btn" onclick="ejecutar('buscar')">🔍 Buscar en Reddit</button>
           <button class="btn" onclick="ejecutar('buscar_youtube')">▶️ Buscar en YouTube</button>
-          <button class="btn" title="Convierte en guion lo que encontraron los buscadores"
-            onclick="ejecutar('guiones')">✍ Escribir guiones${nCandidatos()}</button>
+          ${botonesGuiones(false)}
           <button class="btn" onclick="ejecutar('diagnostico_busqueda')">🩺 Diagnóstico</button>
           <button class="btn" onclick="abrirDiccionario()">📖 Errores</button>
           <button class="btn" title="Quita las que ya tienen video. Para verlas antes sin tocar nada: Ajustes → Más opciones → Tareas sueltas"
@@ -1440,6 +1611,7 @@ function pintaCola(){
         </div>
       </div>
     </div>
+    ${filtroCola === 'shorts' ? bloqueRecortes(h) : ''}
 
     <h3 class="sec">Música de cada una</h3>
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>No hay pistas descargadas.
@@ -1497,7 +1669,9 @@ function pintaCola(){
     ejecutar('partir_una', {numero: +b.dataset.partir});
   });
   enlazarArchivadas();
-  $('#q-todas').onclick = ()=>{ tocado=true; h.forEach(x=>seleccion.add(x.n)); pintar(); };
+  cont.querySelectorAll('[data-filtro]').forEach(b => b.onclick = ()=>{ filtroCola = b.dataset.filtro; pintar(); });
+  // «Todas» marca las de la pestaña que se ve, no las escondidas.
+  $('#q-todas').onclick = ()=>{ tocado=true; hv.forEach(x=>seleccion.add(x.n)); pintar(); };
   $('#q-ning').onclick  = ()=>{ tocado=true; seleccion.clear(); pintar(); };
   $('#b-render').onclick = ()=>{
     const mus = {};
@@ -2723,7 +2897,10 @@ function pintaAjustes(){
         <div class="muted" style="margin:8px 0">
           Plantilla: ${m.plantilla?esc(m.plantilla):'<span style="color:var(--warn)">falta — se usa el respaldo</span>'} ·
           Efectos: ${m.efectos||'<span style="color:var(--warn)">ninguno</span>'}</div>
-        <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
+          <button class="btn sm" onclick="abrirFondos()">✂ Tramos que no se usan</button>
+        </div>
       </div>
     </div>
 

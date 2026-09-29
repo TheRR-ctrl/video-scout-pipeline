@@ -40,6 +40,7 @@ except ImportError:
 import cola      # la cola de candidatos que dejaron los buscadores
 import archivar_largas  # las historias largas apartadas de la cola
 import errores   # el diccionario: qué significa cada error y qué hacer
+import fondos_excluidos  # tramos de los fondos que el render no usa
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -87,6 +88,37 @@ def _solo_desde_el_panel():
 # =========================================================
 # TRABAJOS EN SEGUNDO PLANO
 # =========================================================
+# Las dos frases con las que script_writer.ClienteConRespaldo cuenta qué
+# hace con cada modelo. Si cambian allí, hay que cambiarlas aquí.
+_RE_MODELO_FALLA = re.compile(r"(gemini-[\w.\-]+) (saturado|sin cuota por hoy|no existe); pruebo")
+_RE_MODELO_USA = re.compile(r"Escribiendo con (gemini-[\w.\-]+)\.")
+
+
+def _anotar_modelo(modelos, linea):
+    m = _RE_MODELO_USA.search(linea)
+    if m:
+        # Solo uno está en uso a la vez: el anterior vuelve a "disponible".
+        for k, v in list(modelos.items()):
+            if v == "en uso":
+                del modelos[k]
+        modelos[m.group(1)] = "en uso"
+        return
+    m = _RE_MODELO_FALLA.search(linea)
+    if m:
+        modelos[m.group(1)] = {"saturado": "saturado", "no existe": "no existe"}.get(
+            m.group(2), "sin cuota")
+
+
+def resumen_modelos(modelos):
+    """{"en_uso", "sin_cuota", "saturados", "no_existen"} para el panel, o None."""
+    if not modelos:
+        return None
+    de = lambda estado: [k for k, v in modelos.items() if v == estado]
+    uso = de("en uso")
+    return {"en_uso": uso[0] if uso else None, "sin_cuota": de("sin cuota"),
+            "saturados": de("saturado"), "no_existen": de("no existe")}
+
+
 class Trabajo:
     """Un comando corriendo, con su salida en vivo.
 
@@ -105,6 +137,11 @@ class Trabajo:
         self.luego = None           # acción que se encola sola si este acaba bien
         self.inicio = time.time()
         self._lock = threading.Lock()
+        # Qué le pasa a cada modelo de Gemini en esta tanda, según lo que va
+        # contando script_writer.ClienteConRespaldo. Se lleva aparte y no se
+        # saca de `lineas` porque esas se recortan: en una tanda larga el
+        # "sin cuota" del principio ya no estaría ahí.
+        self.modelos = {}
 
     def arrancar(self):
         self.proc = subprocess.Popen(
@@ -126,6 +163,7 @@ class Trabajo:
                 continue
             with self._lock:
                 self.lineas.append(limpia)
+                _anotar_modelo(self.modelos, limpia)
                 if len(self.lineas) > 400:
                     del self.lineas[:100]
         self.proc.wait()
@@ -173,8 +211,14 @@ class Trabajo:
             "segundos": int(time.time() - self.inicio),
             "lineas": lineas,
             # Lo que el diccionario de errores reconoce en la salida, en
-            # castellano llano y con qué hacer. Ver errores.py.
-            "explicacion": errores.explicar(lineas),
+            # castellano llano y con qué hacer. Ver errores.py. Salvo si
+            # falló, solo lo último: un "saturado" de hace diez guiones ya se
+            # resolvió, y explicarlo ahora (o en uno que acabó bien) confunde.
+            "explicacion": errores.explicar(
+                lineas if self.estado == "error"
+                else lineas[-4:] if self.estado in ("corriendo", "pausado")
+                else lineas[-15:]),
+            "modelos": resumen_modelos(self.modelos),
         }
 
 
@@ -322,8 +366,22 @@ def _encadenada(accion):
     return None
 
 
+# Cuántos escribe «Escribir guiones» respetando la cuota: el tope por
+# corrida de script_writer. Se lee de su código sin importarlo entero.
+def _guiones_por_tanda():
+    try:
+        with open(os.path.join(BASE_DIR, "script_writer.py"), encoding="utf-8") as f:
+            m = re.search(r"^MAX_POR_CORRIDA\s*=\s*(\d+)", f.read(), re.M)
+        return int(m.group(1)) if m else 12
+    except OSError:
+        return 12
+
+
+GUIONES_POR_TANDA = _guiones_por_tanda()
+
 # Qué va detrás de cada botón cuando la cadena está encendida.
-CADENA = {"buscar": "guiones", "buscar_youtube": "guiones", "guiones": "grabar_nuevas"}
+CADENA = {"buscar": "guiones", "buscar_youtube": "guiones", "guiones": "grabar_nuevas",
+          "guiones_todos": "grabar_nuevas"}
 
 
 def seguir_con_la_cola(terminado):
@@ -348,6 +406,8 @@ def seguir_con_la_cola(terminado):
         # que explica es justo por qué no hubo historias.
         if final["explicacion"]:
             hecho["explicacion"] = final["explicacion"]
+        if final["modelos"]:
+            hecho["modelos"] = final["modelos"]
         TRABAJO["hechos"].append(hecho)
         del TRABAJO["hechos"][:-HECHOS_QUE_SE_RECUERDAN]
 
@@ -1304,6 +1364,7 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "guiones_por_tanda": GUIONES_POR_TANDA,
         "archivadas": len(archivar_largas.archivadas()),
         "musica_hay_clave": bool(os.environ.get("JAMENDO_CLIENT_ID")),
         "youtube_hay_clave": bool(os.environ.get("YOUTUBE_API_KEY", "").strip()),
@@ -1347,6 +1408,10 @@ ACCIONES = {
     "diagnostico_youtube": ("Revisando la búsqueda en YouTube", [sys.executable, "youtube_scout.py", "--diagnostico"]),
     "probar_clave_youtube": ("Probando la clave de YouTube", [sys.executable, "youtube_scout.py", "--probar-clave"]),
     "guiones":    ("Escribiendo guiones", [sys.executable, "script_writer.py"]),
+    # Sin tope: todos los candidatos de una vez. Gasta más cuota, pero con
+    # los modelos de respaldo de script_writer suele llegar; lo que no salga
+    # vuelve a la cola intacto.
+    "guiones_todos": ("Escribiendo todos los guiones", [sys.executable, "script_writer.py", "--max", "0"]),
     "publicar":   ("Publicando en YouTube", [sys.executable, "publisher.py"]),
     "publicar_datos": ("Publicando (datos móviles)", [sys.executable, "publisher.py", "--con-datos"]),
     "previsualizar": ("Generando comparación de estilos", [sys.executable, "previsualizar_estilos.py"]),
@@ -1711,6 +1776,75 @@ def api_musica_auto():
     cfg["musica_rotacion_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
+
+
+# Los mismos que mira el render (crear_fondo_multi_corte): cualquier video
+# de la carpeta del repo que no sea un temporal ni un render numerado.
+EXT_FONDO = {".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
+             ".mov": "video/quicktime"}
+_DURACION_FONDO = {}   # (nombre, tamaño) -> segundos; medir es lanzar ffprobe
+
+
+def fondos_de_video():
+    import generar_video_maestro as gvm
+    excl = fondos_excluidos.cargar()
+    out = []
+    for f in sorted(os.listdir(BASE_DIR)):
+        ext = os.path.splitext(f)[1].lower()
+        if ext not in EXT_FONDO or f.startswith(("0", "1", "2", "3", "temp_", "fondo_ensamblado")):
+            continue
+        ruta = os.path.join(BASE_DIR, f)
+        try:
+            tam = os.path.getsize(ruta)
+        except OSError:
+            continue
+        clave = (f, tam)
+        if clave not in _DURACION_FONDO:
+            _DURACION_FONDO[clave] = round(gvm.medir_duracion_media(ruta) or 0.0, 1)
+        e = excl.get(f) or {}
+        out.append({"archivo": f, "mb": tam // (1024 * 1024), "duracion": _DURACION_FONDO[clave],
+                    "entero": bool(e.get("entero")), "tramos": e.get("tramos", [])})
+    return out
+
+
+def _fondo_valido(nombre):
+    """El nombre, si es uno de los fondos de la lista; si no, None. Así desde
+    el panel no se puede pedir ni marcar un archivo cualquiera."""
+    nombre = os.path.basename(str(nombre or ""))
+    return nombre if any(f["archivo"] == nombre for f in fondos_de_video()) else None
+
+
+@app.get("/api/fondos")
+def api_fondos():
+    return jsonify(fondos_de_video())
+
+
+@app.get("/fondo/<path:archivo>")
+def api_fondo(archivo):
+    """El video de fondo, con Range, para verlo y marcar tramos en el panel."""
+    nombre = _fondo_valido(archivo)
+    if not nombre:
+        abort(404)
+    ext = os.path.splitext(nombre)[1].lower()
+    return servir_con_rango(os.path.join(BASE_DIR, nombre), EXT_FONDO[ext])
+
+
+@app.post("/api/fondos/excluir")
+def api_fondos_excluir():
+    d = request.json or {}
+    nombre = _fondo_valido(d.get("archivo"))
+    if not nombre:
+        return jsonify({"error": "Ese fondo no existe."}), 404
+    try:
+        if "entero" in d:
+            fondos_excluidos.poner_entero(nombre, d["entero"])
+        elif "quitar" in d:
+            fondos_excluidos.quitar_tramo(nombre, d["quitar"])
+        else:
+            fondos_excluidos.excluir_tramo(nombre, d.get("inicio"), d.get("fin"))
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc) or "Tramo no válido."}), 400
+    return jsonify(fondos_de_video())
 
 
 @app.get("/api/errores")

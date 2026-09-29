@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor
 from PIL import Image, ImageDraw, ImageFont
 
 import almacen
+import fondos_excluidos  # tramos de los fondos que no se usan (panel: ✂ Tramos)
 import hyperframes_broll
 import narrador   # género de quien narra: decide la voz del video
 
@@ -621,7 +622,8 @@ def elegir_resolucion_render(es_short):
     exts = ('.webm', '.mp4', '.mkv', '.mov')
     prefijo = "fondo_vertical" if es_short else "fondo_horizontal"
     cands = [f for f in os.listdir('.') if f.endswith(exts)
-             and not f.startswith(('0', '1', '2', '3', 'temp_', 'fondo_ensamblado'))]
+             and not f.startswith(('0', '1', '2', '3', 'temp_', 'fondo_ensamblado'))
+             and fondos_excluidos.usable(f)]
     candidatos = ([f for f in cands if prefijo in f]
                   or [f for f in cands if 'fondo' in f]
                   or cands)
@@ -697,7 +699,12 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
                              w_res=None, h_res=None):
     exts = ('.webm', '.mp4', '.mkv', '.mov')
     prefijo = "fondo_vertical" if es_short else "fondo_horizontal"
-    cands = [f for f in os.listdir('.') if f.endswith(exts) and not f.startswith(('0','1','2','3','temp_','fondo_ensamblado'))]
+    # Los tramos y fondos que se marcaron para no usar (panel: Ajustes →
+    # Música y fondos → «✂ Tramos»). Un fondo excluido entero se quita aquí,
+    # antes de elegir por formato, para que su hueco lo cubra otro.
+    excluidos = fondos_excluidos.cargar()
+    cands = [f for f in os.listdir('.') if f.endswith(exts) and not f.startswith(('0','1','2','3','temp_','fondo_ensamblado'))
+             and fondos_excluidos.usable(f, excluidos)]
     # Preferencia en orden: material marcado para ESTE formato; si no hay,
     # cualquier fondo; si tampoco, lo que haya. El escalado de abajo recorta
     # al centro, así que un 16:9 sirve para shorts y viceversa — por eso caer
@@ -763,8 +770,27 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
         clip_dur = min(random.uniform(6.0, 12.0), duracion_requerida_sec - acumulado)
         vid_elegido = random.choice(vids_base)
         dur_total_vid = medir_duracion_media(vid_elegido)
-        
-        ss = random.uniform(0.5, dur_total_vid - clip_dur - 1.0) if dur_total_vid > (clip_dur + 2.0) else 0.0
+
+        if os.path.basename(vid_elegido) in excluidos:
+            # Tiene tramos que no se usan: el inicio sale solo de los huecos
+            # libres. Si ninguno llega a clip_dur se prueba un corte más
+            # corto; si ni así, ese fondo sale de la lista para este video.
+            ss = fondos_excluidos.elegir_inicio(vid_elegido, dur_total_vid, clip_dur, excluidos)
+            if ss is None:
+                hueco = max((b - a for a, b in fondos_excluidos.permitidos(
+                    vid_elegido, dur_total_vid, datos=excluidos)), default=0.0)
+                if hueco >= 2.0:
+                    clip_dur = hueco
+                    ss = fondos_excluidos.elegir_inicio(vid_elegido, dur_total_vid, clip_dur, excluidos)
+            if ss is None:
+                vids_base = [v for v in vids_base if v != vid_elegido]
+                print(f" ├─ ✂️  {vid_elegido}: sin hueco libre tras quitar sus tramos excluidos; se salta.")
+                if not vids_base:
+                    logger.error("Todos los fondos quedaron fuera por sus tramos excluidos.")
+                    break
+                continue
+        else:
+            ss = random.uniform(0.5, dur_total_vid - clip_dur - 1.0) if dur_total_vid > (clip_dur + 2.0) else 0.0
         nom_clip = gestor_temp.registrar(f"temp_clip_{num_index}_{len(archivos_clips)}.mp4")
         
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{ss:.2f}", "-i", vid_elegido, "-t", f"{clip_dur:.2f}", "-vf", filtro, "-c:v", "libx264", "-preset", "ultrafast", "-an", nom_clip]
