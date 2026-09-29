@@ -713,16 +713,25 @@ buscador. Una entrada nueva es añadir un dict a `CATALOGO`.
 corta y la cadena buscar → guiones → grabar se queda a medias hasta el día
 siguiente.
 
-### Lo que está puesto: pasar a flash-lite — SE ESCRIBIÓ
+### Lo que está puesto: los otros modelos gratis de Gemini — SE ESCRIBIÓ
 
-Google cuenta la cuota **de cada modelo aparte**. `ClienteConRespaldo`, en
-`script_writer.py`, se hace pasar por el cliente de Gemini: si `MODEL`
-contesta cuota agotada, sigue con `MODEL_RESPALDO` (`gemini-3.5-flash-lite`,
-el que ya usa `publisher.py`) el resto de la corrida. Los guiones salen algo
-menos pulidos, pero salen; y como no se guarda nada, al día siguiente se
-vuelve solo al modelo bueno. Si flash-lite también se agota, la corrida se
-corta como siempre, con un motivo que nombra los dos, y la cola queda
-intacta. Gratis y se renueva cada día: por eso ganó a lo de abajo.
+Google cuenta la cuota **por proyecto y por modelo**, así que cada modelo
+del plan gratis trae la suya. `ClienteConRespaldo`, en `script_writer.py`,
+se hace pasar por el cliente de Gemini: si `MODEL` contesta cuota agotada,
+pasa al siguiente de `MODELOS_RESPALDO` y sigue con él el resto de la
+corrida. El orden: primero los Flash (3.8, 3.7, 3.5; unas 20 peticiones al
+día cada uno según lo que publica AI Studio en septiembre de 2026, texto
+mejor) y al final los Flash-Lite (3.5 y 3.1; unas 500 al día, texto más
+llano). Un modelo que no exista en la cuenta —Google los retira— contesta
+404 y se salta, así que la lista puede quedarse vieja sin romper nada.
+
+Al día siguiente se vuelve solo a `MODEL`, porque no se guarda nada. Si se
+agotan todos, la corrida se corta como siempre y la cola queda intacta.
+Gratis y se renueva cada día: por eso ganó a lo de abajo.
+
+Las cifras no salen de la documentación de Google —que remite al panel de
+AI Studio, porque varían por cuenta— sino de guías de terceros que las
+copian de ahí. Las de cada uno se ven en aistudio.google.com/rate-limit.
 
 ### La idea aparcada: DeepSeek con su crédito gratis — NO ACTIVO
 

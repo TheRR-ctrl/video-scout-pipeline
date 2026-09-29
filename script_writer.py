@@ -31,9 +31,19 @@ RUTA_CANDIDATOS = cola.RUTA_CANDIDATOS
 RUTA_GUION = os.path.join(os.path.dirname(os.path.abspath(__file__)), "guion.txt")
 
 MODEL = "gemini-3.6-flash"
-# A este se pasa cuando MODEL agota la cuota del día (ver ClienteConRespaldo).
-# Es el mismo que ya usa publisher.py para los títulos.
-MODEL_RESPALDO = "gemini-3.5-flash-lite"
+# A estos se pasa, en orden, cuando MODEL agota la cuota del día (ver
+# ClienteConRespaldo). Todos entran en el plan gratis y Google cuenta la
+# cuota de cada uno aparte: primero los Flash (pocas peticiones al día,
+# mejor texto) y al final los Flash-Lite (cientos al día, texto más llano).
+# Uno que no exista en tu cuenta —Google los retira— se salta solo, así que
+# esta lista puede quedarse vieja sin romper nada.
+MODELOS_RESPALDO = [
+    "gemini-3.8-flash",
+    "gemini-3.7-flash",
+    "gemini-3.5-flash",
+    "gemini-3.5-flash-lite",   # el que ya usa publisher.py para los títulos
+    "gemini-3.1-flash-lite",
+]
 
 # Esperas entre reintentos cuando Gemini contesta 503. Cortas: el pico de
 # demanda suele durar segundos, y la corrida entera espera aquí.
@@ -350,37 +360,54 @@ def con_reintentos(fn, *args):
     return fn(*args)
 
 
-class ClienteConRespaldo:
-    """El cliente de Gemini, pero si MODEL agota la cuota del día sigue con
-    MODEL_RESPALDO en vez de cortar la tanda.
+def _no_existe(exc):
+    """True si Gemini dice que ese modelo no existe (o ya lo retiró)."""
+    texto = str(exc)
+    return getattr(exc, "code", None) == 404 or "NOT_FOUND" in texto or "is not found" in texto
 
-    Google cuenta la cuota de cada modelo aparte, así que cuando flash se
-    agota, flash-lite suele tener la suya entera. Los guiones de flash-lite
-    salen algo menos pulidos, pero salen; y al día siguiente se vuelve solo
-    a MODEL, porque esto no se guarda en ningún sitio.
+
+class ClienteConRespaldo:
+    """El cliente de Gemini, pero si MODEL agota la cuota del día va pasando
+    por MODELOS_RESPALDO en vez de cortar la tanda.
+
+    Google cuenta la cuota de cada modelo aparte, así que cuando uno se agota
+    el siguiente suele tener la suya entera. Un modelo que ya no existe se
+    salta igual. Al día siguiente se vuelve solo a MODEL, porque esto no se
+    guarda en ningún sitio.
 
     Se hace pasar por el cliente (client.models.generate_content), así que
     reescribir_historia, segmentar_transcripcion y partir_historias no
-    cambian. Si flash-lite también se agota, el error sube como siempre:
-    la corrida se corta y la cola queda intacta.
+    cambian. Si se agotan todos, el error sube como siempre: la corrida se
+    corta y la cola queda intacta.
     """
 
     def __init__(self, client):
         self._c = client
         self.models = self
         self.files = client.files
-        self.respaldo = False
+        self.actual = None          # el modelo de respaldo en uso, si hay
+        self._probados = set()
+
+    @property
+    def respaldo(self):
+        return self.actual is not None
 
     def generate_content(self, model=None, contents=None, config=None):
-        if not self.respaldo:
+        while True:
+            usar = self.actual or model
             try:
-                return self._c.models.generate_content(model=model, contents=contents, config=config)
+                return self._c.models.generate_content(model=usar, contents=contents, config=config)
             except Exception as exc:
-                if model == MODEL_RESPALDO or (motivo_error_gemini(exc) or ("",))[0] != "sin_cuota":
+                sin_cuota = (motivo_error_gemini(exc) or ("",))[0] == "sin_cuota"
+                if not (sin_cuota or _no_existe(exc)):
                     raise
-                logger.info(f"  {model} sin cuota por hoy: sigo con {MODEL_RESPALDO}.")
-                self.respaldo = True
-        return self._c.models.generate_content(model=MODEL_RESPALDO, contents=contents, config=config)
+                self._probados.add(usar)
+                siguiente = next((m for m in MODELOS_RESPALDO if m not in self._probados), None)
+                if siguiente is None:
+                    raise
+                logger.info(f"  {usar} {'sin cuota por hoy' if sin_cuota else 'no existe'}: "
+                            f"sigo con {siguiente}.")
+                self.actual = siguiente
 
 
 def probar_clave():
@@ -745,8 +772,8 @@ def main(argv=None):
         except Exception as exc:
             motivo = motivo_error_gemini(exc)
             if motivo and motivo[0] == "sin_cuota" and client.respaldo:
-                motivo = ("sin_cuota", f"Se agotó la cuota de Gemini por hoy, también la de "
-                                       f"{MODEL_RESPALDO}, el modelo de respaldo.")
+                motivo = ("sin_cuota", "Se agotó la cuota de Gemini por hoy, también la de "
+                                       "todos los modelos gratis de respaldo.")
             if motivo:
                 # Clave mala o cuota agotada: el problema es la configuración,
                 # no esta historia. Se corta aquí, y los candidatos que faltan
