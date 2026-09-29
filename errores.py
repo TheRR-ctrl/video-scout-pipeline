@@ -174,6 +174,15 @@ CATALOGO = [
      "que_hacer": "Libera espacio: en Revisar, borra videos ya subidos; en la Cola, «Limpiar»; "
                   "y en Ajustes → Más opciones, «Recomprimir» los que pesan de más. "
                   "Luego vuelve a lanzar lo que falló."},
+    {"id": "bateria_espera", "tema": "Teléfono",
+     "patrones": [r"Grabación en espera", r"sin cargador \(el mínimo"],
+     "titulo": "La grabación espera al cargador",
+     "que_pasa": "La batería estaba por debajo del mínimo y el teléfono no cargaba, así que lo "
+                 "que se graba solo no empezó. No es un fallo: no se perdió nada.",
+     "que_hacer": "Conecta el cargador con el panel abierto y empieza sola en un minuto. Si "
+                  "no quieres esperar, «Grabar ya igualmente» en la Cola; para que no vuelva "
+                  "a esperar, apágalo o baja el mínimo en Ajustes → Subida.",
+     "ir": "ajustes"},
     {"id": "sin_wifi", "tema": "Teléfono",
      "patrones": [r"sin WiFi(?!, pero)", r"solo con WiFi"],
      "titulo": "Esperando WiFi",

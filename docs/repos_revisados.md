@@ -773,3 +773,27 @@ fondos → «✂ Tramos que no se usan» abre cada fondo en un reproductor con
 «Marcar inicio» / «Marcar fin»; va en una hoja aparte del repintado para
 que el video no se reinicie mientras se marca. `/fondo/<archivo>` solo sirve
 archivos de la lista de fondos.
+
+## 15. Grabar solo con batería o cargador — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** Lo que se graba solo (la cadena del panel, el cron) arranca
+aunque el teléfono esté al 30 % y desenchufado, y un render largo lo deja
+seco.
+
+**Qué se encontró.** Todo lo que hay en GitHub alrededor de Termux y la
+batería son envoltorios de `termux-battery-status` para mirarla:
+`cobrasanjay1/Termux_Battery_Status` (avisa por voz al 80 %),
+`NathanielJS1541/Termux-Battery-Monitor` (registra la carga),
+`usmannasution80/termux-charging-monitor`, `BuriXon-code/Termux-Battery` (la
+pinta bonita en la terminal). Ninguno decide si algo puede correr ni espera
+al cargador para arrancarlo; depender de uno sería traer un script entero
+para usar dos campos del JSON (`percentage`, `plugged`).
+
+**Qué se hizo.** `bateria.py` lee esos dos campos (con timeout: sin la app
+Termux:API la orden se queda colgada) y decide. Si toca esperar, lo apunta
+en `pipeline_state/grabar_al_cargar.json`; el panel enseña la espera en la
+Cola y un hilo del servidor (`vigilar_cargador`) mira la batería cada
+minuto, **solo mientras haya espera** —despertar Termux:API sin motivo
+también gasta—, y graba en cuanto se conecta el cargador. Si la batería no
+se puede leer, no se frena nada.
+

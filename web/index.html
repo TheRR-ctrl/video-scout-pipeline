@@ -1570,11 +1570,33 @@ function olvidarLoQueSeRenumero(){
 // Qué parte de la cola se ve: todo, lo que cabe en un short, o lo largo.
 let filtroCola = 'todo';
 
+/* La grabación automática que se quedó esperando al cargador (bateria.py).
+   Se ve aquí porque es donde están las historias que no se grabaron. */
+function avisoBateria(){
+  const b = E.bateria, e = b && b.espera;
+  if(!e) return '';
+  return `<div class="aviso warn"><span>🔌</span><div>
+    <b>Grabación en espera${e.porcentaje != null ? ` — batería al ${e.porcentaje}%` : ''}.</b>
+    Con menos del ${b.umbral}% y sin cargador no se graba solo. Empieza sola en cuanto
+    conectes el teléfono (el panel tiene que estar abierto).
+    <div class="acciones-aviso">
+      <button class="btn go sm" onclick="esperaBateria('grabar')">🎬 Grabar ya igualmente</button>
+      <button class="btn sm" onclick="esperaBateria('olvidar')">Olvidarla</button>
+    </div>
+  </div></div>`;
+}
+async function esperaBateria(que){
+  if(que === 'grabar' && !confirm('¿Grabar ahora aunque la batería esté baja?\n\nRenderizar es lo que más batería gasta.')) return;
+  try{ const j = await post('/api/bateria/espera', {que});
+    toast(j.mensaje || 'Espera olvidada'); refrescar();
+  }catch(e){ toast(e.message); }
+}
+
 function firmaCola(){
   return [filtroCola, E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
-          E.historias.map(h=>h.larga?1:0).join('')].join('~');
+          E.historias.map(h=>h.larga?1:0).join(''), JSON.stringify(E.bateria && E.bateria.espera)].join('~');
 }
 /* El aviso de limpiar la cola sale en dos sitios —aquí y en Mantenimiento—
    y dice justo lo que se pierde, que es la numeración. Una sola copia para
@@ -1679,6 +1701,7 @@ function pintaCola(){
       : `${grabadas} más ya tienen video y no se enseñan.`}
       <button class="btn sm" style="margin-left:4px" onclick="verGrabadas=${!verGrabadas};pintar()"
         >${verGrabadas ? 'Ocultarlas' : 'Verlas'}</button></p>`}
+    ${avisoBateria()}
     ${!esperando ? '' : `<div class="aviso warn"><span>✍</span><div>
       <b>${esperando} candidato(s)</b> esperando guion. Lo que encuentran Reddit y
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
@@ -2698,7 +2721,7 @@ function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
-          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto,
+          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria),
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
@@ -3007,6 +3030,17 @@ function pintaAjustes(){
         <button class="btn sm" id="b-cadena-auto">${E.cadena_auto?'activado':'desactivado'}</button>
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Con poca batería, esperar al cargador</div><div class="m">Si la batería está por
+          debajo del
+          <select class="btn sm" id="s-bateria-umbral" style="padding:2px 4px" ${E.bateria.cuidar?'':'disabled'}>
+            ${[30,40,50,60,70,80].concat(E.bateria.umbral % 10 ? [E.bateria.umbral] : []).sort((a,b)=>a-b).map(u =>
+              `<option value="${u}" ${u===E.bateria.umbral?'selected':''}>${u}%</option>`).join('')}
+          </select>
+          y el teléfono no está cargando, lo que se graba solo espera y empieza al conectarlo.
+          Grabar a mano no espera nunca. Necesita la app Termux:API.</div></div>
+        <button class="btn sm" id="b-bateria">${E.bateria.cuidar?'activado':'desactivado'}</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Partir solas las historias largas</div><div class="m">Apagado, solo se parte la que
           elijas con «✂ Partir» en la Cola. Encendido, las que no caben en un short se parten al
           escribir el guion y en «Todo de una pasada».</div></div>
@@ -3283,6 +3317,17 @@ function pintaAjustes(){
       toast(j.auto ? 'Buscar seguirá solo con guiones y grabación'
                    : 'Cada paso esperará a que lo pulses'); refrescar();
     }catch(e){ toast(e.message); }
+  };
+  $('#b-bateria').onclick = async ()=>{
+    try{ const j = await post('/api/bateria/cuidar',{cuidar: !E.bateria.cuidar});
+      toast(j.cuidar ? `Con menos del ${j.umbral}% se esperará al cargador`
+                     : 'Se grabará solo aunque la batería esté baja'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#s-bateria-umbral').onchange = async e =>{
+    try{ const j = await post('/api/bateria/cuidar',{umbral: +e.target.value});
+      toast(`Mínimo para grabar solo: ${j.umbral}%`); refrescar();
+    }catch(err){ toast(err.message); refrescar(); }
   };
   $('#b-partir-auto').onclick = async ()=>{
     try{ const j = await post('/api/partir/auto',{auto: !E.partir_auto});

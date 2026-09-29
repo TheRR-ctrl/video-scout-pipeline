@@ -2172,9 +2172,11 @@ def renderizar_una_historia(contenido, num=1):
                                "-bufsize", bufsize_chip]
         usar_chip_android = ES_ANDROID and bool(vid_cfg.get("usar_chip_android", False))
 
-        txt_ren = " ├─ 🚀 [4/4] Render:"
-
-        def ejecutar_render(flags_encoder):
+        # Con qué se codifica va en la misma línea del avance: el panel la
+        # enseña en la tarjeta del trabajo, y es la única forma de saber
+        # desde el teléfono si el chip se está usando de verdad.
+        def ejecutar_render(flags_encoder, con="CPU"):
+            txt_ren = f" ├─ 🚀 [4/4] Render ({con}):"
             cmd = cmd_ff + flags_encoder + flags_audio_comunes + [ruta_out]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, encoding='utf-8', errors='ignore')
 
@@ -2217,25 +2219,25 @@ def renderizar_una_historia(contenido, num=1):
                     f"ffmpeg falló (código {proc.returncode}) en el video {num}:\n  "
                     + "\n  ".join(ultimas)
                 )
-            return ok
+            return ok, txt_ren
 
         if ES_ANDROID:
             if usar_chip_android:
-                exito_render = ejecutar_render(flags_chip_android)
+                exito_render, txt_ren = ejecutar_render(flags_chip_android, "chip")
                 if not exito_render:
                     logger.warning(
                         f"Render con el chip de video (h264_mediacodec) falló para el video {num}, "
                         "reintentando con CPU (libx264). Si vuelve a fallar en más videos, apaga el "
                         "interruptor «Usar el chip de video» en Ajustes."
                     )
-                    exito_render = ejecutar_render(flags_cpu)
+                    exito_render, txt_ren = ejecutar_render(flags_cpu)
             else:
-                exito_render = ejecutar_render(flags_cpu)
+                exito_render, txt_ren = ejecutar_render(flags_cpu)
         else:
-            exito_render = ejecutar_render(flags_gpu)
+            exito_render, txt_ren = ejecutar_render(flags_gpu, "GPU")
             if not exito_render:
                 logger.warning(f"Render GPU falló para video {num}, reintentando con CPU (libx264).")
-                exito_render = ejecutar_render(flags_cpu)
+                exito_render, txt_ren = ejecutar_render(flags_cpu)
 
         if not exito_render:
             raise RuntimeError("El render final falló tanto en GPU/chip como en CPU.")

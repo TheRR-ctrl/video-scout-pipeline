@@ -584,6 +584,16 @@ above). Each step is only queued if there is something for it to do. Turn it
 off in Ajustes → Subida (*Buscar, escribir y grabar seguido*,
 `"cadena_automatica": false`) to press each step yourself.
 
+Rendering is what drains the battery most, so anything rendered *on its own*
+(the chain above, or the cron's `pipeline.py`) waits when the battery is below
+60 % and the phone isn't charging (`bateria.py`, via `termux-battery-status`).
+The Cola shows the wait with «Grabar ya igualmente»; with the panel open, it
+starts by itself about a minute after you plug the charger in. Turn it off or
+change the threshold in Ajustes → Subida (*Con poca batería, esperar al
+cargador*, `"cuidar_bateria"` / `"bateria_minima_grabar"`). Render buttons
+pressed by hand never wait. If the battery can't be read (no Termux:API app,
+not Android), nothing waits.
+
 ```bash
 python pipeline.py                # runs all 4 stages
 python pipeline.py --hasta guion  # only scout + script (stop before rendering)
