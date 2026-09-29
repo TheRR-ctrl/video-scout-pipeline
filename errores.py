@@ -34,11 +34,13 @@ CATALOGO = [
                   "uno con su propia cuota: si ves esto al escribir guiones, se agotaron todos."},
     {"id": "gemini_saturado", "tema": "Gemini",
      "patrones": [r"\b503\b.*(gemini|generativelanguage)", r"UNAVAILABLE", r"model is overloaded",
-                  r"high demand"],
+                  r"high demand", r"Gemini (sigue )?saturado", r"gemini-[\w.-]+ saturado"],
      "titulo": "Gemini está saturado",
-     "que_pasa": "Los servidores de Google tienen demasiada gente ahora mismo. No es tu clave.",
-     "que_hacer": "Nada que arreglar: el pipeline ya reintenta solo. Si falla igual, "
-                  "vuelve a pulsar en unos minutos."},
+     "que_pasa": "Los servidores de Google tienen demasiada gente ahora mismo. No es tu clave "
+                 "ni tu cuota, y no se pierde nada.",
+     "que_hacer": "Nada que arreglar: salta solo a otro modelo gratis de Gemini y, si están "
+                  "todos saturados, espera y reintenta. Lo que no salga vuelve a la cola sin "
+                  "gastar intento; vuelve a pulsar en unos minutos."},
     {"id": "gemini_clave_mala", "tema": "Gemini",
      "patrones": [r"API_KEY_INVALID", r"API key not valid", r"GEMINI_API_KEY no es válida"],
      "titulo": "Gemini: la clave no vale",
