@@ -22,6 +22,15 @@ import sys
 
 CATALOGO = [
     # ---- Gemini (guiones, títulos, revisión) ------------------------------
+    # Va antes que la cuota de Gemini y la tapa: dice lo mismo y algo más.
+    {"id": "deepseek_sin_credito", "tema": "Gemini",
+     "patrones": [r"DEEPSEEK_SIN_CREDITO_GRATIS", r"crédito gratis de DeepSeek"],
+     "tapa": ["gemini_cuota"],
+     "titulo": "Gemini sin cuota y DeepSeek sin crédito gratis",
+     "que_pasa": "Se acabó la cuota del día de Gemini, y el regalo de DeepSeek, que es de una "
+                 "sola vez, ya se gastó. El pipeline no usa saldo de pago, a propósito.",
+     "que_hacer": "Esperar a que se renueve la cuota de Gemini (una vez al día). Los "
+                  "candidatos siguen en la cola, intactos."},
     {"id": "gemini_cuota", "tema": "Gemini",
      "patrones": [r"RESOURCE_EXHAUSTED", r"exceeded your current quota",
                   r"agotó la cuota de Gemini", r"generativelanguage.*429", r"429.*generativelanguage"],
@@ -29,7 +38,10 @@ CATALOGO = [
      "que_pasa": "La clave funciona, pero el plan gratis ya gastó lo que permite hoy.",
      "que_hacer": "Esperar a que se renueve (una vez al día) y volver a pulsar. "
                   "Crear otra clave en el mismo proyecto no sirve: la cuota es por proyecto. "
-                  "Con facturación activada en ese proyecto desaparece el tope."},
+                  "Con facturación activada en ese proyecto desaparece el tope. "
+                  "Con una clave de DeepSeek en Conectar servicios, los guiones siguen con "
+                  "su crédito gratis mientras dure.",
+     "ir": "ajustes"},
     {"id": "gemini_saturado", "tema": "Gemini",
      "patrones": [r"\b503\b.*(gemini|generativelanguage)", r"UNAVAILABLE", r"model is overloaded",
                   r"high demand"],
@@ -227,7 +239,7 @@ _GENERICOS = {"limite_generico"}
 
 
 def _publica(e):
-    return {k: v for k, v in e.items() if k != "patrones"}
+    return {k: v for k, v in e.items() if k not in ("patrones", "tapa")}
 
 
 def explicar(lineas, maximo=3):
@@ -239,12 +251,14 @@ def explicar(lineas, maximo=3):
     texto = lineas if isinstance(lineas, str) else "\n".join(lineas or [])
     if not texto:
         return []
-    halladas = []
+    halladas, tapadas = [], set()
     for e, pats in _COMPILADOS:
-        if e["id"] in _GENERICOS and halladas:
+        if (e["id"] in _GENERICOS and halladas) or e["id"] in tapadas:
             continue
         if any(p.search(texto) for p in pats):
             halladas.append(_publica(e))
+            # "tapa": entradas que esta ya cubre y que sobrarían detrás.
+            tapadas.update(e.get("tapa", ()))
             if len(halladas) >= maximo:
                 break
     return halladas
