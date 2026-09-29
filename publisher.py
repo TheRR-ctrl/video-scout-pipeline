@@ -474,6 +474,9 @@ def construir_descripcion(metadata, video):
     return "\n\n".join(partes)
 
 
+TROZO_SUBIDA = 8 * 1024 * 1024
+
+
 def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
     body = {
         "snippet": {
@@ -488,14 +491,23 @@ def subir_video(servicio, ruta_video, metadata, video, publish_at_iso):
             "selfDeclaredMadeForKids": False,
         },
     }
-    media = MediaFileUpload(ruta_video, chunksize=-1, resumable=True, mimetype="video/mp4")
+    # En trozos de 8 MB y no de una vez (chunksize=-1): de una vez, YouTube
+    # no contesta hasta el final y el panel se pasaba minutos sin decir nada.
+    # Cada trozo que llega es una línea con el porcentaje, que la tarjeta del
+    # trabajo convierte en barra. Tiene que ser múltiplo de 256 KB.
+    media = MediaFileUpload(ruta_video, chunksize=TROZO_SUBIDA, resumable=True, mimetype="video/mp4")
     request = servicio.videos().insert(part="snippet,status", body=body, media_body=media)
 
+    nombre = os.path.basename(ruta_video)
+    total_mb = os.path.getsize(ruta_video) / (1024 * 1024)
+    logger.info(f"Subiendo {nombre}: 0% (0/{total_mb:.0f} MB)")
     respuesta = None
     while respuesta is None:
         status, respuesta = request.next_chunk()
         if status:
-            logger.info(f"Subiendo {os.path.basename(ruta_video)}: {int(status.progress() * 100)}%")
+            logger.info(f"Subiendo {nombre}: {int(status.progress() * 100)}% "
+                        f"({status.resumable_progress / (1024 * 1024):.0f}/{total_mb:.0f} MB)")
+    logger.info(f"Subiendo {nombre}: 100% ({total_mb:.0f}/{total_mb:.0f} MB)")
 
     return respuesta["id"]
 
