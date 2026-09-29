@@ -3551,7 +3551,9 @@ function pintar(){
 let firmaPaso = null;
 function pintaPaso(){
   const s = E && E.siguiente, v = vistaActual();
-  const visible = s && (v === 'revisar' || v === 'cola');
+  // Si el paso solo lleva a la pestaña en la que ya estás («Revisa 40
+  // videos» estando en Revisar), el botón no haría nada: no se enseña.
+  const visible = s && (v === 'revisar' || v === 'cola') && !(s.ir && !s.accion && s.ir === v);
   const f = visible ? JSON.stringify(s) + v : '';
   if(f === firmaPaso) return;
   firmaPaso = f;
