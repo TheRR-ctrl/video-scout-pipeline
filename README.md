@@ -96,7 +96,14 @@ schedule (cron, Termux, or GitHub Actions).
    a «✂ Partir en N» button. Turning on *Partir solas las historias largas*
    (Ajustes → Automático, `"partir_automatico": true`) makes `script_writer.py`
    split new stories as it writes them and adds the step to "Todo de una
-   pasada"; it's off by default. The text is never rewritten: Gemini
+   pasada"; it's off by default. In the video, the voice and the intro card
+   say the plain title first and the part right after, as the narration's
+   first sentence ("… Parte 2 de 3."), so a viewer landing mid-series knows
+   where they are. The whole story is also kept in `guion_largas.txt`; once
+   long-form opens, `pipeline.py` puts it back in the queue and it gets
+   rendered and uploaded whole as a long video. The review doesn't count a
+   story's parts (or its whole version) as duplicates of each other. The
+   text is never rewritten: Gemini
    only picks *between which sentences* to cut, aiming for a cliffhanger, and
    without it the cut falls at equal lengths. The part marker goes at the
    *front* of the title, because the video's filename is the title cut at 120

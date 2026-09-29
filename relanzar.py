@@ -231,6 +231,11 @@ def grupos_repetidos(registros):
         h_cabeza = cola.huella(cabeza.get("titulo_youtube", ""))
         grupo, resto = [cabeza], []
         for otro in sin_agrupar:
+            if _misma_serie(cabeza, otro):
+                # Las partes de una historia partida, y su versión entera
+                # para los largos, se parecen a propósito: no son refritos.
+                resto.append(otro)
+                continue
             h = cola.huella(otro.get("titulo_youtube", ""))
             if cola.parecido(h_cabeza, h) >= cola.PARECIDO_MINIMO:
                 grupo.append(otro)
@@ -240,6 +245,16 @@ def grupos_repetidos(registros):
         if len(grupo) > 1:
             grupos.append(grupo)
     return grupos
+
+
+def _misma_serie(a, b):
+    """¿Son dos trozos de la misma historia partida (o una parte y la
+    historia entera)? Por el nombre del archivo: «Parte_2_de_3__Mi_hermana»
+    y «Mi_hermana» son la misma, sin la marca de parte."""
+    ca, cb = apodo_de_registro(a), apodo_de_registro(b)
+    if not (ES_PARTE.match(ca) or ES_PARTE.match(cb)):
+        return False
+    return bool(ca) and ES_PARTE.sub("", ca).lstrip("_") == ES_PARTE.sub("", cb).lstrip("_")
 
 
 def _vistas(p):
