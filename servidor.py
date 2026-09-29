@@ -40,6 +40,7 @@ except ImportError:
 import cola      # la cola de candidatos que dejaron los buscadores
 import archivar_largas  # las historias largas apartadas de la cola
 import errores   # el diccionario: qué significa cada error y qué hacer
+import fondos_excluidos  # tramos de los fondos que el render no usa
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
@@ -1756,6 +1757,75 @@ def api_musica_auto():
     cfg["musica_rotacion_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["musica_rotacion_automatica"]})
+
+
+# Los mismos que mira el render (crear_fondo_multi_corte): cualquier video
+# de la carpeta del repo que no sea un temporal ni un render numerado.
+EXT_FONDO = {".mp4": "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
+             ".mov": "video/quicktime"}
+_DURACION_FONDO = {}   # (nombre, tamaño) -> segundos; medir es lanzar ffprobe
+
+
+def fondos_de_video():
+    import generar_video_maestro as gvm
+    excl = fondos_excluidos.cargar()
+    out = []
+    for f in sorted(os.listdir(BASE_DIR)):
+        ext = os.path.splitext(f)[1].lower()
+        if ext not in EXT_FONDO or f.startswith(("0", "1", "2", "3", "temp_", "fondo_ensamblado")):
+            continue
+        ruta = os.path.join(BASE_DIR, f)
+        try:
+            tam = os.path.getsize(ruta)
+        except OSError:
+            continue
+        clave = (f, tam)
+        if clave not in _DURACION_FONDO:
+            _DURACION_FONDO[clave] = round(gvm.medir_duracion_media(ruta) or 0.0, 1)
+        e = excl.get(f) or {}
+        out.append({"archivo": f, "mb": tam // (1024 * 1024), "duracion": _DURACION_FONDO[clave],
+                    "entero": bool(e.get("entero")), "tramos": e.get("tramos", [])})
+    return out
+
+
+def _fondo_valido(nombre):
+    """El nombre, si es uno de los fondos de la lista; si no, None. Así desde
+    el panel no se puede pedir ni marcar un archivo cualquiera."""
+    nombre = os.path.basename(str(nombre or ""))
+    return nombre if any(f["archivo"] == nombre for f in fondos_de_video()) else None
+
+
+@app.get("/api/fondos")
+def api_fondos():
+    return jsonify(fondos_de_video())
+
+
+@app.get("/fondo/<path:archivo>")
+def api_fondo(archivo):
+    """El video de fondo, con Range, para verlo y marcar tramos en el panel."""
+    nombre = _fondo_valido(archivo)
+    if not nombre:
+        abort(404)
+    ext = os.path.splitext(nombre)[1].lower()
+    return servir_con_rango(os.path.join(BASE_DIR, nombre), EXT_FONDO[ext])
+
+
+@app.post("/api/fondos/excluir")
+def api_fondos_excluir():
+    d = request.json or {}
+    nombre = _fondo_valido(d.get("archivo"))
+    if not nombre:
+        return jsonify({"error": "Ese fondo no existe."}), 404
+    try:
+        if "entero" in d:
+            fondos_excluidos.poner_entero(nombre, d["entero"])
+        elif "quitar" in d:
+            fondos_excluidos.quitar_tramo(nombre, d["quitar"])
+        else:
+            fondos_excluidos.excluir_tramo(nombre, d.get("inicio"), d.get("fin"))
+    except (ValueError, TypeError) as exc:
+        return jsonify({"error": str(exc) or "Tramo no válido."}), 400
+    return jsonify(fondos_de_video())
 
 
 @app.get("/api/errores")

@@ -306,9 +306,10 @@
   .aviso > div{min-width:0}
   /* Diccionario de errores: hoja a pantalla completa, fuera de las vistas
      para que el repintado de cada 1,5 s no se la lleve por delante. */
-  #dicc{position:fixed;inset:0;z-index:60;background:var(--ground);overflow-y:auto;
+  #dicc, #hoja-fondos{position:fixed;inset:0;z-index:60;background:var(--ground);overflow-y:auto;
     padding:16px;display:none}
-  #dicc.on{display:block}
+  #dicc.on, #hoja-fondos.on{display:block}
+  #hoja-fondos video{width:100%;max-height:52vh;background:#000;border-radius:10px;margin-top:10px}
   #dicc .e{background:var(--surface);border:1px solid var(--line);border-radius:10px;
     padding:11px 13px;margin-top:8px}
   #dicc .e > b{display:block}
@@ -388,6 +389,7 @@
   <div id="paso-slot"></div>
   <div id="job-slot"></div>
   <div id="dicc"></div>
+  <div id="hoja-fondos"></div>
   <div id="cola-slot"></div>
 
   <section class="view on" id="v-revisar"></section>
@@ -579,6 +581,94 @@ function enlazarArchivadas(){
     if(!confirm('¿Devolver a la cola las historias largas guardadas? Van al final, así que ninguna otra cambia de número.')) return;
     ejecutar('devolver_largas');
   };
+}
+
+/* ---------- tramos de los fondos que no se usan (fondos_excluidos.py) ----------
+   Hoja a pantalla completa, fuera de las vistas: el repintado periódico
+   no la toca, así que el video no se reinicia mientras marcas. */
+let fondosCache = [], fondoAbierto = null, marca = {inicio:null, fin:null};
+const mmss = t => { t = Math.max(0, +t||0); const m = Math.floor(t/60), s = t - m*60;
+  return `${m}:${s < 10 ? '0' : ''}${s.toFixed(1)}`; };
+function cerrarFondos(){
+  const v = $('#hoja-fondos video'); if(v) v.pause();
+  $('#hoja-fondos').classList.remove('on'); document.body.style.overflow = '';
+}
+async function abrirFondos(archivo){
+  const hoja = $('#hoja-fondos');
+  try{ fondosCache = await api('/api/fondos'); }
+  catch(e){ return toast('No se pudo cargar la lista de fondos: ' + e.message); }
+  fondoAbierto = archivo || null; marca = {inicio:null, fin:null};
+  hoja.classList.add('on'); document.body.style.overflow = 'hidden'; hoja.scrollTop = 0;
+  fondoAbierto ? pintaEditorFondo() : pintaListaFondos();
+}
+function pintaListaFondos(){
+  $('#hoja-fondos').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center">
+      <h2 style="flex-grow:1;margin:0">✂ Tramos que no se usan</h2>
+      <button class="btn" onclick="cerrarFondos()">✕ Cerrar</button></div>
+    <p class="sub">El render corta trozos de 6 a 12 segundos de estos videos, en puntos al azar.
+      Abre uno, míralo y marca lo que no quieres que salga: ningún corte lo volverá a pisar.</p>
+    ${!fondosCache.length ? '<p class="sub">No hay videos de fondo en la carpeta.</p>' : `<div class="list">${fondosCache.map(f=>`
+      <div class="row" style="grid-template-columns:1fr auto;gap:8px">
+        <div style="min-width:0"><div class="t" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.archivo)}</div>
+          <div class="m">${mmss(f.duracion)} · ${f.mb} MB · ${f.entero ? '🚫 no se usa'
+            : f.tramos.length ? `✂ ${f.tramos.length} tramo${f.tramos.length>1?'s':''} fuera` : 'se usa entero'}</div></div>
+        <button class="btn sm" data-abrir-fondo="${esc(f.archivo)}">Abrir</button>
+      </div>`).join('')}</div>`}`;
+  document.querySelectorAll('[data-abrir-fondo]').forEach(b => b.onclick = ()=>{
+    fondoAbierto = b.dataset.abrirFondo; marca = {inicio:null, fin:null}; pintaEditorFondo();
+  });
+}
+function pintaEditorFondo(){
+  const f = fondosCache.find(x=>x.archivo===fondoAbierto);
+  if(!f) return pintaListaFondos();
+  $('#hoja-fondos').innerHTML = `
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="btn sm" id="fx-volver">← Fondos</button>
+      <b style="flex-grow:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.archivo)}</b>
+      <button class="btn sm" onclick="cerrarFondos()">✕</button></div>
+    <video id="fx-video" controls playsinline preload="metadata" src="/fondo/${encodeURIComponent(f.archivo)}"></video>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">
+      <button class="btn" id="fx-ini">⏱ Marcar inicio</button>
+      <button class="btn" id="fx-fin">⏱ Marcar fin</button>
+      <button class="btn go" id="fx-guardar" disabled>✂ Excluir este tramo</button>
+    </div>
+    <div class="m" id="fx-marca" style="margin-top:6px"></div>
+    <div id="fx-tramos"></div>
+    <div style="margin-top:14px"><button class="btn" id="fx-entero">${f.entero ? '✅ Volver a usar este fondo' : '🚫 No usar este fondo nunca'}</button></div>`;
+  const v = $('#fx-video');
+  const pintaMarca = ()=>{
+    $('#fx-marca').textContent = `Inicio: ${marca.inicio===null ? '—' : mmss(marca.inicio)} · Fin: ${marca.fin===null ? '—' : mmss(marca.fin)}`;
+    $('#fx-guardar').disabled = marca.inicio===null || marca.fin===null;
+  };
+  const pintaTramos = ()=>{
+    const g = fondosCache.find(x=>x.archivo===fondoAbierto) || f;
+    $('#fx-tramos').innerHTML = !g.tramos.length ? `<p class="sub" style="margin-top:10px">Ningún tramo fuera: se usa entero.</p>`
+      : `<h3 class="sec" style="margin-top:14px">Tramos que no se usan</h3><div class="list">${g.tramos.map((t,i)=>`
+        <div class="row" style="grid-template-columns:1fr auto auto;gap:8px">
+          <span class="t">${mmss(t[0])} – ${mmss(t[1])}</span>
+          <button class="btn sm" data-ir="${t[0]}">▶ Ver</button>
+          <button class="tbtn" title="Quitar este tramo" data-quitar="${i}">✕</button>
+        </div>`).join('')}</div>`;
+    document.querySelectorAll('[data-ir]').forEach(b => b.onclick = ()=>{ v.currentTime = +b.dataset.ir; v.play(); });
+    document.querySelectorAll('[data-quitar]').forEach(b => b.onclick = ()=> guardarFondo({quitar: +b.dataset.quitar}, pintaTramos));
+  };
+  $('#fx-volver').onclick = ()=>{ v.pause(); fondoAbierto = null; pintaListaFondos(); };
+  $('#fx-ini').onclick = ()=>{ marca.inicio = v.currentTime; pintaMarca(); };
+  $('#fx-fin').onclick = ()=>{ marca.fin = v.currentTime; pintaMarca(); };
+  $('#fx-guardar').onclick = ()=> guardarFondo({inicio: marca.inicio, fin: marca.fin}, ()=>{
+    marca = {inicio:null, fin:null}; pintaMarca(); pintaTramos(); toast('✓ Ese tramo ya no se usará');
+  });
+  $('#fx-entero').onclick = ()=>{
+    const g = fondosCache.find(x=>x.archivo===fondoAbierto) || f;
+    guardarFondo({entero: !g.entero}, ()=>{ v.pause(); pintaEditorFondo();
+      toast(g.entero ? '✓ Se vuelve a usar' : '✓ Este fondo ya no se usará'); });
+  };
+  pintaMarca(); pintaTramos();
+}
+async function guardarFondo(cambio, luego){
+  try{ fondosCache = await post('/api/fondos/excluir', Object.assign({archivo: fondoAbierto}, cambio)); luego(); }
+  catch(e){ toast(e.message); }
 }
 
 /* ---------- diccionario de errores (errores.py) ---------- */
@@ -2796,7 +2886,10 @@ function pintaAjustes(){
         <div class="muted" style="margin:8px 0">
           Plantilla: ${m.plantilla?esc(m.plantilla):'<span style="color:var(--warn)">falta — se usa el respaldo</span>'} ·
           Efectos: ${m.efectos||'<span style="color:var(--warn)">ninguno</span>'}</div>
-        <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
+          <button class="btn sm" onclick="abrirFondos()">✂ Tramos que no se usan</button>
+        </div>
       </div>
     </div>
 

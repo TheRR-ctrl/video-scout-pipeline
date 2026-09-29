@@ -751,3 +751,25 @@ está entero en el commit `4dfd80b` (`deepseek.py`), por si algún día hace fal
 - **Si se retoma.** Con `requests`, no con el SDK de OpenAI: arrastra
   `pydantic-core`, Rust sin rueda de Android (§11.4). Kimi (Moonshot) se
   miró y tampoco tiene nivel gratis permanente; además cuesta bastante más.
+
+## 14. Tramos de los fondos que no se usan — NO SE ADOPTÓ NADA, se escribió
+
+**El problema.** El render corta trozos de 6-12 s de cualquier fondo, desde
+un punto al azar. Si un fondo tiene una escena que no conviene —el aviso de
+"seguridad infantil" del canal salió de un clip de fondo—, la única salida
+era borrar el archivo entero.
+
+**Qué se encontró.** `Denperidge/Youtube-Clipgen` saca trozos al azar sin
+repetir metraje, pero no deja vetar tramos; `coderefinery/ffmpeg-editlist`
+y `slhck/ffmpeg-black-split` cortan con listas fijas o por negro, no eligen
+al azar dentro de lo permitido. Ninguno encaja en `crear_fondo_multi_corte`.
+
+**Qué se hizo.** `fondos_excluidos.py`: por archivo, una lista de tramos
+fuera y un "no usar entero", en `pipeline_state/fondos_excluidos.json`. El
+render elige el punto de inicio solo dentro de los huecos libres (pesados
+por lo que ofrece cada uno), acorta el corte si el hueco más grande no llega
+y salta el fondo si no le queda ninguno. En el panel, Ajustes → Música y
+fondos → «✂ Tramos que no se usan» abre cada fondo en un reproductor con
+«Marcar inicio» / «Marcar fin»; va en una hoja aparte del repintado para
+que el video no se reinicie mientras se marca. `/fondo/<archivo>` solo sirve
+archivos de la lista de fondos.
