@@ -992,15 +992,15 @@ function pintaJob(){
     || (j.lineas.length ? j.lineas[j.lineas.length-1] : '(arrancando…)');
   $('#job-paso').textContent = ultima;
   const m = ultima.match(RE_PCT);
-  // Con qué se está renderizando, a la vista: GPU (el chip de video del
-  // teléfono) o CPU. Sale de la línea de avance y lo guarda el servidor.
-  const cod = $('#job-cod');
-  cod.hidden = !j.codificador;
-  if(j.codificador){
-    cod.textContent = j.codificador === 'GPU' ? '⚡ GPU' : '🖥 CPU';
-    cod.className = 'pill ' + (j.codificador === 'GPU' ? 'ok' : 'idle');
-    cod.title = j.codificador === 'GPU' ? 'Con el chip de video del teléfono' : 'Por software (libx264)';
-  }
+  // Con qué se está renderizando, a la vista y con su nombre real: el chip
+  // que solo codifica video (MediaCodec), el procesador (libx264) o, en un
+  // PC, la tarjeta NVIDIA (NVENC). Sale de la línea de avance.
+  const COD = {'chip de video': ['⚡ Chip de video', 'ok', 'MediaCodec: el bloque del teléfono que solo codifica video'],
+               'procesador': ['🖥 Procesador', 'idle', 'libx264: por software, con todos los núcleos'],
+               'tarjeta NVIDIA': ['⚡ Tarjeta NVIDIA', 'ok', 'NVENC']};
+  const cod = $('#job-cod'), c = COD[j.codificador];
+  cod.hidden = !c;
+  if(c){ cod.textContent = c[0]; cod.className = 'pill ' + c[1]; cod.title = c[2]; }
   $('#job-barra').style.width = m ? Math.min(100, parseFloat(m[1])) + '%' : (corriendo ? '' : '100%');
   // Una barra llena al 100% no dice nada que no diga ya la etiqueta "ok":
   // en cuanto termina se va, y queda el resultado a secas.

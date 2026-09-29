@@ -93,7 +93,8 @@ compilado con `--enable-mediacodec`. Más rápido y con menos batería que
 `CONFIG["video"]["usar_chip_android"]` en `config.json`, y se enciende o
 apaga desde el panel (Ajustes → Música y video → Render, solo aparece en Android) sin tocar
 el archivo a mano. Cuál se usó de verdad se ve en la línea de avance del
-render, en la tarjeta del trabajo: «Render (GPU)» o «Render (CPU)»; si el
+render, en la tarjeta del trabajo: «Render (chip de video)» o «Render (procesador)», con la misma
+etiqueta en la tarjeta; si el
 chip falla y cae a CPU a media tanda, el cambio se ve ahí mismo.
 
 **El respaldo automático a CPU no cubre todo tipo de fallo.** Si

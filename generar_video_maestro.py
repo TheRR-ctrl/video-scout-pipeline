@@ -2174,8 +2174,11 @@ def renderizar_una_historia(contenido, num=1):
 
         # Con qué se codifica va en la misma línea del avance: el panel la
         # enseña en la tarjeta del trabajo, y es la única forma de saber
-        # desde el teléfono si el chip se está usando de verdad.
-        def ejecutar_render(flags_encoder, con="CPU"):
+        # desde el teléfono si el chip se está usando de verdad. Con su
+        # nombre real y no «GPU»: en el teléfono no trabaja la GPU de
+        # gráficos sino el bloque que solo codifica video (MediaCodec).
+        # servidor._RE_CODIFICADOR lee estos nombres tal cual.
+        def ejecutar_render(flags_encoder, con="procesador"):
             txt_ren = f" ├─ 🚀 [4/4] Render ({con}):"
             cmd = cmd_ff + flags_encoder + flags_audio_comunes + [ruta_out]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, encoding='utf-8', errors='ignore')
@@ -2223,7 +2226,7 @@ def renderizar_una_historia(contenido, num=1):
 
         if ES_ANDROID:
             if usar_chip_android:
-                exito_render, txt_ren = ejecutar_render(flags_chip_android, "GPU")
+                exito_render, txt_ren = ejecutar_render(flags_chip_android, "chip de video")
                 if not exito_render:
                     logger.warning(
                         f"Render con el chip de video (h264_mediacodec) falló para el video {num}, "
@@ -2234,7 +2237,7 @@ def renderizar_una_historia(contenido, num=1):
             else:
                 exito_render, txt_ren = ejecutar_render(flags_cpu)
         else:
-            exito_render, txt_ren = ejecutar_render(flags_gpu, "GPU")
+            exito_render, txt_ren = ejecutar_render(flags_gpu, "tarjeta NVIDIA")
             if not exito_render:
                 logger.warning(f"Render GPU falló para video {num}, reintentando con CPU (libx264).")
                 exito_render, txt_ren = ejecutar_render(flags_cpu)

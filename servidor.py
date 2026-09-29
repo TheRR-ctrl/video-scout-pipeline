@@ -97,8 +97,9 @@ _RE_MODELO_USA = re.compile(r"Escribiendo con (gemini-[\w.\-]+)\.")
 
 # La línea de avance del render dice con qué codifica
 # (generar_video_maestro.ejecutar_render): se guarda aparte para enseñarlo en
-# la tarjeta sin abrir el detalle. Si a media tanda cae de GPU a CPU, cambia.
-_RE_CODIFICADOR = re.compile(r"Render \((GPU|CPU)\)")
+# la tarjeta sin abrir el detalle. Si a media tanda cae del chip al
+# procesador, cambia.
+_RE_CODIFICADOR = re.compile(r"Render \((chip de video|procesador|tarjeta NVIDIA)\)")
 
 
 def _anotar_modelo(modelos, linea):
@@ -149,7 +150,7 @@ class Trabajo:
         # saca de `lineas` porque esas se recortan: en una tanda larga el
         # "sin cuota" del principio ya no estaría ahí.
         self.modelos = {}
-        self.codificador = None   # "GPU" | "CPU" mientras renderiza
+        self.codificador = None   # "chip de video" | "procesador" | "tarjeta NVIDIA"
 
     def arrancar(self):
         self.proc = subprocess.Popen(
