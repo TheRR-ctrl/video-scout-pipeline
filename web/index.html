@@ -795,8 +795,11 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
     .review{padding:18px}
     /* El monitor de previo mide lo que el video vertical que cabe en la
        ventana: así el rótulo PREVIO no sobresale por los lados. */
-    .review > div:first-child:has(video:not(.wide)){width:min(100%,calc((100vh - 96px) * 9 / 16));justify-self:center}
-    .review video:not(.wide){width:100%;max-height:none}
+    .review > .previo-vertical{width:min(100%,calc((100vh - 96px) * 9 / 16));justify-self:center}
+    /* El ancho lo pone el contenedor y el video lo llena siempre: si
+       alguna regla le limitaba el alto, el video encogía y el rótulo
+       PREVIO quedaba más ancho que la imagen. */
+    .review > div:first-child video{width:100%;max-width:none;max-height:none;margin:0}
   }
   /* Iconos dibujados (ver iconizar): trazo de Lucide al color del texto. */
   .ico{width:1.15em;height:1.15em;flex:none;vertical-align:-.2em;margin-right:.42em;
@@ -1722,7 +1725,7 @@ function pintaRevisar(){
     <div class="thumbs">${miniaturas(v)}</div>
 
     <div class="card review">
-      <div>
+      <div class="${a.es_short ? 'previo-vertical' : ''}">
         <video controls playsinline preload="metadata" class="${a.es_short?'':'wide'}"
                src="/video/${encodeURIComponent(a.archivo)}"></video>
       </div>
