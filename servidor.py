@@ -1865,9 +1865,21 @@ def api_respaldo_compartir():
     ruta = d["ruta"]
     try:
         if shutil.which("termux-share"):
-            # Popen y no run: termux-share espera a que elijas la app.
-            subprocess.Popen(["termux-share", "-a", "send", "-c", "application/x-tar", ruta],
-                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            # Popen y no run: termux-share espera a que elijas la app. Pero si
+            # falla de entrada (sin la app Termux:API, sin permiso de
+            # almacenamiento) lo dice enseguida: se le dan dos segundos para
+            # no tragarse ese error. Lo que NO se puede detectar es Android
+            # bloqueando el menú por abrirse desde segundo plano: termux-share
+            # termina bien y no sale nada. Eso lo explica el panel.
+            p = subprocess.Popen(["termux-share", "-a", "send", "-c", "application/x-tar", ruta],
+                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            try:
+                salida, _ = p.communicate(timeout=2)
+                if p.returncode:
+                    return jsonify({"error": "termux-share falló: " + (salida or "").strip()[-300:]
+                                    + f". El archivo está en {ruta}"}), 500
+            except subprocess.TimeoutExpired:
+                pass
             return jsonify({"ok": True, "como": "compartir"})
         if ES_WINDOWS:
             subprocess.Popen(["explorer", f"/select,{ruta}"])
