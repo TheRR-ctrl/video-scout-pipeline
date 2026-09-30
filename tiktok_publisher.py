@@ -749,6 +749,8 @@ def main(argv=None):
 
 if __name__ == "__main__":
     import sys
+    import dispositivo
+    dispositivo.salir_si_desactivado()
     # Desde la terminal manda lo que se escribió; desde pipeline.py se llama
     # main() sin argumentos y se usan los valores por defecto.
     raise SystemExit(main(sys.argv[1:]) or 0)

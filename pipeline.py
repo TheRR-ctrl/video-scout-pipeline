@@ -236,4 +236,6 @@ def main():
 
 
 if __name__ == "__main__":
+    import dispositivo
+    dispositivo.salir_si_desactivado()
     main()

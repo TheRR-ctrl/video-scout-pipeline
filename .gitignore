@@ -35,3 +35,9 @@ guion_prueba.txt
 
 # Lo que deja restaurar.sh a medias si no pudo copiar los videos.
 .restaurando/
+
+# Donde el panel deja el respaldo que le subes, hasta restaurarlo.
+.importando/
+
+# La marca de aparato desactivado (dispositivo.py): es de cada aparato.
+desactivado.json
