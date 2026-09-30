@@ -3323,8 +3323,7 @@ function pintaAjustes(){
           <div class="m">${esc(s.pista)}</div></div>
         <span class="pill ${s.disponible?'ok':'crit'}">${s.disponible?'listo':'falta'}</span>
         <button class="btn sm" data-sec="${esc(s.nombre)}" data-tipo="${esc(s.tipo)}"
-          ${(!s.disponible && s.tipo==='archivo')?'disabled title="Este sale de un archivo: genéralo con la autorización de YouTube"':''}
-          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'falta el archivo' : 'Poner')}</button>
+          >${s.disponible ? 'Ver / copiar' : (s.tipo==='archivo' ? 'Pegar' : 'Poner')}</button>
       </div>`).join('')}</div>
     </section>
 
@@ -3660,6 +3659,11 @@ async function abrirSecreto(nombre, tipo){
   catch(e){ valor = ''; }
 
   const editable = tipo === 'entorno';
+  // Un archivo de credenciales (el token de YouTube, client_secret.json) se
+  // puede pegar: se copia con «Ver / copiar» en el otro aparato (teléfono o
+  // PC) y aquí se escribe el archivo. Si ya existe, se puede reemplazar.
+  const esArchivo = tipo === 'archivo';
+  const archivoDe = {YOUTUBE_TOKEN: 'youtube_token.json', YOUTUBE_CLIENT_SECRET: 'client_secret.json'};
   const caja = document.createElement('div');
   caja.className = 'modal';
   caja.innerHTML = `
@@ -3667,13 +3671,18 @@ async function abrirSecreto(nombre, tipo){
       <b style="font:12px var(--mono)">${esc(nombre)}</b>
       <div class="muted" style="margin:8px 0 10px">
         ${editable ? 'Pégala aquí para guardarla en secretos.env, o cópiala para GitHub.'
-                   : 'Contenido del archivo. Pégalo tal cual en el Secret de GitHub.'}</div>
+          : valor ? 'Contenido del archivo. Cópialo para pegarlo en el Secret de GitHub o en el panel '
+                  + 'del otro aparato (teléfono ↔ PC).'
+          : `Falta ${esc(archivoDe[nombre] || 'el archivo')}. Pega aquí su contenido y se crea solo: `
+            + 'cópialo con «Ver / copiar» en el panel del aparato donde sí está (teléfono o PC).'}</div>
       ${editable ? `<input type="text" id="s-val" value="${esc(valor)}" spellcheck="false"
                       placeholder="pega aquí la clave">`
-                 : `<textarea id="s-val" readonly spellcheck="false">${esc(valor)}</textarea>`}
+                 : `<textarea id="s-val" ${valor ? 'readonly' : ''} spellcheck="false"
+                      placeholder='pega aquí el contenido entero, de { a }'>${esc(valor)}</textarea>`}
       <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
-        <button class="btn go" id="s-copiar">Copiar</button>
-        ${editable ? '<button class="btn" id="s-guardar">Guardar</button>' : ''}
+        ${valor ? '<button class="btn go" id="s-copiar">Copiar</button>' : ''}
+        ${editable || (esArchivo && !valor) ? '<button class="btn go" id="s-guardar">Guardar</button>' : ''}
+        ${esArchivo && valor ? '<button class="btn" id="s-reemplazar">Reemplazar</button>' : ''}
         <button class="btn" id="s-cerrar" style="margin-left:auto">Cerrar</button>
       </div>
       <div class="muted" id="s-nota" style="margin-top:9px"></div>
@@ -3682,7 +3691,23 @@ async function abrirSecreto(nombre, tipo){
   const campo = caja.querySelector('#s-val');
   const nota = caja.querySelector('#s-nota');
 
-  caja.querySelector('#s-copiar').onclick = async ()=>{
+  const bReemplazar = caja.querySelector('#s-reemplazar');
+  if(bReemplazar) bReemplazar.onclick = ()=>{
+    if(!confirm('¿Reemplazar el archivo que hay por otro que vas a pegar?')) return;
+    campo.readOnly = false; campo.value = ''; campo.focus();
+    bReemplazar.outerHTML = '<button class="btn go" id="s-guardar">Guardar</button>';
+    caja.querySelector('#s-guardar').onclick = guardarArchivo;
+    nota.textContent = 'Pega el contenido nuevo y pulsa Guardar.';
+  };
+  async function guardarArchivo(){
+    try{ await post('/api/secretos/'+encodeURIComponent(nombre), {valor: campo.value.trim()});
+      nota.textContent = `✓ Guardado ${archivoDe[nombre] || ''}. Ya se puede usar.`;
+      campo.readOnly = true;
+      secretosCache = []; conectarCache = null; refrescar();
+    }catch(e){ nota.textContent = 'No se guardó: ' + e.message; }
+  }
+  const bCopiar = caja.querySelector('#s-copiar');
+  if(bCopiar) bCopiar.onclick = async ()=>{
     const texto = campo.value;
     if(!texto) return nota.textContent = 'No hay nada que copiar todavía.';
     campo.select(); campo.setSelectionRange(0, texto.length);
@@ -3696,6 +3721,7 @@ async function abrirSecreto(nombre, tipo){
         : 'El navegador no dejó copiar. El texto ya está seleccionado: usa «Copiar» del menú largo.';
     }
   };
+  if(esArchivo && !valor) caja.querySelector('#s-guardar').onclick = guardarArchivo;
   if(editable) caja.querySelector('#s-guardar').onclick = async ()=>{
     try{ await post('/api/secretos/'+encodeURIComponent(nombre), {valor: campo.value.trim()});
       nota.textContent = '✓ Guardada en secretos.env — ya sobrevive a cerrar Termux.';
