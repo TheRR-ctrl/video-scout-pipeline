@@ -752,7 +752,9 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .leyenda .mu.sub{background:#2a3038;border-color:#2a3038;color:var(--monitor-ink)}
   /* El monitor de previo: el video con su rótulo encima. */
   .review > div:first-child{position:relative}
-  .review > div:first-child::before{content:"Previo";display:block;width:100%;
+  /* border-box a mano: el *{box-sizing} del principio no alcanza a los
+     ::before, y con el relleno la tira salía 20px más ancha que el video. */
+  .review > div:first-child::before{content:"Previo";display:block;width:100%;box-sizing:border-box;
     font:400 16px/1 var(--rotulo);letter-spacing:.08em;color:var(--previo-ink);background:var(--previo);
     padding:5px 10px 4px;border-radius:4px 4px 0 0}
   video{border-radius:0 0 4px 4px;border:1px solid var(--monitor-line);border-top:0}
@@ -809,6 +811,25 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .pill .ico{width:1.05em;height:1.05em;margin-right:.35em}
   .pill:has(> .ico)::before{display:none}
   #b-desactivar{color:var(--espera)}
+  /* Pantallas grandes (un 27–32" a 2K o más): la sala de control completa.
+     La pared de monitores a la izquierda y el previo fijo a la derecha, en
+     vez de una columna de 1280px en medio y el previo debajo de 65
+     miniaturas. El previo crece con la altura de la ventana. */
+  @media (min-width:1800px){
+    .wrap{max-width:2200px;padding:26px 40px 80px}
+    #v-revisar.on{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);
+      column-gap:32px;align-items:start}
+    #v-revisar > *{grid-column:1;min-width:0}
+    #v-revisar > .review{grid-column:2;grid-row:1 / span 20;position:sticky;top:20px;
+      max-height:calc(100vh - 40px);overflow-y:auto;margin-top:0;
+      grid-template-columns:auto minmax(320px,1fr)}
+    #v-revisar > .review > div:first-child{position:static}
+    #v-revisar > .review > .previo-vertical{width:calc((100vh - 230px) * 9 / 16);max-width:40vw}
+    .th{width:84px}
+    /* Las demás vistas son listas de «etiqueta … control»: a 2200px el
+       control quedaba a un metro de su nombre. */
+    .view:not(#v-revisar){max-width:1500px}
+  }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -886,6 +907,11 @@ const TRAZOS = {"archive":"<svg class=\"lucide lucide-archive\" xmlns=\"http://w
 const ICONO_DE = {"→":"arrow-right","✓":"check","✔":"check","⚠":"triangle-alert","▶":"play","✂":"scissors","✕":"x","✗":"x","❌":"x","⛔":"octagon-x","🗑":"trash-2","↻":"refresh-cw","⏸":"pause","✅":"circle-check","☢":"radiation","📖":"book-open","✍":"pen-line","🔎":"search","🔍":"search","⏹":"square","←":"arrow-left","📦":"archive","🚫":"ban","💡":"lightbulb","✎":"pencil","🎞":"film","⏱":"timer","⏳":"hourglass","⚡":"zap","🖥":"monitor","📂":"folder-open","↺":"rotate-ccw","🎬":"clapperboard","🧹":"brush-cleaning","🩺":"stethoscope","🔑":"key-round","🎨":"palette","📤":"share","📥":"download","⏻":"power","🧠":"cpu","✨":"sparkles","🔀":"shuffle","🧪":"flask-conical","📋":"clipboard-paste","👁":"eye","🔌":"plug","⚙":"settings","🎵":"music","🧰":"wrench","📱":"smartphone","☀":"sun","🌙":"moon","🌐":"globe"};
 const RE_ICONO = new RegExp('^\\s*(' + Object.keys(ICONO_DE).join('|') + ')\\uFE0F?\\s*', 'u');
 const CON_ICONO = 'button,.btn,.tbtn,.pill,summary';
+// Un botón que se queda solo con el dibujo necesita nombre para el lector
+// de pantalla (y el globo al pasar el ratón): el emoji al menos se leía.
+const NOMBRE_ICONO = {'trash-2':'Quitar', play:'Reproducir', pause:'Pausar', x:'Cerrar',
+  pencil:'Editar', 'refresh-cw':'Actualizar', square:'Parar', 'rotate-ccw':'Rehacer',
+  search:'Buscar', power:'Apagar', radiation:'Desactivar'};
 function iconizar(raiz){
   const els = raiz.matches?.(CON_ICONO) ? [raiz] : [];
   els.push(...raiz.querySelectorAll(CON_ICONO));
@@ -896,6 +922,10 @@ function iconizar(raiz){
     if(!m) continue;
     t.data = t.data.slice(m[0].length);
     const solo = !el.textContent.trim();
+    if(solo && el.tagName === 'BUTTON' && !el.title && !el.getAttribute('aria-label')){
+      const n = NOMBRE_ICONO[ICONO_DE[m[1]]];
+      if(n){ el.title = n; el.setAttribute('aria-label', n); }
+    }
     el.insertAdjacentHTML('afterbegin', `<svg class="ico${solo ? ' solo' : ''}" viewBox="0 0 24 24" aria-hidden="true">${TRAZOS[ICONO_DE[m[1]]]}</svg>`);
   }
 }
@@ -1737,7 +1767,7 @@ function pintaRevisar(){
             <span>${a.es_short?'Short':'Largo'}</span>
             <span>Emoción <b>${esc(a.emocion)}</b></span>
             ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
-              <button class="btn sm" data-oir="${esc(a.musica)}" style="padding:2px 8px">▶</button>`:''}
+              <button class="btn sm" data-oir="${esc(a.musica)}" title="Oír la pista" style="padding:2px 8px">▶</button>`:''}
             ${a.subido ? '<span class="pill ok">✓ ya subido a YouTube</span>'
               : (a.publicado ? '<span class="pill warn">rechazado, no se subió</span>'
                              : '<span class="pill idle">sin subir</span>')}
@@ -2365,7 +2395,7 @@ function pintaCola(){
           ${pistas.map(p=>`<option value="${esc(p.archivo)}" ${musicaElegida[x.n]===p.archivo?'selected':''}>
             ${esc(p.emocion)} · ${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</option>`).join('')}
         </select>
-        <button class="btn sm" data-oir-fila="${x.n}" style="padding:6px 9px">▶</button>
+        <button class="btn sm" data-oir-fila="${x.n}" title="Oír la pista" style="padding:6px 9px">▶</button>
         <span class="m">${musicaElegida[x.n] ? 'fijada' : 'auto'}</span>
       </div>`).join('')}</div>`}`;
 
@@ -3954,7 +3984,7 @@ function pintaAjustes(){
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>Ninguna. Sin música los videos salen solo con la voz.</div></div>`
     : `<div class="list">${pistas.map(p=>`
       <div class="row" style="grid-template-columns:auto 1fr 120px">
-        <button class="btn sm" data-oir="${esc(p.archivo)}" style="padding:6px 9px">▶</button>
+        <button class="btn sm" data-oir="${esc(p.archivo)}" title="Oír la pista" style="padding:6px 9px">▶</button>
         <div style="min-width:0"><div class="t">${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</div>
           <div class="m">${esc(p.artista || 'sin atribución')} · ${p.kb} KB</div></div>
         <select class="btn sm" data-emo="${esc(p.archivo)}">
