@@ -1,0 +1,2 @@
+# Los .bat tienen que llegar a Windows con CRLF o cmd.exe los lee mal.
+*.bat text eol=crlf

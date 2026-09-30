@@ -117,7 +117,8 @@ def videos_a_guardar(salida, cuales):
 
 
 def destino_por_omision():
-    for d in ("/sdcard/Download", os.path.expanduser("~/storage/downloads")):
+    for d in ("/sdcard/Download", os.path.expanduser("~/storage/downloads"),
+              os.path.join(os.path.expanduser("~"), "Downloads")):
         if os.path.isdir(d) and os.access(d, os.W_OK):
             return d
     return BASE_DIR
@@ -127,6 +128,114 @@ def _mb(n):
     return f"{n / (1024 * 1024):,.0f} MB"
 
 
+# ---------------------------------------------------------
+# Restaurar (el camino de Windows y del PC; en Termux, restaurar.sh)
+# ---------------------------------------------------------
+def buscar_respaldo():
+    """El respaldo más reciente de Descargas, o None."""
+    import glob
+    candidatos = []
+    for d in ("/sdcard/Download", os.path.expanduser("~/storage/downloads"),
+              os.path.join(os.path.expanduser("~"), "Downloads"),
+              os.path.join(os.path.expanduser("~"), "Descargas"), BASE_DIR):
+        candidatos += glob.glob(os.path.join(d, PREFIJO + "*.tar"))
+    return max(candidatos, key=os.path.getmtime) if candidatos else None
+
+
+def _cambiar_rutas(valor, vieja, nueva):
+    """Cambia el principio de las rutas que empiecen por `vieja` (la carpeta
+    de salida del teléfono) por `nueva`, en cualquier parte de un JSON."""
+    if isinstance(valor, str) and vieja and valor.startswith(vieja):
+        resto = valor[len(vieja):].lstrip("/\\")
+        return os.path.join(nueva, *resto.replace("\\", "/").split("/")) if resto else nueva
+    if isinstance(valor, list):
+        return [_cambiar_rutas(v, vieja, nueva) for v in valor]
+    if isinstance(valor, dict):
+        return {k: _cambiar_rutas(v, vieja, nueva) for k, v in valor.items()}
+    return valor
+
+
+def _salida_de_aqui(vieja):
+    """Dónde van los videos en esta máquina. La del respaldo si se puede
+    usar aquí; si era del teléfono (/sdcard…) y esto no es un teléfono, la
+    de siempre en este sistema (Escritorio/Videos Creados)."""
+    if vieja and not (vieja.startswith("/sdcard") and not os.path.isdir("/sdcard")):
+        return vieja
+    return os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados")
+
+
+def restaurar(archivo=None):
+    import shutil
+    import almacen
+
+    archivo = archivo or buscar_respaldo()
+    if not archivo or not os.path.isfile(archivo):
+        print("\n  No encontré ningún video-scout-respaldo-*.tar en Descargas.")
+        print("  Bájalo de donde lo guardaste (Google Drive…) a Descargas y repite,")
+        print("  o dame la ruta:  python respaldo.py --restaurar RUTA\\AL\\ARCHIVO.tar\n")
+        return 1
+    print(f"\n  Restaurando {os.path.basename(archivo)}…")
+
+    tmp = os.path.join(BASE_DIR, ".restaurando")
+    shutil.rmtree(tmp, ignore_errors=True)
+    with tarfile.open(archivo) as tar:
+        # filter="data": no deja escribir fuera de la carpeta ni enlaces raros.
+        try:
+            tar.extractall(tmp, filter="data")
+        except TypeError:                          # Python < 3.12
+            tar.extractall(tmp)
+
+    proyecto = os.path.join(tmp, "proyecto")
+    if os.path.isdir(proyecto):
+        shutil.copytree(proyecto, BASE_DIR, dirs_exist_ok=True)
+        n = sum(len(f) for _, _, f in os.walk(proyecto))
+        print(f"   ✓ {n} archivo(s) del proyecto (claves, estado, guiones, material)")
+    for f in ("secretos.env", "youtube_token.json", "tiktok_token.json", "client_secret.json"):
+        try:
+            os.chmod(os.path.join(BASE_DIR, f), 0o600)
+        except OSError:
+            pass
+
+    info = _cargar_json(os.path.join(tmp, "respaldo.json"), {})
+    vieja = info.get("carpeta_salida")
+    nueva = _salida_de_aqui(vieja)
+    os.makedirs(nueva, exist_ok=True)
+    salida_tmp = os.path.join(tmp, "salida")
+    n_videos = 0
+    if os.path.isdir(salida_tmp):
+        for f in os.listdir(salida_tmp):
+            shutil.copy2(os.path.join(salida_tmp, f), os.path.join(nueva, f))
+            n_videos += f.endswith(".mp4")
+    print(f"   ✓ carpeta de salida: {nueva} ({n_videos} video(s))")
+
+    if vieja and nueva != vieja:
+        # La carpeta cambió (teléfono → PC): config.json y los registros
+        # guardan rutas absolutas. Sin cambiarlas, el publicador no
+        # encontraría los videos pendientes y los daría por rechazados.
+        ruta_cfg = os.path.join(BASE_DIR, "config.json")
+        cfg = _cargar_json(ruta_cfg, {})
+        cfg["carpeta_salida"] = nueva
+        almacen.guardar(ruta_cfg, cfg)
+        estado = os.path.join(BASE_DIR, "pipeline_state")
+        tocados = 0
+        for ruta in ([os.path.join(nueva, "resultado_lote.json")]
+                     + [os.path.join(estado, f) for f in (os.listdir(estado)
+                                                          if os.path.isdir(estado) else [])
+                        if f.endswith(".json")]):
+            datos = _cargar_json(ruta, None)
+            if datos is None:
+                continue
+            cambiado = _cambiar_rutas(datos, vieja, nueva)
+            if cambiado != datos:
+                almacen.guardar(ruta, cambiado)
+                tocados += 1
+        print(f"   ✓ rutas de {vieja} cambiadas a {nueva} en config.json y {tocados} registro(s)")
+
+    shutil.rmtree(tmp, ignore_errors=True)
+    print("\n  Listo. Abre el panel y revisa Ajustes → 🔑 Servicios: todo debería salir conectado.\n")
+    return 0
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description="Guarda en un archivo todo lo que git no trae.")
     g = ap.add_mutually_exclusive_group()
@@ -134,7 +243,12 @@ def main(argv=None):
     g.add_argument("--todos-los-videos", action="store_true",
                    help="También los ya subidos (pueden ser varios GB).")
     ap.add_argument("--destino", help="Carpeta donde dejarlo (por omisión, Descargas).")
+    ap.add_argument("--restaurar", nargs="?", const="", metavar="ARCHIVO",
+                    help="Al revés: pone de vuelta un respaldo (el más reciente de "
+                         "Descargas si no se dice cuál). En Termux, mejor restaurar.sh.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    if args.restaurar is not None:
+        return restaurar(args.restaurar or None)
     cuales = "ninguno" if args.sin_videos else "todos" if args.todos_los_videos else "sin_subir"
 
     proyecto = archivos_del_proyecto()

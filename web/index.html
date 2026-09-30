@@ -3000,6 +3000,11 @@ function bloqueConectar(cr){
    escribe el crontab. Los comandos no se ven ni se tocan: son fijos. */
 const LETRAS_DIA = [[1,'L'],[2,'M'],[3,'X'],[4,'J'],[5,'V'],[6,'S'],[0,'D']];
 function bloqueHorario(){
+  // En Windows no hay cron: el horario automático es cosa del teléfono (o
+  // de un Linux). Se dice claro en vez de pedir un Termux que no existe.
+  if(E && E.es_windows) return `<div class="aviso"><span>🖥</span><div>El horario automático
+    usa cron, que Windows no tiene: aquí cada paso se lanza con su botón. Si quieres que corra
+    solo, déjalo en el teléfono (y no publiques desde los dos a la vez).</div></div>`;
   if(!horarioCache || !horarioBorrador) return `<div class="muted">Cargando…</div>`;
   const h = horarioCache;
   const cambiado = JSON.stringify(horarioBorrador) !== JSON.stringify(h.tareas);

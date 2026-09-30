@@ -9,6 +9,34 @@ abandonada desde 2020 y `pkg install` falla en ella.
 
 <https://f-droid.org/packages/com.termux/>
 
+## En un PC con Windows
+
+1. Instala **Git para Windows** (<https://git-scm.com/download/win>, todo
+   con las opciones por omisión) y abre **PowerShell**.
+2. Trae el proyecto (una sola vez):
+   ```powershell
+   git clone https://github.com/TheRR-ctrl/video-scout-pipeline
+   ```
+3. Abre la carpeta `video-scout-pipeline` y haz **doble clic en
+   `iniciar_windows.bat`**. Eso es todo, cada vez:
+   - la primera vez instala Python y ffmpeg con `winget` si faltan (te
+     pedirá cerrar y volver a abrir la ventana una vez) y las librerías;
+   - trae solo la última versión del código (`git pull`);
+   - si es la primera vez y hay un `video-scout-respaldo-*.tar` en
+     Descargas, ofrece restaurarlo: claves, historias, estado y videos,
+     con las rutas del teléfono cambiadas a las del PC;
+   - abre el panel en el navegador. Para cerrarlo, cierra la ventana.
+
+Lo que en Windows no hay: el **horario automático** (usa cron; cada paso
+se lanza con su botón), el chip de video del teléfono, la batería y las
+notificaciones de Android. Si el PC tiene tarjeta NVIDIA, el render la usa.
+
+**No publiques desde el PC y el teléfono a la vez**: cada uno lleva su
+propio registro de lo subido y podrían subir el mismo video dos veces. Para
+pasar de uno a otro, respaldo en el que dejas y restauración en el nuevo
+(en el PC, `iniciar_windows.bat` lo ofrece; o `python respaldo.py
+--restaurar`).
+
 ## Reinstalar el teléfono (o cambiar de teléfono)
 
 Si ya lo tenías funcionando, no hace falta repetir los pasos de abajo uno

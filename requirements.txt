@@ -5,3 +5,6 @@ google-api-python-client
 google-auth-oauthlib
 flask>=3.0
 youtube-transcript-api
+# Solo en Windows: pausar/abortar sin señales POSIX y medir el procesador.
+# En Termux pip lo salta por el marcador, así que no hay nada que compilar.
+psutil; sys_platform == "win32"
