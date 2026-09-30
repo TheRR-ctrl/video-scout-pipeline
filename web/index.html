@@ -3017,7 +3017,7 @@ function firmaAjustes(){
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria), E.dias_espera_tiktok, E.notificar_fallos,
-          E.usar_chip_android, E.videos_a_la_vez, E.carpeta_salida, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
+          E.usar_chip_android, E.videos_a_la_vez, JSON.stringify(E.calibracion), E.carpeta_salida, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length, JSON.stringify(E.ultimo_respaldo)].join('~');
 }
@@ -3628,11 +3628,24 @@ function pintaAjustes(){
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Videos a la vez</div><div class="m">${E.es_android
-          ? 'Cuántas historias se graban al mismo tiempo. En el teléfono, 1: con una el procesador ya va al máximo, y dos lo calientan sin terminar mucho antes.'
-          : 'Cuántas historias se graban al mismo tiempo. Mientras una espera la voz o monta los cortes, otra aprovecha la tarjeta. En un PC, 2 o 3; más de 4 no gana nada y la tarjeta tiene un tope de compresiones a la vez.'}</div></div>
+          ? 'Cuántas historias se graban al mismo tiempo. En el teléfono, 1: con una el procesador ya va al máximo, y dos lo calientan sin terminar mucho antes. «Medir» lo comprueba.'
+          : 'Cuántas historias se graban al mismo tiempo. Mientras una espera la voz o monta los cortes, otra aprovecha la tarjeta. «Medir» busca el número que más rinde en este PC.'}</div></div>
         <select class="btn sm" id="s-a-la-vez">
-          ${[1,2,3,4].map(n=>`<option value="${n}" ${n===E.videos_a_la_vez?'selected':''}>${n}</option>`).join('')}
+          ${Array.from({length: E.es_android ? 4 : 8}, (_, i) => i + 1).map(n=>
+            `<option value="${n}" ${n===E.videos_a_la_vez?'selected':''}>${n}</option>`).join('')}
         </select>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Medir el máximo</div><div class="m">Graba un clip de prueba con 1, 2, 3… a la vez
+          y deja puesto el número a partir del cual ya no termina antes (o el tope de la tarjeta).
+          Tarda uno o dos minutos; mejor sin nada más corriendo.${(()=>{
+          const c = E.calibracion; if(!c) return '';
+          const f = c.fecha ? new Date(c.fecha).toLocaleDateString('es', {dateStyle:'medium'}) : '';
+          const r = (c.resultados || []).map(x => `${x.n}: ${Math.round(x.fps)}`).join(' · ');
+          return `<br><b>Última medición${f ? ' (' + esc(f) + ')' : ''}:</b> ${c.elegido} a la vez con
+            ${esc(c.codificador)} — ${esc(c.motivo)}.<br><span style="font:11px var(--mono)">fotogramas/s ·
+            ${esc(r)}</span>`; })()}</div></div>
+        <button class="btn sm" onclick="ejecutar('calibrar_render')">🧪 Medir</button>
       </div>
     ${E.es_android ? `
       <div class="row" style="grid-template-columns:1fr auto">

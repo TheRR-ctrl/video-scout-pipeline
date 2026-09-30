@@ -127,6 +127,11 @@ salían por el procesador sin que nada lo dijera salvo la etiqueta
 va antes del `-i` o no va. El tope de bitrate (`bitrate_max_nvenc`) está
 por la misma razón que el del chip: los 100 MB de `recomprimir.py`.
 
+`calibrar_render.py` (Ajustes → Render → «Medir») copia esas mismas
+opciones de NVENC, del chip y de libx264 para medir cuántos videos a la vez
+rinden. Si cambian en `ejecutar_render`, se cambian allí también, o la
+medición estará midiendo otro codificador.
+
 ## Resolución adaptativa: 2K si el fondo lo aguanta
 
 El render ya no está clavado en 1080x1920/1920x1080: si el fondo que le toca
