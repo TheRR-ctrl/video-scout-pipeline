@@ -2992,7 +2992,7 @@ function firmaAjustes(){
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria), E.dias_espera_tiktok, E.notificar_fallos,
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
-          JSON.stringify(E.musica), secretosCache.length].join('~');
+          JSON.stringify(E.musica), secretosCache.length, JSON.stringify(E.ultimo_respaldo)].join('~');
 }
 /* Conectar servicios, guiado: para qué sirve cada clave, un enlace a la página
    donde se saca, pegar con un toque, y se prueba contra el servicio antes de
@@ -3246,7 +3246,43 @@ function bloquePasarAlPC(){
     </div>`;
 }
 
+/* El último respaldo hecho aquí: dónde quedó y cómo sacarlo. Sin esto el
+   archivo aparecía en una línea de la salida del trabajo y había que ir a
+   buscarlo con el gestor de archivos. */
+function bloqueUltimoRespaldo(){
+  const r = E.ultimo_respaldo;
+  if(!r) return '';
+  const peso = r.bytes >= 1048576 ? (r.bytes/1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(r.bytes/1024)) + ' KB';
+  const cuando = r.fecha ? new Date(r.fecha).toLocaleString('es', {dateStyle:'medium', timeStyle:'short'}) : '';
+  const tipo = {ajustes:'solo ajustes', ninguno:'sin videos', sin_subir:'con los videos sin subir',
+                todos:'con todos los videos'}[r.tipo] || '';
+  return `
+    <div class="card" style="margin-top:10px">
+      <div class="kicker">Último respaldo</div>
+      <div style="margin-top:4px"><b style="overflow-wrap:anywhere">${esc(r.nombre)}</b></div>
+      <div class="muted">${[tipo, peso, cuando].filter(Boolean).map(esc).join(' · ')}</div>
+      ${/\/(Download|Downloads|Descargas)\//.test(r.ruta.replace(/\\/g,'/'))
+        ? '<div style="margin-top:6px">Está en tu carpeta <b>Descargas</b>:</div>' : ''}
+      <div style="margin-top:4px;font:11.5px var(--mono);color:var(--ink-dim);overflow-wrap:anywhere">${esc(r.ruta)}</div>
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn go" id="b-compartir-respaldo">${E.es_android ? '📤 Enviar…' : '📂 Abrir la carpeta'}</button>
+        <button class="btn" id="b-copiar-ruta-respaldo">Copiar la ruta</button>
+      </div>
+      ${E.es_android ? `<div class="muted" style="margin-top:8px">«Enviar» abre el menú de compartir de Android:
+        WhatsApp a ti mismo, Drive o correo. Necesita la app Termux:API.</div>` : ''}
+    </div>`;
+}
+
 function conectarPasarAlPC(){
+  const bComp = $('#b-compartir-respaldo');
+  if(bComp) bComp.onclick = async ()=>{
+    try{
+      const j = await post('/api/respaldo/compartir', {});
+      toast(j.como === 'compartir' ? 'Elige dónde mandarlo' : 'Abriendo la carpeta…');
+    }catch(e){ toast(e.message); }
+  };
+  const bRuta = $('#b-copiar-ruta-respaldo');
+  if(bRuta) bRuta.onclick = ()=> copiarPie(bRuta, E.ultimo_respaldo.ruta);
   const bExp = $('#b-exportar-ajustes');
   if(bExp) bExp.onclick = ()=> ejecutar('respaldo_ajustes');
   const f = $('#f-importar');
@@ -3500,6 +3536,9 @@ function pintaAjustes(){
         <div class="muted" style="margin:8px 0">
           Plantilla: ${m.plantilla?esc(m.plantilla):'<span style="color:var(--warn)">falta — se usa el respaldo</span>'} ·
           Efectos: ${m.efectos||'<span style="color:var(--warn)">ninguno</span>'}</div>
+        ${E.carpeta_material ? `<div class="muted" style="margin:0 0 8px">«Re-enlazar» toma los videos de fondo,
+          la música y la plantilla de <code style="font:11.5px var(--mono);overflow-wrap:anywhere">${esc(E.carpeta_material)}</code>${
+          E.es_android ? '' : ' (si no existe, la crea y la abre)'}.</div>` : ''}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
           <button class="btn sm" onclick="abrirFondos()">✂ Tramos que no se usan</button>
@@ -3619,6 +3658,7 @@ function pintaAjustes(){
 
     <section class="aj-grupo" data-grupo="tareas" ${grupoAjustes==='tareas'?'':'hidden'}>
     ${bloquePasarAlPC()}
+    ${bloqueUltimoRespaldo()}
     <h3 class="sec">Tareas sueltas</h3>
     <p class="sub">Y de uno en uno, lo que si no habría que escribir a mano en Termux. Debajo de cada uno
       está la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
