@@ -45,6 +45,7 @@ import fondos_excluidos  # tramos de los fondos que el render no usa
 import bateria   # con poca batería, lo que se graba solo espera al cargador
 import almacen   # leer y escribir los .json de estado
 import secretos  # carga secretos.env si las claves no están en el entorno
+import dispositivo  # desactivar este aparato para no trabajar a la vez que el otro
 from titulos import recortar_titulo, limpiar_titulo, largo_youtube
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -482,6 +483,18 @@ def _arrancar(nombre, cmd, luego=None):
     return t
 
 
+def _bloqueado(cmd):
+    """El motivo si este aparato está desactivado, o None. Los respaldos sí
+    corren: exportar es justo lo que se hace antes de pasarse al otro, y
+    restaurar, lo primero al llegar."""
+    if not dispositivo.desactivado():
+        return None
+    if any(os.path.basename(str(p)) == "respaldo.py" for p in cmd):
+        return None
+    return ("Este aparato está desactivado para no trabajar a la vez que el otro. "
+            "Reactívalo con el aviso de arriba si quieres usarlo.")
+
+
 def lanzar(nombre, cmd, luego=None):
     """Arranca el comando, o lo pone a la cola si hay algo corriendo.
 
@@ -493,6 +506,9 @@ def lanzar(nombre, cmd, luego=None):
     bien. La usa el render para rotar la música: lo que decide qué pistas
     apartar es justo lo que se acaba de renderizar.
     """
+    motivo = _bloqueado(cmd)
+    if motivo:
+        return None, None, motivo
     with _CANDADO:
         actual = TRABAJO["actual"]
         if actual and actual.estado in ("corriendo", "pausado"):
@@ -519,6 +535,10 @@ def lanzar_tanda(tareas):
     encolados, saltados = [], []
     with _CANDADO:
         for nombre, cmd in tareas:
+            motivo = _bloqueado(cmd)
+            if motivo:
+                saltados.append({"nombre": nombre, "motivo": motivo})
+                continue
             actual = TRABAJO["actual"]
             ocupado = (actual and actual.estado in ("corriendo", "pausado")) or encolados
             if not ocupado:
@@ -719,6 +739,11 @@ def seguir_con_la_cola(terminado):
                                         "cmd": cmd_luego, "luego": luego_luego})
 
         if not TRABAJO["cola"]:
+            return
+        if dispositivo.desactivado():
+            # Desactivar ya vacía la cola; esto cubre lo que se encoló solo
+            # (lo encadenado) en el instante justo.
+            TRABAJO["cola"].clear()
             return
         # Sacar de la cola y arrancar van dentro del mismo candado. Si se
         # soltara entre las dos, un botón pulsado en ese hueco vería el
@@ -1684,6 +1709,7 @@ def api_estado():
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
         "es_windows": ES_WINDOWS,
+        "desactivado": dispositivo.desactivado(),
         "notificar_fallos": avisar_de_fallos(),
         "dias_espera_tiktok": _publisher().dias_espera_tiktok(publisher_cfg_y_tiktok()[0]),
         "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
@@ -2807,6 +2833,23 @@ def servir_con_rango(ruta, mimetype):
 MARGEN_SIN_LATIDO = 240      # segundos
 ULTIMO_LATIDO = {"t": time.time()}
 APAGAR = {"pedido": False}
+VIGILANTE = {"activo": False}
+WAKELOCK = {"tomado": False}
+
+
+def _salir():
+    """Apaga el servidor desde un hilo. No con SIGINT: un proceso arrancado
+    en segundo plano (la app de Android lo lanza así) puede heredarlo
+    ignorado, y entonces ⏻ no apagaba nada. Se suelta el wake lock a mano
+    —el finally de main() no llega a correr— y se sale con 0, que en
+    Windows además cierra la ventana negra en vez de dejarla esperando."""
+    if WAKELOCK["tomado"]:
+        try:
+            subprocess.run(["termux-wake-unlock"], timeout=5, capture_output=True)
+        except Exception:                          # noqa: BLE001 — se sale igual
+            pass
+    sys.stdout.flush()
+    os._exit(0)
 
 
 @app.post("/api/latido")
@@ -2828,10 +2871,73 @@ def api_ping():
     return jsonify({"ok": True, "panel": "mesa-de-revision"})
 
 
+def _parar_todo():
+    """Aborta lo que esté corriendo y vacía la cola."""
+    with _CANDADO:
+        TRABAJO["cola"].clear()
+        t = TRABAJO["actual"]
+    if t and t.estado in ("corriendo", "pausado"):
+        t.abortar()
+
+
+def _apagar_servidor():
+    APAGAR["pedido"] = True
+    # Sin vigilante (--no-apagar, que es como arranca en Windows) nadie
+    # miraba el pedido y el botón ⏻ no hacía nada. Se apaga aquí, con un
+    # momento para que la respuesta llegue al navegador.
+    if not VIGILANTE["activo"]:
+        threading.Timer(1.0, _salir).start()
+
+
 @app.post("/api/apagar")
 def api_apagar():
-    APAGAR["pedido"] = True
+    # El aviso del panel dice que el trabajo se interrumpe: que sea verdad.
+    # Sin esto, el proceso hijo seguía solo aunque el panel ya no estuviera.
+    _parar_todo()
+    _apagar_servidor()
     return jsonify({"ok": True})
+
+
+def _nombre_aparato():
+    return "PC" if ES_WINDOWS else ("teléfono" if os.path.isdir("/sdcard") else "equipo")
+
+
+@app.post("/api/dispositivo/desactivar")
+def api_dispositivo_desactivar():
+    """Para todo y deja este aparato sin hacer nada hasta reactivarlo, para
+    que el teléfono y el PC no publiquen a la vez (dispositivo.py)."""
+    import horario
+    try:
+        tenia_cron = any(horario.MARCA in linea
+                         for linea in (horario._crontab_actual() or "").splitlines())
+    except Exception:                              # noqa: BLE001 — sin cron, nada que quitar
+        tenia_cron = False
+    dispositivo.desactivar(_nombre_aparato())
+    # Se apunta si había horario puesto, para devolverlo al reactivar y no
+    # instalar uno que nunca se pidió.
+    d = dispositivo.desactivado() or {}
+    d["tenia_cron"] = tenia_cron
+    almacen.guardar(dispositivo.RUTA, d)
+    _parar_todo()
+    mensaje = ""
+    if tenia_cron:
+        ok, mensaje = horario.aplicar()
+        mensaje = "Horario automático quitado." if ok else mensaje
+    if (request.json or {}).get("apagar"):
+        _apagar_servidor()
+    return jsonify({"ok": True, "mensaje": mensaje})
+
+
+@app.post("/api/dispositivo/reactivar")
+def api_dispositivo_reactivar():
+    import horario
+    d = dispositivo.desactivado() or {}
+    dispositivo.reactivar()
+    mensaje = ""
+    if d.get("tenia_cron"):
+        ok, mensaje = horario.aplicar()
+        mensaje = "Horario automático puesto otra vez." if ok else mensaje
+    return jsonify({"ok": True, "mensaje": mensaje})
 
 
 def vigilante(margen):
@@ -2847,7 +2953,7 @@ def vigilante(margen):
         if time.time() - ULTIMO_LATIDO["t"] > margen:
             print("\n  Panel cerrado y sin trabajo pendiente — apagando el servidor.")
             break
-    os.kill(os.getpid(), signal.SIGINT)
+    _salir()
 
 
 @app.get("/manifest.webmanifest")
@@ -2968,7 +3074,7 @@ def main():
     if not args.sin_wakelock and shutil.which("termux-wake-lock"):
         try:
             subprocess.run(["termux-wake-lock"], timeout=5, capture_output=True)
-            wakelock = True
+            wakelock = WAKELOCK["tomado"] = True
         except Exception:
             pass
 
@@ -2987,6 +3093,7 @@ def main():
 
     if not args.no_apagar:
         ULTIMO_LATIDO["t"] = time.time()
+        VIGILANTE["activo"] = True
         threading.Thread(target=vigilante, args=(MARGEN_SIN_LATIDO,), daemon=True).start()
         print("  Se apaga solo si cierras el panel (y no hay nada corriendo).")
 

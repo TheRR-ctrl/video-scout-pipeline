@@ -380,6 +380,8 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
+    import dispositivo
+    dispositivo.salir_si_desactivado()
     # argv explícito: main() sin argumentos es como lo llamaría otro módulo
     # (igual que trend_scout), así que los flags de la consola se pasan a mano.
     main(sys.argv[1:])

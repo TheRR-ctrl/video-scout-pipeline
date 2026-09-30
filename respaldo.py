@@ -55,6 +55,9 @@ FUERA_DIRS = ("__pycache__", ".gradle", "build", "hyperframes_cache", ".git",
 PESADOS = (".mp4", ".webm", ".mkv", ".mov", ".mp3", ".m4a", ".wav", ".aac", ".ogg")
 FUERA_SUFIJOS = (".pyc", ".log", ".parcial", ".tmp")
 FUERA_CONTIENE = (".bak",)
+# La marca de «este aparato está desactivado» (dispositivo.py) es de este
+# aparato, no de los ajustes: al restaurar en otro lo dejaría desactivado.
+FUERA_NOMBRES = ("desactivado.json",)
 
 # Lo que no puede faltar: si no está, se avisa (no es un fallo).
 IMPORTANTES = {
@@ -93,7 +96,8 @@ def archivos_del_proyecto():
         partes = r.split("/")
         if any(p in FUERA_DIRS for p in partes[:-1]):
             continue
-        if r.endswith(FUERA_SUFIJOS) or any(c in partes[-1] for c in FUERA_CONTIENE):
+        if (r.endswith(FUERA_SUFIJOS) or any(c in partes[-1] for c in FUERA_CONTIENE)
+                or r in FUERA_NOMBRES):
             continue
         if os.path.isfile(os.path.join(BASE_DIR, r)):
             quedan.append(r)

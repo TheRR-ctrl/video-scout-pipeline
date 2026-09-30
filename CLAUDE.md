@@ -239,6 +239,21 @@ silencio si se olvidan:
   `revision_quincenal.py`; el `.sh` se queda solo como envoltorio porque el
   cron del teléfono lo llama por ese nombre.
 
+## Desactivar un aparato: la marca no viaja en el respaldo
+
+⏻ → «Desactivar» (`dispositivo.py`) existe para que el teléfono y el PC no
+publiquen a la vez: cada uno lleva su propio `publicados.json`. Mientras
+dure, `lanzar` no arranca nada salvo `respaldo.py` (exportar y restaurar
+son justo lo que se hace al pasarse de uno a otro), `horario.lineas_cron`
+devuelve cero líneas y los scripts del cron y de subida salen al empezar
+con `dispositivo.salir_si_desactivado()`.
+
+**La marca es `desactivado.json` en la raíz y no en `pipeline_state/` a
+propósito**, y `respaldo.py` la excluye por nombre: si viajara en el
+respaldo, exportar desde el teléfono ya desactivado dejaría desactivado
+también el PC al restaurar. Un script nuevo que corra solo o que suba
+algo lleva esa misma llamada en su `__main__`.
+
 ## El horario de cron: el panel elige cuándo, nunca qué
 
 `horario.py` escribe el crontab con lo que se elige en Ajustes → Horario

@@ -38,3 +38,6 @@ guion_prueba.txt
 
 # Donde el panel deja el respaldo que le subes, hasta restaurarlo.
 .importando/
+
+# La marca de aparato desactivado (dispositivo.py): es de cada aparato.
+desactivado.json

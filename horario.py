@@ -159,7 +159,12 @@ def _python():
 
 
 def lineas_cron(tareas=None, py=None):
-    """Las líneas de crontab de las tareas activas."""
+    """Las líneas de crontab de las tareas activas. Ninguna si este aparato
+    está desactivado (dispositivo.py): así aplicar() las quita del crontab
+    sin tocar lo elegido en el panel, y al reactivar vuelven tal cual."""
+    import dispositivo
+    if dispositivo.desactivado():
+        return []
     tareas = tareas or cargar()
     py = py or _python()
     out = []

@@ -1095,6 +1095,8 @@ def revisar_programados():
 
 if __name__ == "__main__":
     import argparse
+    import dispositivo
+    dispositivo.salir_si_desactivado()
 
     parser = argparse.ArgumentParser(description="Sube a YouTube los videos pendientes.")
     parser.add_argument(

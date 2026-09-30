@@ -510,7 +510,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
     </div>
     <div class="nav-acc">
       <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
-      <button class="btn sm" id="b-apagar" title="Apagar el panel y liberar el wake lock">⏻</button>
+      <button class="btn sm" id="b-apagar" title="Apagar el panel, o desactivar este aparato">⏻</button>
     </div>
   </div>
   <div class="tabs">
@@ -532,6 +532,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
 </div></div>
 
 <div class="wrap">
+  <div id="desactivado-slot"></div>
   <div id="paso-slot"></div>
   <div id="job-slot"></div>
   <div id="dicc"></div>
@@ -3216,6 +3217,8 @@ function bloquePasarAlPC(){
             la sesión de YouTube, los ajustes, lo ya subido y la cola de historias. Sin videos, fondos
             ni música. Mándatelo al PC (Drive, WhatsApp a ti mismo, correo) y en el panel de Windows:
             Ajustes → Tareas → «Traer todo del teléfono».</div>
+          <div class="muted" style="margin-top:4px">Cuando el PC ya esté funcionando, desactiva este teléfono
+            con ⏻ (arriba a la derecha) → «Desactivar»: así no publican los dos a la vez.</div>
           <div class="muted" style="margin-top:4px;color:var(--warn)">Lleva tus claves: no lo mandes a nadie más.</div>
         </div>
         <button class="btn go" id="b-exportar-ajustes">⇪ Exportar</button>
@@ -3924,6 +3927,7 @@ function pintar(){
   pintaColaTrabajos();
   vigilarFallos();
   pintaPaso();
+  pintaDesactivado();
 
   const v = vistaActual();
   const [firma, pinta] = VISTAS[v];
@@ -3938,11 +3942,42 @@ function pintar(){
    Revisar se quedaría congelado, porque esa vista no se repinta mientras no
    cambien los videos. Sale en Revisar y en Cola, que es donde se empieza. */
 let firmaPaso = null;
+/* Este aparato desactivado (dispositivo.py): un aviso fijo arriba, en todas
+   las pestañas, porque mientras dure los botones no arrancan nada y sin él
+   parecería que el panel se rompió. */
+let firmaDesactivado = null;
+function pintaDesactivado(){
+  const d = E && E.desactivado;
+  const f = d ? JSON.stringify(d) : '';
+  if(f === firmaDesactivado) return;
+  firmaDesactivado = f;
+  const slot = $('#desactivado-slot');
+  if(!d){ slot.innerHTML = ''; return; }
+  const desde = d.desde ? new Date(d.desde).toLocaleString('es', {dateStyle:'medium', timeStyle:'short'}) : '';
+  slot.innerHTML = `
+    <div class="aviso crit"><span>⏸</span><div style="flex:1">
+      <b>Este ${equipo()} está desactivado${desde ? ' desde el ' + esc(desde) : ''}.</b>
+      No corre nada: ni con botones, ni solo${E.es_android ? ', ni el horario automático' : ''}. Es para que el teléfono y
+      el PC no publiquen a la vez. Exportar y restaurar respaldos sí funciona.
+      <div style="margin-top:8px"><button class="btn go sm" id="b-reactivar">▶ Reactivar este ${equipo()}</button></div>
+    </div></div>`;
+  $('#b-reactivar').onclick = async ()=>{
+    if(!confirm(`¿Reactivar este ${equipo()}?\n\nAsegúrate de haber desactivado el otro antes: `
+      + 'si los dos publican, el mismo video puede subirse dos veces.')) return;
+    try{
+      const j = await post('/api/dispositivo/reactivar', {});
+      toast(j.mensaje || 'Reactivado'); horarioCache = null; refrescar();
+    }catch(e){ toast(e.message); }
+  };
+}
+
 function pintaPaso(){
   const s = E && E.siguiente, v = vistaActual();
   // Si el paso solo lleva a la pestaña en la que ya estás («Revisa 40
   // videos» estando en Revisar), el botón no haría nada: no se enseña.
-  const visible = s && (v === 'revisar' || v === 'cola') && !(s.ir && !s.accion && s.ir === v);
+  // Desactivado no hay siguiente paso que dar: lo dice su propio aviso.
+  const visible = s && !E.desactivado && (v === 'revisar' || v === 'cola')
+    && !(s.ir && !s.accion && s.ir === v);
   const f = visible ? JSON.stringify(s) + v : '';
   if(f === firmaPaso) return;
   firmaPaso = f;
@@ -4106,24 +4141,73 @@ addEventListener('keydown', ev=>{
   ev.preventDefault();
 });
 
-$('#b-apagar').onclick = async ()=>{
+/* ⏻: apagar el panel, o desactivar este aparato (dispositivo.py) para
+   pasarse al otro sin que los dos publiquen a la vez. Desactivar dura hasta
+   pulsar «Reactivar», también tras cerrar y volver a abrir el panel. */
+$('#b-apagar').onclick = ()=>{
   const j = E && E.trabajo, enEspera = ((E && E.cola) || []).length;
-  if(j && (j.estado==='corriendo'||j.estado==='pausado')){
-    // La cola vive en memoria del servidor: apagar no la aplaza, la borra.
-    // Decirlo aquí, que es donde se pierde, y no solo en la documentación.
-    const extra = enEspera ? `\n(y ${enEspera} en espera se pierden)` : '';
-    if(!confirm('Hay algo corriendo. ¿Apagar el panel de todas formas?\n(el trabajo se interrumpe)' + extra)) return;
-  }else if(enEspera){
-    if(!confirm(`Hay ${enEspera} en espera. ¿Apagar de todas formas?\n(la cola se pierde)`)) return;
-  }
-  try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
-  document.body.innerHTML = `<div style="max-width:420px;margin:22vh auto;padding:0 20px;
-    text-align:center;font:15px/1.6 var(--body);color:var(--ink-dim)">
-    <div style="font-size:34px;margin-bottom:12px">⏻</div>
-    <b style="color:var(--ink);font-size:16px">Panel apagado</b>
-    <p>Termux quedó libre y se soltó el wake lock. Ya puedes cerrar esta pestaña.</p>
-    <p style="font:12px var(--mono)">Para volver: <b>panel</b> en Termux</p></div>`;
+  const corriendo = j && (j.estado==='corriendo'||j.estado==='pausado');
+  const pierde = corriendo ? `Se interrumpe «${esc(j.nombre)}»${enEspera ? ` y se pierden ${enEspera} en espera` : ''}.`
+    : enEspera ? `Se pierden los ${enEspera} que están en espera.` : '';
+  const ya = E && E.desactivado;
+  const caja = document.createElement('div');
+  caja.className = 'modal';
+  caja.innerHTML = `
+    <div class="caja">
+      <b style="font-size:16px">⏻ Apagar</b>
+      ${pierde ? `<div class="aviso warn" style="margin:10px 0 0"><span>⚠</span><div>${pierde}</div></div>` : ''}
+      <div class="list" style="margin-top:12px">
+        ${ya ? '' : `<div class="row" style="display:block">
+          <b>Desactivar este ${equipo()}</b>
+          <div class="muted" style="margin:3px 0 8px">Para pasarte al otro aparato. Para lo que esté
+            corriendo${E.es_android ? ', quita el horario automático' : ''} y no deja arrancar nada —ni
+            solo ni con botones— hasta que pulses «Reactivar». Así el teléfono y el PC no publican a la vez.</div>
+          <div style="display:flex;gap:7px;flex-wrap:wrap">
+            <button class="btn go" data-ap="desactivar-apagar">Desactivar y apagar</button>
+            <button class="btn" data-ap="desactivar">Solo desactivar</button>
+          </div></div>`}
+        <div class="row" style="display:block">
+          <b>Solo apagar el panel</b>
+          <div class="muted" style="margin:3px 0 8px">${E.es_android
+            ? 'Suelta Termux y el wake lock. El horario automático sigue corriendo aunque el panel esté apagado.'
+            : 'Cierra el panel. Para volver, abre otra vez iniciar_windows.bat.'}</div>
+          <button class="btn" data-ap="apagar">Apagar el panel</button></div>
+      </div>
+      <div style="display:flex;margin-top:12px"><button class="btn" data-ap="no" style="margin-left:auto">Cancelar</button></div>
+    </div>`;
+  document.body.appendChild(caja);
+  caja.onclick = async ev => {
+    const b = ev.target.closest('[data-ap]');
+    if(ev.target === caja || (b && b.dataset.ap === 'no')) return caja.remove();
+    if(!b) return;
+    const que = b.dataset.ap;
+    caja.remove();
+    if(que === 'apagar'){
+      try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
+      return pantallaApagado(false);
+    }
+    try{
+      const r = await post('/api/dispositivo/desactivar', {apagar: que === 'desactivar-apagar'});
+      if(que === 'desactivar-apagar') return pantallaApagado(true, r.mensaje);
+      toast(r.mensaje || `Este ${equipo()} quedó desactivado`); horarioCache = null; refrescar();
+    }catch(e){ toast(e.message); }
+  };
 };
+
+function pantallaApagado(desactivado, extra){
+  const volver = E && E.es_windows ? 'abre otra vez <b>iniciar_windows.bat</b>'
+    : E && E.es_android ? '<b>panel</b> en Termux (o abre la app)' : 'vuelve a arrancar el panel';
+  document.body.innerHTML = `<div style="max-width:440px;margin:22vh auto;padding:0 20px;
+    text-align:center;font:15px/1.6 var(--body);color:var(--ink-dim)">
+    <div style="font-size:34px;margin-bottom:12px">${desactivado ? '⏸' : '⏻'}</div>
+    <b style="color:var(--ink);font-size:16px">${desactivado ? `Este ${equipo()} quedó desactivado` : 'Panel apagado'}</b>
+    <p>${desactivado ? 'No corre nada, tampoco solo. ' : ''}${E && E.es_windows
+      ? 'Ya puedes cerrar esta pestaña; la ventana negra se cierra sola.'
+      : 'Termux quedó libre y se soltó el wake lock. Ya puedes cerrar esta pestaña.'}</p>
+    ${extra ? `<p>${esc(extra)}</p>` : ''}
+    <p style="font-size:13px">Para volver: ${volver}.${desactivado
+      ? ' Seguirá desactivado hasta que pulses «Reactivar» en el aviso de arriba.' : ''}</p></div>`;
+}
 </script>
 </body>
 </html>

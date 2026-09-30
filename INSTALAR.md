@@ -41,7 +41,10 @@ se lanza con su botón), el chip de video del teléfono, la batería y las
 notificaciones de Android. Si el PC tiene tarjeta NVIDIA, el render la usa.
 
 **No publiques desde el PC y el teléfono a la vez**: cada uno lleva su
-propio registro de lo subido y podrían subir el mismo video dos veces. Para
+propio registro de lo subido y podrían subir el mismo video dos veces. En
+el que dejas, **⏻ → «Desactivar»**: para lo que esté corriendo, quita el
+horario automático y no deja arrancar nada hasta pulsar «Reactivar» en el
+aviso que queda arriba del panel. Para
 pasar de uno a otro, respaldo en el que dejas y restauración en el nuevo
 (en el PC, «Traer todo del teléfono» en Ajustes → Tareas;
 `iniciar_windows.bat` también lo ofrece, o `python respaldo.py --restaurar`).
