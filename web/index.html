@@ -907,6 +907,11 @@ const TRAZOS = {"archive":"<svg class=\"lucide lucide-archive\" xmlns=\"http://w
 const ICONO_DE = {"→":"arrow-right","✓":"check","✔":"check","⚠":"triangle-alert","▶":"play","✂":"scissors","✕":"x","✗":"x","❌":"x","⛔":"octagon-x","🗑":"trash-2","↻":"refresh-cw","⏸":"pause","✅":"circle-check","☢":"radiation","📖":"book-open","✍":"pen-line","🔎":"search","🔍":"search","⏹":"square","←":"arrow-left","📦":"archive","🚫":"ban","💡":"lightbulb","✎":"pencil","🎞":"film","⏱":"timer","⏳":"hourglass","⚡":"zap","🖥":"monitor","📂":"folder-open","↺":"rotate-ccw","🎬":"clapperboard","🧹":"brush-cleaning","🩺":"stethoscope","🔑":"key-round","🎨":"palette","📤":"share","📥":"download","⏻":"power","🧠":"cpu","✨":"sparkles","🔀":"shuffle","🧪":"flask-conical","📋":"clipboard-paste","👁":"eye","🔌":"plug","⚙":"settings","🎵":"music","🧰":"wrench","📱":"smartphone","☀":"sun","🌙":"moon","🌐":"globe"};
 const RE_ICONO = new RegExp('^\\s*(' + Object.keys(ICONO_DE).join('|') + ')\\uFE0F?\\s*', 'u');
 const CON_ICONO = 'button,.btn,.tbtn,.pill,summary';
+// Un botón que se queda solo con el dibujo necesita nombre para el lector
+// de pantalla (y el globo al pasar el ratón): el emoji al menos se leía.
+const NOMBRE_ICONO = {'trash-2':'Quitar', play:'Reproducir', pause:'Pausar', x:'Cerrar',
+  pencil:'Editar', 'refresh-cw':'Actualizar', square:'Parar', 'rotate-ccw':'Rehacer',
+  search:'Buscar', power:'Apagar', radiation:'Desactivar'};
 function iconizar(raiz){
   const els = raiz.matches?.(CON_ICONO) ? [raiz] : [];
   els.push(...raiz.querySelectorAll(CON_ICONO));
@@ -917,6 +922,10 @@ function iconizar(raiz){
     if(!m) continue;
     t.data = t.data.slice(m[0].length);
     const solo = !el.textContent.trim();
+    if(solo && el.tagName === 'BUTTON' && !el.title && !el.getAttribute('aria-label')){
+      const n = NOMBRE_ICONO[ICONO_DE[m[1]]];
+      if(n){ el.title = n; el.setAttribute('aria-label', n); }
+    }
     el.insertAdjacentHTML('afterbegin', `<svg class="ico${solo ? ' solo' : ''}" viewBox="0 0 24 24" aria-hidden="true">${TRAZOS[ICONO_DE[m[1]]]}</svg>`);
   }
 }
@@ -1758,7 +1767,7 @@ function pintaRevisar(){
             <span>${a.es_short?'Short':'Largo'}</span>
             <span>Emoción <b>${esc(a.emocion)}</b></span>
             ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
-              <button class="btn sm" data-oir="${esc(a.musica)}" style="padding:2px 8px">▶</button>`:''}
+              <button class="btn sm" data-oir="${esc(a.musica)}" title="Oír la pista" style="padding:2px 8px">▶</button>`:''}
             ${a.subido ? '<span class="pill ok">✓ ya subido a YouTube</span>'
               : (a.publicado ? '<span class="pill warn">rechazado, no se subió</span>'
                              : '<span class="pill idle">sin subir</span>')}
@@ -2386,7 +2395,7 @@ function pintaCola(){
           ${pistas.map(p=>`<option value="${esc(p.archivo)}" ${musicaElegida[x.n]===p.archivo?'selected':''}>
             ${esc(p.emocion)} · ${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</option>`).join('')}
         </select>
-        <button class="btn sm" data-oir-fila="${x.n}" style="padding:6px 9px">▶</button>
+        <button class="btn sm" data-oir-fila="${x.n}" title="Oír la pista" style="padding:6px 9px">▶</button>
         <span class="m">${musicaElegida[x.n] ? 'fijada' : 'auto'}</span>
       </div>`).join('')}</div>`}`;
 
@@ -3975,7 +3984,7 @@ function pintaAjustes(){
     ${!pistas.length ? `<div class="aviso warn"><span>⚠</span><div>Ninguna. Sin música los videos salen solo con la voz.</div></div>`
     : `<div class="list">${pistas.map(p=>`
       <div class="row" style="grid-template-columns:auto 1fr 120px">
-        <button class="btn sm" data-oir="${esc(p.archivo)}" style="padding:6px 9px">▶</button>
+        <button class="btn sm" data-oir="${esc(p.archivo)}" title="Oír la pista" style="padding:6px 9px">▶</button>
         <div style="min-width:0"><div class="t">${esc(p.titulo || p.archivo.replace(/^musica_[a-z]*_|\.mp3$/g,''))}</div>
           <div class="m">${esc(p.artista || 'sin atribución')} · ${p.kb} KB</div></div>
         <select class="btn sm" data-emo="${esc(p.archivo)}">
