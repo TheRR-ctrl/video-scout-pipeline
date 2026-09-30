@@ -67,6 +67,18 @@ TAGS_POR_EMOCION = {
 # (necesario para poder mezclar la pista con la narración/voiceover).
 LICENCIAS_PERMITIDAS = ["by", "by-sa"]
 
+# Cuántas páginas de 10 mirar por tag y licencia. Las primeras por
+# popularidad son siempre las mismas: tras unas cuantas rotaciones (o con el
+# historial traído de otro aparato) ya están todas en musica_historial.json y
+# sin pasar de página no se encontraba nada nuevo.
+PAGINAS_MAX = 5
+
+
+class ClaveRechazada(Exception):
+    """Jamendo contesta 200 también con una clave mala: el error va en
+    headers.status. Sin mirarlo, la tanda acababa en «Listo» con 0 pistas."""
+
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("actualizar_musica")
 
@@ -81,41 +93,60 @@ def buscar_pistas(client_id, tags, cantidad, ya_descargadas):
     nuevas, válidas y no repetidas."""
     elegidas = []
     vistas_en_esta_busqueda = set()
+    consultas_ok = 0
 
     for tag in tags:
         for licencia in LICENCIAS_PERMITIDAS:
-            if len(elegidas) >= cantidad:
-                return elegidas
-
-            params = {
-                "client_id": client_id,
-                "format": "json",
-                "limit": 10,
-                "tags": tag,
-                "license_cc": licencia,
-                "audioformat": "mp32",
-                "include": "musicinfo",
-                "order": "popularity_total",
-            }
-            try:
-                resp = requests.get(JAMENDO_API, params=params, timeout=20)
-                resp.raise_for_status()
-                data = resp.json()
-            except Exception as exc:
-                logger.warning(f"    fallo consultando tag={tag} licencia={licencia}: {exc}")
-                continue
-
-            for track in data.get("results", []):
+            for pagina in range(PAGINAS_MAX):
                 if len(elegidas) >= cantidad:
-                    break
-                track_id = str(track.get("id"))
-                if track_id in ya_descargadas or track_id in vistas_en_esta_busqueda:
-                    continue
-                if not track.get("audiodownload_allowed"):
-                    continue
-                vistas_en_esta_busqueda.add(track_id)
-                elegidas.append(track)
+                    return elegidas
 
+                params = {
+                    "client_id": client_id,
+                    "format": "json",
+                    "limit": 10,
+                    "tags": tag,
+                    "license_cc": licencia,
+                    "audioformat": "mp32",
+                    "include": "musicinfo",
+                    "order": "popularity_total",
+                    "offset": pagina * 10,
+                }
+                try:
+                    resp = requests.get(JAMENDO_API, params=params, timeout=20)
+                    resp.raise_for_status()
+                    data = resp.json()
+                except Exception as exc:
+                    logger.warning(f"    fallo consultando tag={tag} licencia={licencia}: {exc}")
+                    break
+
+                cab = data.get("headers") or {}
+                if cab.get("status") not in (None, "success"):
+                    if cab.get("code") == 5:
+                        raise ClaveRechazada(
+                            "Jamendo no reconoce el JAMENDO_CLIENT_ID. Cópialo otra vez en "
+                            "Ajustes → Servicios → Jamendo (devportal.jamendo.com/admin/applications).")
+                    logger.warning(f"    Jamendo respondió con error (tag={tag}): "
+                                   f"{cab.get('error_message') or cab.get('code')}")
+                    break
+                consultas_ok += 1
+
+                resultados = data.get("results", [])
+                for track in resultados:
+                    if len(elegidas) >= cantidad:
+                        break
+                    track_id = str(track.get("id"))
+                    if track_id in ya_descargadas or track_id in vistas_en_esta_busqueda:
+                        continue
+                    if not track.get("audiodownload_allowed"):
+                        continue
+                    vistas_en_esta_busqueda.add(track_id)
+                    elegidas.append(track)
+                if len(resultados) < 10:
+                    break   # no hay más páginas para este tag
+
+    if not consultas_ok:
+        raise ConnectionError("ninguna consulta a Jamendo salió bien (¿sin conexión?)")
     return elegidas
 
 
@@ -187,6 +218,8 @@ def buscar_para(client_id, emocion, cuantas, ya_descargadas):
     """buscar_pistas para una emocion, dejando apuntado a cual pertenece."""
     try:
         pistas = buscar_pistas(client_id, TAGS_POR_EMOCION[emocion], cuantas, ya_descargadas)
+    except ClaveRechazada:
+        raise
     except Exception as exc:
         logger.warning(f"{emocion}: fallo al consultar Jamendo: {exc}")
         return []
@@ -302,26 +335,44 @@ def main(argv=None):
     if args.rotar:
         if not hay_via_libre_para_descargar(args.con_datos):
             return 0
-        return rotar(client_id)
+        try:
+            return rotar(client_id)
+        except ClaveRechazada as exc:
+            logger.warning(str(exc))
+            return 0
 
     historial = cargar_json(RUTA_HISTORIAL, [])
     ya_descargadas = set(historial)
     atribucion = cargar_json(RUTA_ATRIBUCION, {})
 
-    for emocion, tags in TAGS_POR_EMOCION.items():
-        existentes = pistas_de(emocion)
-        faltan = max(0, PISTAS_POR_EMOCION - len(existentes))
-        if faltan == 0:
-            logger.info(f"{emocion}: ya hay {len(existentes)} pista(s), no se descarga nada.")
-            continue
+    cortas = []
+    try:
+        for emocion, tags in TAGS_POR_EMOCION.items():
+            existentes = pistas_de(emocion)
+            faltan = max(0, PISTAS_POR_EMOCION - len(existentes))
+            if faltan == 0:
+                logger.info(f"{emocion}: ya hay {len(existentes)} pista(s), no se descarga nada.")
+                continue
 
-        logger.info(f"{emocion}: buscando {faltan} pista(s) nueva(s) (tags: {tags})...")
-        descargar_lote(buscar_para(client_id, emocion, faltan, ya_descargadas),
-                       ya_descargadas, atribucion)
+            logger.info(f"{emocion}: buscando {faltan} pista(s) nueva(s) (tags: {tags})...")
+            bajadas = descargar_lote(buscar_para(client_id, emocion, faltan, ya_descargadas),
+                                     ya_descargadas, atribucion)
+            if len(bajadas) < faltan:
+                logger.warning(f"{emocion}: solo se consiguieron {len(bajadas)} de {faltan}.")
+                cortas.append(emocion)
+    except ClaveRechazada as exc:
+        raise SystemExit(str(exc))
+    finally:
+        guardar_json(RUTA_HISTORIAL, sorted(ya_descargadas))
+        guardar_json(RUTA_ATRIBUCION, atribucion)
 
-    guardar_json(RUTA_HISTORIAL, sorted(ya_descargadas))
-    guardar_json(RUTA_ATRIBUCION, atribucion)
-    logger.info("Listo.")
+    total = sum(len(pistas_de(e)) for e in TAGS_POR_EMOCION)
+    if not total:
+        # Sin esto la tarjeta decía «Listo» en verde y el panel «0 pistas».
+        raise SystemExit("No se pudo bajar ninguna pista de Jamendo. Mira los avisos de "
+                         "arriba (conexión o Jamendo caído) y vuelve a pulsar «Rellenar».")
+    logger.info(f"Listo: {total} pista(s) en total"
+                + (f"; faltan en {', '.join(cortas)}." if cortas else "."))
     return 0
 
 
