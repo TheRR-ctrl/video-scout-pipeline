@@ -253,7 +253,7 @@ silencio si se olvidan:
 
 ## Desactivar un aparato: la marca no viaja en el respaldo
 
-⏻ → «Desactivar» (`dispositivo.py`) existe para que el teléfono y el PC no
+☢️ → «Desactivar» (`dispositivo.py`) existe para que el teléfono y el PC no
 publiquen a la vez: cada uno lleva su propio `publicados.json`. Mientras
 dure, `lanzar` no arranca nada salvo `respaldo.py` (exportar y restaurar
 son justo lo que se hace al pasarse de uno a otro), `horario.lineas_cron`

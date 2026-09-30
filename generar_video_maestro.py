@@ -14,7 +14,7 @@ import textwrap
 import tempfile
 import collections
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image, ImageDraw, ImageFont
 
 import almacen
@@ -528,8 +528,67 @@ def obtener_metricas_hardware(old_cpu, old_gpu, old_ram, old_disk):
 
     return cpu_str, gpu_str, ram_str, disk_str
 
+# Varios videos a la vez (videos_a_la_vez). Cada historia corre en su hilo
+# con su directorio temporal propio (GestorTemporales), así que no se pisan
+# archivos; lo único compartido es esta línea de avance. El HUD de la
+# terminal repinta sus líneas con escapes de cursor, y con varios hilos a la
+# vez saldría un revoltijo, así que en ese modo cada hilo solo apunta en qué
+# va y se escribe UNA línea con todos, como mucho una vez por segundo:
+#   ├─ 🎬 [ 37.5%] 3 a la vez · #4 Render (tarjeta NVIDIA) 45% · #5 Loc 50%
+# El porcentaje de delante es el de toda la tanda: es el primero de la línea
+# y es el que el panel pone en la barra. «Render (…)» sigue diciendo con qué
+# se codifica (servidor._RE_CODIFICADOR).
+_PARALELO = {"n": 1, "total": 0, "hechos": 0, "estado": {}, "t": 0.0}
+_HILO = threading.local()
+_CANDADO_HUD = threading.Lock()
+_RE_FASE = re.compile(r"\[(\d)/4\]")
+_RE_PCT_HUD = re.compile(r"(\d{1,3}(?:\.\d)?)%")
+
+
+def videos_a_la_vez():
+    """Cuántas historias se graban a la vez: 1 en el teléfono (el procesador
+    ya va al máximo con una, y dos lo calientan), 2 en un PC. Se cambia en
+    Ajustes → Música y video → Render (config.json → video.videos_a_la_vez)."""
+    valor = (CONFIG.get("video") or {}).get("videos_a_la_vez")
+    try:
+        n = int(valor)
+    except (TypeError, ValueError):
+        n = 1 if ES_ANDROID else 2
+    return max(1, min(4, n))
+
+
+def _hud_paralelo(mensaje_lista, finalizado):
+    num = getattr(_HILO, "num", None)
+    texto = re.sub(r"\[[█ ]*\]", "", mensaje_lista[0])          # la barra de bloques
+    texto = re.sub(r"^[\s├└─]+", "", texto).replace(":", "").strip()
+    texto = re.sub(r"\[\s*([\d.]+%)\]", r"\1", texto)            # «[ 45.0%]» → «45.0%»
+    fase = _RE_FASE.search(texto)
+    pct = _RE_PCT_HUD.search(texto)
+    avance = ((int(fase.group(1)) - 1) + (100.0 if finalizado else float(pct.group(1) if pct else 0)) / 100) / 4 \
+        if fase else 0.0
+    texto = _RE_FASE.sub("", texto)
+    texto = re.sub(r"\s+", " ", texto).strip()
+    with _CANDADO_HUD:
+        if num is not None:
+            _PARALELO["estado"][num] = (texto, avance)
+        ahora = time.time()
+        if ahora - _PARALELO["t"] < 1.0 and not finalizado:
+            return
+        _PARALELO["t"] = ahora
+        estado = dict(_PARALELO["estado"])
+        total = max(1, _PARALELO["total"])
+        global_pct = min(100.0, (_PARALELO["hechos"] + sum(a for _, a in estado.values())) / total * 100)
+    partes = " · ".join(f"#{n} {t}" for n, (t, _) in sorted(estado.items()))
+    print(f" ├─ 🎬 [{global_pct:5.1f}%] {len(estado)} a la vez · {partes}", flush=True)
+
+
 def actualizar_hud(mensaje_lista, finalizado=False):
     global ultimo_refresco_hw, cpu_pct, gpu_pct, ram_pct, disk_pct
+
+    if isinstance(mensaje_lista, str):
+        mensaje_lista = [mensaje_lista]
+    if _PARALELO["n"] > 1:
+        return _hud_paralelo(mensaje_lista, finalizado)
     
     if time.time() - ultimo_refresco_hw > 2.0:
         cpu_pct, gpu_pct, ram_pct, disk_pct = obtener_metricas_hardware(cpu_pct, gpu_pct, ram_pct, disk_pct)
@@ -2463,7 +2522,7 @@ def guardar_resultado_lote(completados, fallidas, avisar=False):
         logger.warning(f"No se pudo escribir resultado_lote.json: {exc}")
 
 
-def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
+def renderizar_lote_historias(archivo="guion.txt", seleccion=None, a_la_vez_pedido=None):
     sys.stdout.write("\033[?25l")
     sys.stdout.flush()
     try:
@@ -2501,9 +2560,12 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
         aplazadas = []
         completados = []
 
-        for i, h in pares:
+        def anotar(i, hacer):
+            """Corre hacer() (el render de la historia i, o recoger su
+            resultado) y apunta cómo acabó. Siempre en el hilo principal: es
+            el único que escribe resultado_lote.json."""
             try:
-                resultado = renderizar_una_historia(h, i)
+                resultado = hacer()
                 if resultado:
                     completados.append(resultado)
                     # Se guarda aquí, no solo al final del lote: el panel lee
@@ -2512,11 +2574,6 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
                     # Con cinco historias son muchos minutos mirando una lista
                     # vacía mientras los videos ya están hechos en disco.
                     guardar_resultado_lote(completados, fallidas)
-            except KeyboardInterrupt:
-                # Ctrl+C corta el lote pero conserva lo ya terminado: el
-                # registro se escribe abajo igual, no se pierde el trabajo.
-                print(f"\n\n⏹️  Interrumpido en la historia {i}. Se guarda lo completado.")
-                break
             except HistoriaAplazada as exc:
                 # No es un fallo: la historia sigue en la cola y se renderiza
                 # sola el día que los largos se abran.
@@ -2527,6 +2584,43 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None):
                 fallidas.append((i, str(exc)))
                 logger.error(f"Video {i} falló: {exc}")
                 print(f"\n❌ Video {i} falló: {exc}")
+
+        a_la_vez = min(videos_a_la_vez() if a_la_vez_pedido is None else max(1, min(4, a_la_vez_pedido)),
+                       len(pares))
+        if a_la_vez <= 1:
+            for i, h in pares:
+                try:
+                    anotar(i, lambda: renderizar_una_historia(h, i))
+                except KeyboardInterrupt:
+                    # Ctrl+C corta el lote pero conserva lo ya terminado: el
+                    # registro se escribe abajo igual, no se pierde el trabajo.
+                    print(f"\n\n⏹️  Interrumpido en la historia {i}. Se guarda lo completado.")
+                    break
+        else:
+            print(f"⚡ {a_la_vez} videos a la vez")
+            _PARALELO.update(n=a_la_vez, total=len(pares), hechos=0, estado={}, t=0.0)
+
+            def en_su_hilo(i, h):
+                _HILO.num = i
+                try:
+                    return renderizar_una_historia(h, i)
+                finally:
+                    with _CANDADO_HUD:
+                        _PARALELO["estado"].pop(i, None)
+                        _PARALELO["hechos"] += 1
+
+            ex = ThreadPoolExecutor(max_workers=a_la_vez)
+            futuros = {ex.submit(en_su_hilo, i, h): i for i, h in pares}
+            try:
+                for fut in as_completed(futuros):
+                    anotar(futuros[fut], fut.result)
+            except KeyboardInterrupt:
+                for fut in futuros:
+                    fut.cancel()
+                print("\n\n⏹️  Interrumpido. Se guarda lo completado.")
+            finally:
+                ex.shutdown(wait=True, cancel_futures=True)
+                _PARALELO["n"] = 1
 
         guardar_resultado_lote(completados, fallidas, avisar=True)
 
@@ -2594,6 +2688,11 @@ if __name__ == "__main__":
         "--fondo",
         help="Usar solo los videos de fondo cuyo nombre contenga este texto.",
     )
+    parser.add_argument(
+        "--a-la-vez", type=int, metavar="N",
+        help="Cuántos videos grabar a la vez en esta corrida (1-4). Por omisión, "
+             "el ajuste del panel: 1 en el teléfono, 2 en un PC.",
+    )
     args = parser.parse_args()
 
     # --estilo aplica solo a esta corrida: se recarga la config con el preset
@@ -2646,4 +2745,4 @@ if __name__ == "__main__":
                 elegidas["*"] = parte
         CONFIG["_musica_forzada"] = elegidas
 
-    renderizar_lote_historias(args.guion, seleccion)
+    renderizar_lote_historias(args.guion, seleccion, args.a_la_vez)
