@@ -14,42 +14,7 @@ REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PYTHON="$(command -v python)"
 cd "$REPO" || exit 1
 
-if [ "$1" = "--ver" ]; then
-  HACERLO=""
-else
-  HACERLO="--si"
-fi
-
-echo
-echo "=============================================================="
-echo "  Revisión del canal — $(date '+%Y-%m-%d %H:%M')"
-echo "=============================================================="
-
-# Antes de nada, lo que YouTube quitó o limitó. Solo avisa (en el log y en
-# la pestaña Canal): volver a subir un video que YouTube quitó por un clip
-# de fondo puede costar otra advertencia, así que eso no se hace solo.
-echo
-echo "-- Lo que YouTube quitó o limitó -----------------------------"
-"$PYTHON" relanzar.py --problemas
-
-# Primero las repetidas: se borra el refrito y no se rehace, que la historia
-# ya está contada en la copia que sí funcionó. Si se hiciera al revés, la
-# historia repetida entraría por --sin-vistas y volvería a grabarse.
-echo
-echo "-- Copias repetidas ------------------------------------------"
-"$PYTHON" relanzar.py --duplicados $HACERLO
-
-# Después los que nadie vio. Las guardas van por omisión: no toca nada de
-# menos de 14 días ni rehace una historia que ya se intentó dos veces.
-echo
-echo "-- Los que no vio nadie --------------------------------------"
-"$PYTHON" relanzar.py --sin-vistas $HACERLO
-
-# No se llama al render aquí: la tanda «Escribir guiones y grabar» ya corre
-# pipeline.py --hasta video, y encuentra en la cola lo que esto acabe de
-# devolver. Grabar dos tandas el mismo día llenaría el teléfono.
-echo
-echo "  Las historias que volvieron a la cola las graba la tanda"
-echo "  «Escribir guiones y grabar» (python horario.py dice cuándo)."
-echo "  Para no esperar:  python generar_video_maestro.py"
-echo
+# Todo lo hace revision_quincenal.py, que corre también en Windows. Este
+# archivo se queda porque el cron del teléfono lo llama por este nombre
+# (horario.TAREAS): cambiar la línea obligaría a reaplicar el horario.
+exec "$PYTHON" revision_quincenal.py "$@"

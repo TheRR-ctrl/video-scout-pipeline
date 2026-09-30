@@ -55,6 +55,15 @@ RUTA_METADATA = os.path.join(CARPETA_ESTADO, "metadata.json")
 CARPETA_MINIATURAS = os.path.join(CARPETA_ESTADO, "miniaturas")
 
 ES_TERMUX = "PREFIX" in os.environ or os.path.exists("/sdcard")
+ES_WINDOWS = os.name == "nt"
+
+# El entorno de cada trabajo. PYTHONUTF8: en Windows Python lee y escribe
+# por omisión en cp1252, y los scripts imprimen emojis y leen guiones con
+# acentos; sin esto fallan con UnicodeEncodeError a mitad de una tanda. En
+# Linux y Termux ya es UTF-8, así que no cambia nada. PYTHONUNBUFFERED: que
+# cada línea llegue al panel en cuanto se escribe.
+ENTORNO_HIJOS = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+                 "PYTHONUNBUFFERED": "1"}
 
 app = Flask(__name__, static_folder=None)
 
@@ -188,12 +197,15 @@ class Trabajo:
         self.uso_procesador = None   # % del procesador entero que usa ffmpeg
 
     def arrancar(self):
+        # Grupo propio: así pausar/abortar alcanza también a ffmpeg, que es
+        # hijo del script y es quien realmente hace el trabajo. En Windows no
+        # hay grupos de procesos POSIX: se sigue el árbol con psutil.
+        grupo = ({"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP} if ES_WINDOWS
+                 else {"start_new_session": True})
         self.proc = subprocess.Popen(
             self.cmd, cwd=BASE_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
-            # Grupo propio: así pausar/abortar alcanza también a ffmpeg,
-            # que es hijo del script y es quien realmente hace el trabajo.
-            start_new_session=True,
+            env=ENTORNO_HIJOS, **grupo,
         )
         threading.Thread(target=self._leer, daemon=True).start()
 
@@ -267,18 +279,53 @@ class Trabajo:
         del self.fallos[:-FALLOS_QUE_SE_GUARDAN]
         return fallo
 
+    def _arbol(self):
+        """Windows: el proceso y todos sus hijos (ffmpeg incluido)."""
+        import psutil
+        try:
+            raiz = psutil.Process(self.proc.pid)
+            return [raiz] + raiz.children(recursive=True)
+        except psutil.Error:
+            return []
+
     def pausar(self):
         if self.proc and self.estado == "corriendo":
-            os.killpg(os.getpgid(self.proc.pid), signal.SIGSTOP)
+            if ES_WINDOWS:
+                for p in self._arbol():
+                    try:
+                        p.suspend()
+                    except Exception:
+                        pass
+            else:
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGSTOP)
             self.estado = "pausado"
 
     def reanudar(self):
         if self.proc and self.estado == "pausado":
-            os.killpg(os.getpgid(self.proc.pid), signal.SIGCONT)
+            if ES_WINDOWS:
+                for p in self._arbol():
+                    try:
+                        p.resume()
+                    except Exception:
+                        pass
+            else:
+                os.killpg(os.getpgid(self.proc.pid), signal.SIGCONT)
             self.estado = "corriendo"
 
     def abortar(self):
         if not self.proc:
+            return
+        if ES_WINDOWS:
+            # Sin señales: se reanuda si estaba en pausa y se mata el árbol
+            # entero, hijos primero, para que no quede un ffmpeg huérfano.
+            arbol = self._arbol()
+            self.estado = "abortado"
+            for p in reversed(arbol):
+                try:
+                    p.resume()
+                    p.kill()
+                except Exception:
+                    pass
             return
         gpid = os.getpgid(self.proc.pid)
         # Si está detenido no reacciona a SIGTERM: primero se reanuda.
@@ -387,7 +434,7 @@ VISTA_POR_SCRIPT = {
     "calidad.py": "revisar", "calidad_ia.py": "revisar", "preparar_metadata.py": "revisar",
     "publisher.py": "publicados",
     "tiktok_publisher.py": "tiktok", "demo_tiktok.py": "tiktok",
-    "relanzar.py": "canal", "revision_quincenal.sh": "canal", "formato.py": "canal",
+    "relanzar.py": "canal", "revision_quincenal.sh": "canal", "revision_quincenal.py": "canal", "formato.py": "canal",
     "previsualizar_estilos.py": "estilo",
     "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
     "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes",
@@ -1634,6 +1681,7 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "es_windows": ES_WINDOWS,
         "notificar_fallos": avisar_de_fallos(),
         "dias_espera_tiktok": _publisher().dias_espera_tiktok(publisher_cfg_y_tiktok()[0]),
         "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
@@ -1728,8 +1776,8 @@ ACCIONES = {
                         [sys.executable, "respaldo.py", "--sin-videos"]),
     "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
                           [sys.executable, "relanzar.py", "--problemas"]),
-    "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
-    "revision": ("Revisión del canal: borrar y rehacer", ["bash", "revision_quincenal.sh"]),
+    "ver_revision": ("Revisión del canal (solo mirar)", [sys.executable, "revision_quincenal.py", "--ver"]),
+    "revision": ("Revisión del canal: borrar y rehacer", [sys.executable, "revision_quincenal.py"]),
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
     "tiktok_simular": ("Simulando la subida a TikTok", [sys.executable, "tiktok_publisher.py", "--simular"]),
 }
@@ -2839,6 +2887,9 @@ def main():
         threading.Timer(1.5, lambda: subprocess.run(
             ["termux-open-url", f"http://127.0.0.1:{args.puerto}"],
             capture_output=True)).start()
+    elif args.abrir:
+        import webbrowser
+        threading.Timer(1.5, webbrowser.open, [f"http://127.0.0.1:{args.puerto}"]).start()
 
     try:
         app.run(host=args.host, port=args.puerto, threaded=True)

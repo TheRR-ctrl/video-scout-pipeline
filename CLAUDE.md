@@ -222,6 +222,23 @@ respaldo a libx264 es automático), pero renderizar ahí es por CPU siempre.
 hay que añadirlo a los `include` de esa tarea o la app arrancará sin él, y
 el fallo aparecerá a mitad de una tanda.
 
+## Windows: funciona, pero con tres cuidados
+
+El teléfono sigue siendo el sitio de verdad; Windows es un extra
+(`iniciar_windows.bat` → `iniciar_windows.py`). Tres cosas que se rompen en
+silencio si se olvidan:
+
+- **Los trabajos corren con `PYTHONUTF8=1`** (`servidor.ENTORNO_HIJOS`). Sin
+  eso, en Windows Python escribe en cp1252 y el primer emoji o acento de un
+  script revienta la tanda. Un `open()` nuevo sin `encoding=` pasa lo mismo.
+- **Pausar y abortar van por `psutil`** en Windows (no hay `killpg` ni
+  SIGSTOP). `psutil` está en `requirements.txt` con `sys_platform ==
+  "win32"`: quitarle el marcador lo haría instalar en Termux, donde tiene
+  que compilarse.
+- **Nada que el panel lance puede ser `bash`.** Por eso la revisión es
+  `revision_quincenal.py`; el `.sh` se queda solo como envoltorio porque el
+  cron del teléfono lo llama por ese nombre.
+
 ## El horario de cron: el panel elige cuándo, nunca qué
 
 `horario.py` escribe el crontab con lo que se elige en Ajustes → Horario

@@ -442,6 +442,11 @@ class UsoDelProceso:
         self.valor = None
 
     def _ticks(self):
+        if not os.path.exists("/proc"):
+            # Windows: sin /proc, psutil da lo mismo en segundos.
+            import psutil
+            t = psutil.Process(self.pid).cpu_times()
+            return int((t.user + t.system) * self.hz)
         with open(f"/proc/{self.pid}/stat") as f:
             # El nombre del programa va entre paréntesis y puede tener
             # espacios: se cuenta desde el último ")".
@@ -452,7 +457,7 @@ class UsoDelProceso:
         """El último porcentaje (0-100), o None si no se puede leer."""
         try:
             ahora, ticks = time.monotonic(), self._ticks()
-        except (OSError, ValueError, IndexError):
+        except Exception:                          # noqa: BLE001 — sin dato, sin número
             return self.valor
         if self.antes and ahora - self.antes[0] >= 1.5:
             seg = ahora - self.antes[0]

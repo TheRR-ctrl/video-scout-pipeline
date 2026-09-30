@@ -212,7 +212,15 @@ system packages, Python deps, storage permission, the panel, and a report of
 which credentials and media are still missing. See **[INSTALAR.md](INSTALAR.md)**
 (Spanish, since that is where it runs).
 
-On a PC:
+On Windows: `git clone` the repo and double-click **`iniciar_windows.bat`**.
+It installs Python/ffmpeg with winget if missing, keeps the code and
+libraries up to date, offers to restore a phone backup
+(`respaldo.py --restaurar`, rewriting the phone's `/sdcard/...` paths), and
+opens the panel. Pause/abort use `psutil` there (no POSIX signals), and
+child scripts run with `PYTHONUTF8=1` so accents and emoji don't crash on
+cp1252. The cron schedule isn't available on Windows. See INSTALAR.md.
+
+On Linux/macOS:
 
 ```bash
 pip install -r requirements.txt
