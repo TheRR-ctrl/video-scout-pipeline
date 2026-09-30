@@ -447,6 +447,55 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
     video{max-width:330px;margin:0 auto}
     .grid2,.presets,.finos{grid-template-columns:1fr}
   }
+  /* En un PC (pantalla ancha y ratón). Todo lo de arriba está pensado para
+     412px y no se toca: esto solo reparte el sitio que sobra. Las pestañas
+     pasan a una barra lateral fija —en una pantalla apaisada lo que escasea
+     es el alto, no el ancho—, el contenido se ensancha y el video de Revisar
+     crece. El corte en 1100px deja fuera tablets en vertical y ventanas a
+     media pantalla, que siguen viendo el diseño de siempre. Si se cambia el
+     ancho, hay que cambiarlo también en ESCRITORIO, en el JS. */
+  .atajos{display:none}
+  kbd{font:11px var(--mono);color:var(--ink-dim);border:1px solid var(--line);
+    border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--surface)}
+  @media (min-width:1100px){
+    body{padding-left:224px}
+    .nav{position:fixed;top:0;left:0;bottom:0;width:224px;margin:0;
+      border-bottom:0;border-right:1px solid var(--line);overflow-y:auto}
+    .nav-in{max-width:none;padding:18px 12px 14px;min-height:100%;
+      display:flex;flex-direction:column}
+    .marca{flex-wrap:wrap;margin:0 4px 20px}
+    .titulo{font-size:18px}
+    .nav-acc{order:3;width:100%;margin:12px 0 0}
+    .nav-acc .btn{flex:1;justify-content:center}
+    .tabs{flex-direction:column;overflow:visible;margin:0;padding:0;gap:2px;scroll-snap-type:none}
+    .tabs.mas{-webkit-mask-image:none;mask-image:none}
+    .tabs button{font-size:14px;padding:9px 12px;justify-content:space-between;
+      border-bottom:0;border-left:3px solid transparent;border-radius:0 8px 8px 0}
+    .tabs button:hover{color:var(--ink);background:var(--surface-2)}
+    .tabs button.on{border-left-color:var(--accent);background:var(--accent-soft)}
+    .atajos{display:block;margin-top:auto;padding:16px 6px 0;
+      font:11px/1.7 var(--mono);color:var(--ink-faint)}
+
+    .wrap{max-width:1280px;padding:26px 36px 80px}
+    p.sub{max-width:90ch}
+    .review{grid-template-columns:minmax(340px,400px) 1fr;gap:30px;padding:20px}
+    /* El video se queda quieto mientras bajas por la narración y los
+       títulos, y nunca más alto que la ventana: un vertical de 400px de
+       ancho mide 711 de alto y no cabía entero en un portátil. */
+    .review > div:first-child{position:sticky;top:20px;align-self:start}
+    .review video{max-height:calc(100vh - 60px);width:auto;max-width:100%;margin:0 auto}
+    .script{max-height:300px}
+    .thumbs{flex-wrap:wrap;overflow:visible}
+    .th{width:72px}
+    .th:hover{border-color:var(--ink-faint)}
+    .row:hover{background:color-mix(in srgb,var(--surface-2) 55%,var(--surface))}
+    .row.sel.on:hover{background:var(--accent-soft)}
+
+    .mini{left:224px;width:auto}
+    .alerta-fallo{left:244px}
+    .modal .caja{max-width:680px}
+    .modal textarea{height:260px}
+  }
   @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -472,6 +521,13 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
     <button data-v="canal">Canal <span class="c" id="c-can">0</span></button>
     <button data-v="tiktok">TikTok <span class="c" id="c-tk">0</span></button>
     <button data-v="ajustes">Ajustes</button>
+  </div>
+  <div class="atajos">
+    <kbd>1</kbd>–<kbd>7</kbd> pestañas<br>
+    <kbd>←</kbd> <kbd>→</kbd> otro video<br>
+    <kbd>espacio</kbd> ver / pausar<br>
+    <kbd>F</kbd> pantalla completa<br>
+    <kbd>R</kbd> volver a mirar
   </div>
 </div></div>
 
@@ -572,6 +628,11 @@ let jobMontado = null;   // nombre+arranque del trabajo ya dibujado
    scroll a mano: el margen negativo descuenta la cabecera pegajosa, porque la
    tarjeta asomando POR DEBAJO de la cabecera no es una tarjeta que puedas
    leer. */
+// El mismo corte que el @media de escritorio en el CSS.
+const ESCRITORIO = matchMedia('(min-width:1100px)');
+// Dónde están los archivos, para decirlo con su nombre: «teléfono» sigue
+// siendo lo normal; en Windows es el PC.
+function equipo(){ return E && E.es_windows ? 'PC' : (E && !E.es_android ? 'equipo' : 'teléfono'); }
 let hayTrabajo = false, tarjetaALaVista = false, vigilante = null;
 
 function refrescarMini(){
@@ -581,7 +642,9 @@ function refrescarMini(){
 function vigilarTarjeta(caja){
   if(vigilante) vigilante.disconnect();
   tarjetaALaVista = false;
-  const alto = document.querySelector('.nav').offsetHeight;
+  // En el PC la cabecera es la barra lateral: no tapa nada por arriba, y
+  // su alto (la pantalla entera) dejaría la tarjeta siempre «fuera de vista».
+  const alto = ESCRITORIO.matches ? 0 : document.querySelector('.nav').offsetHeight;
   vigilante = new IntersectionObserver(entradas=>{
     tarjetaALaVista = entradas[0].isIntersecting;
     refrescarMini();
@@ -1263,7 +1326,9 @@ function pintaRevisar(){
 
   cont.innerHTML = `
     <h2>${v.length} video${v.length>1?'s':''} grabado${v.length>1?'s':''}</h2>
-    <p class="sub">Míralo aquí mismo — el archivo está en este teléfono. Toca el video para pantalla completa.</p>
+    <p class="sub">Míralo aquí mismo — el archivo está en este ${equipo()}. ${ESCRITORIO.matches
+      ? 'Con <kbd>←</kbd> <kbd>→</kbd> pasas de un video a otro y con <kbd>F</kbd> lo ves a pantalla completa.'
+      : 'Toca el video para pantalla completa.'}</p>
     ${leyendaSubidos(v)}
     <div class="thumbs">${miniaturas(v)}</div>
 
@@ -1294,7 +1359,7 @@ function pintaRevisar(){
         <div style="display:flex;gap:7px;flex-wrap:wrap;padding-top:10px;border-top:1px solid var(--line-soft)">
           <button class="btn go" onclick="ejecutar('publicar')">⬆ Publicar pendientes</button>
           <button class="btn" id="b-rehacer">↺ Rehacer este</button>
-          <button class="btn danger" id="b-borrar">🗑 Borrar del teléfono</button>
+          <button class="btn danger" id="b-borrar">🗑 Borrar del ${equipo()}</button>
           ${subidos ? `<button class="btn danger" id="b-borrar-subidos">🗑 Borrar los ${subidos} subidos</button>` : ''}
         </div>
         <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
@@ -1387,9 +1452,9 @@ function pintaRevisar(){
   // esto es tirar una copia; para uno sin subir es tirar lo único que hay.
   $('#b-borrar').onclick = async ()=>{
     const aviso = a.subido
-      ? `¿Borrar «${a.titulo.slice(0,60)}» del teléfono?\n\n`
+      ? `¿Borrar «${a.titulo.slice(0,60)}» del ${equipo()}?\n\n`
         + 'Sigue en YouTube: esto solo tira la copia local. Sale de esta lista.'
-      : `¿Borrar «${a.titulo.slice(0,60)}» del teléfono?\n\n`
+      : `¿Borrar «${a.titulo.slice(0,60)}» del ${equipo()}?\n\n`
         + 'AÚN NO ESTÁ SUBIDO A NINGÚN LADO. Al borrarlo no queda copia y '
         + 'habría que volver a renderizarlo desde la historia.';
     if(!confirm(aviso)) return;
@@ -1406,7 +1471,7 @@ function pintaRevisar(){
   // sale el sitio de verdad: uno a uno son diez confirmaciones.
   const bSub = $('#b-borrar-subidos');
   if(bSub) bSub.onclick = async ()=>{
-    if(!confirm(`¿Borrar del teléfono los ${subidos} videos que ya están en YouTube?\n\n`
+    if(!confirm(`¿Borrar del ${equipo()} los ${subidos} videos que ya están en YouTube?\n\n`
       + 'Siguen en tu canal; esto solo tira las copias locales. Los que no se '
       + 'subieron (y los rechazados) se quedan.')) return;
     try{
@@ -2261,8 +2326,8 @@ function datosPublicado(x){
   d.push(x.vistas === null || x.vistas === undefined
     ? '<span title="Sin leer todavía: pestaña Canal → Releer vistas">vistas&nbsp;sin&nbsp;leer</span>'
     : `<b style="color:var(--ink);font-variant-numeric:tabular-nums">${x.vistas.toLocaleString('es')}</b>&nbsp;vistas`);
-  if(x.borrado_local) d.push('borrado&nbsp;del&nbsp;teléfono');
-  else if(x.dias_restantes !== null) d.push(`${x.dias_restantes}d&nbsp;en&nbsp;el&nbsp;teléfono`);
+  if(x.borrado_local) d.push(`borrado&nbsp;del&nbsp;${equipo()}`);
+  else if(x.dias_restantes !== null) d.push(`${x.dias_restantes}d&nbsp;en&nbsp;el&nbsp;${equipo()}`);
   return d;
 }
 
@@ -2272,7 +2337,7 @@ function pintaPublicados(){
   const porBorrar = p.filter(x=>x.dias_restantes!==null && x.dias_restantes<=2 && !x.borrado_local);
   $('#v-publicados').innerHTML = `
     <h2>Subidos</h2>
-    <p class="sub">Tras subirse a YouTube, los archivos se quedan ${E.dias_espera_tiktok || 14} días en el teléfono
+    <p class="sub">Tras subirse a YouTube, los archivos se quedan ${E.dias_espera_tiktok || 14} días en el ${equipo()}
       para que te dé tiempo de pasarlos a TikTok (7 si ya están allí). Se cambia en Ajustes → Automático.</p>
     ${(()=>{ const mal = p.filter(x=>x.programado_ok === false).length;
       return mal ? `<div class="aviso crit"><span>⛔</span><div>
@@ -3226,7 +3291,7 @@ function pintaAjustes(){
     <section class="aj-grupo" data-grupo="auto" ${grupoAjustes==='auto'?'':'hidden'}>
     <h3 class="sec">Lo que se hace solo</h3>
     <div class="list">
-      <div class="row" style="grid-template-columns:1fr auto">
+      <div class="row" style="grid-template-columns:1fr auto" ${E.es_windows?'hidden':''}>
         <div><div>Solo subir con WiFi</div><div class="m">Evita gastar datos móviles en el cron diario</div></div>
         <button class="btn sm" id="b-wifi">${E.solo_wifi?'activado':'desactivado'}</button>
       </div>
@@ -3242,7 +3307,9 @@ function pintaAjustes(){
           short. Apagado, cada paso espera a que lo pulses.</div></div>
         <button class="btn sm" id="b-cadena-auto">${E.cadena_auto?'activado':'desactivado'}</button>
       </div>
-      <div class="row" style="grid-template-columns:1fr auto">
+      <!-- Solo Android: la notificación y la batería salen de Termux:API.
+           En el PC el fallo lo avisa el panel solo, y no hay batería que cuidar. -->
+      <div class="row" style="grid-template-columns:1fr auto" ${E.es_android?'':'hidden'}>
         <div><div>Avisar al momento si algo falla</div><div class="m">Una notificación del teléfono
           con qué falló y en qué video o historia, aunque el panel esté cerrado. Necesita la app
           Termux:API. Con el panel abierto, el aviso sale también arriba, en cualquier pestaña.</div></div>
@@ -3250,7 +3317,7 @@ function pintaAjustes(){
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Esperar a TikTok antes de borrar</div><div class="m">Días que un video ya subido a
-          YouTube se queda en el teléfono mientras no esté en TikTok, para que dé tiempo a pasarlo.
+          YouTube se queda en el ${equipo()} mientras no esté en TikTok, para que dé tiempo a pasarlo.
           Los que ya están en TikTok se borran a los 7.</div></div>
         <select class="btn sm" id="s-espera-tiktok">
           ${[7,10,14,21,30].concat([7,10,14,21,30].includes(E.dias_espera_tiktok) ? [] : [E.dias_espera_tiktok])
@@ -3258,7 +3325,9 @@ function pintaAjustes(){
             `<option value="${d}" ${d===E.dias_espera_tiktok?'selected':''}>${d} días</option>`).join('')}
         </select>
       </div>
-      <div class="row" style="grid-template-columns:1fr auto">
+      <!-- Solo Android: la notificación y la batería salen de Termux:API.
+           En el PC el fallo lo avisa el panel solo, y no hay batería que cuidar. -->
+      <div class="row" style="grid-template-columns:1fr auto" ${E.es_android?'':'hidden'}>
         <div><div>Con poca batería, esperar al cargador</div><div class="m">Si la batería está por
           debajo del
           <select class="btn sm" id="s-bateria-umbral" style="padding:2px 4px" ${E.bateria.cuidar?'':'disabled'}>
@@ -3564,7 +3633,7 @@ function pintaAjustes(){
   };
   $('#s-espera-tiktok').onchange = async e =>{
     try{ const j = await post('/api/tiktok/espera', {dias: +e.target.value});
-      toast(`Sin subir a TikTok, se guardan ${j.dias} días en el teléfono`); refrescar();
+      toast(`Sin subir a TikTok, se guardan ${j.dias} días en el ${equipo()}`); refrescar();
     }catch(err){ toast(err.message); refrescar(); }
   };
   $('#b-bateria').onclick = async ()=>{
@@ -3915,6 +3984,38 @@ $('#b-actualizar').onclick = async (e)=>{
   b.textContent = '↻'; b.disabled = false;
   toast('Actualizado');
 };
+
+/* Atajos de teclado, para el PC (en el teléfono no hay teclado que pulsar,
+   así que no estorban). Nunca mientras escribes en un campo, con Ctrl/Alt
+   pulsado —son del navegador— ni con una ventana abierta encima.
+   Se miró mousetrap y hotkeys-js: para cinco teclas fijas son una
+   dependencia más que cargar, y esto cabe en veinte líneas. */
+addEventListener('keydown', ev=>{
+  if(ev.ctrlKey || ev.metaKey || ev.altKey || ev.repeat) return;
+  const t = ev.target;
+  if(t && t.closest && t.closest('input, textarea, select, [contenteditable], .modal')) return;
+  if(document.querySelector('.modal, #dicc.on, #hoja-fondos.on')) return;
+  const pestanas = [...document.querySelectorAll('.tabs button')];
+  const k = ev.key.length === 1 ? ev.key.toLowerCase() : ev.key;
+  const enRevisar = vistaActual() === 'revisar' && E && E.videos.length;
+  const video = document.querySelector('#v-revisar video');
+  if(/^[1-9]$/.test(k) && pestanas[+k - 1]){
+    pestanas[+k - 1].click();
+  }else if(k === 'r'){
+    $('#b-actualizar').click();
+  }else if(enRevisar && (k === 'ArrowLeft' || k === 'ArrowRight')){
+    // Dentro del video las flechas ya adelantan y atrasan: se respeta.
+    if(t && t.tagName === 'VIDEO') return;
+    const n = E.videos.length;
+    elegido = (elegido + (k === 'ArrowRight' ? 1 : n - 1)) % n;
+    pintar();
+  }else if(enRevisar && k === ' ' && video && !(t && t.closest && t.closest('button, a, video'))){
+    video.paused ? video.play().catch(()=>{}) : video.pause();
+  }else if(enRevisar && k === 'f' && video){
+    document.fullscreenElement ? document.exitFullscreen() : video.requestFullscreen().catch(()=>{});
+  }else return;
+  ev.preventDefault();
+});
 
 $('#b-apagar').onclick = async ()=>{
   const j = E && E.trabajo, enEspera = ((E && E.cola) || []).length;
