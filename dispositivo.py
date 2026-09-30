@@ -5,7 +5,7 @@ otro.
 El pipeline puede correr en el teléfono y en Windows, pero cada uno lleva
 su propio registro de lo subido: si los dos publican, el mismo video puede
 acabar dos veces en el canal. Al pasarse de uno a otro, el que se deja se
-desactiva desde el panel (⏻ → «Desactivar este …») y, hasta que se
+desactiva desde el panel (botón ☢️ → «Desactivar») y, hasta que se
 reactive:
 
   - el panel no arranca ningún trabajo, ni con botones ni solo (cadena,

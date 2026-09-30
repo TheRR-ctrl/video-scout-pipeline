@@ -510,7 +510,8 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
     </div>
     <div class="nav-acc">
       <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
-      <button class="btn sm" id="b-apagar" title="Apagar el panel, o desactivar este aparato" aria-label="Apagar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="display:block"><path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>
+      <button class="btn sm" id="b-desactivar" title="Desactivar este aparato, para que no trabaje a la vez que el otro" aria-label="Desactivar">☢️</button>
+      <button class="btn sm" id="b-apagar" title="Apagar el panel" aria-label="Apagar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="display:block"><path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>
     </div>
   </div>
   <div class="tabs">
@@ -1310,13 +1311,38 @@ function leyendaSubidos(v){
   </div>`;
 }
 
+/* Dónde quedan los videos, con un botón para abrir la carpeta en el PC. En
+   Android no hay forma fiable de abrir una carpeta desde Termux: allí va la
+   ruta y dónde verlos (la Galería los enseña si están en DCIM). */
+function lineaCarpetaSalida(){
+  const c = E.carpeta_salida;
+  if(!c) return '';
+  const enGaleria = E.es_android && /\/DCIM\//.test(c);
+  return `<div class="carpeta-salida" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:-6px 0 12px">
+    <span class="muted" style="min-width:0">Se guardan en
+      <code style="font:11.5px var(--mono);overflow-wrap:anywhere">${esc(c)}</code>${
+      enGaleria ? ' — en la Galería salen como el álbum «' + esc(c.replace(/\/+$/,'').split('/').pop()) + '»' : ''}</span>
+    ${E.es_android ? '' : '<button class="btn sm" data-abrir-salida>📂 Abrir la carpeta</button>'}
+    <button class="btn sm" data-copiar-salida>Copiar la ruta</button>
+  </div>`;
+}
+document.addEventListener('click', async ev=>{
+  if(ev.target.closest('[data-abrir-salida]')){
+    try{ await post('/api/salida/abrir', {}); toast('Abriendo la carpeta…'); }
+    catch(e){ toast(e.message); }
+  }
+  const b = ev.target.closest('[data-copiar-salida]');
+  if(b) copiarPie(b, E.carpeta_salida);
+});
+
 function pintaRevisar(){
   const v = E.videos, cont = $('#v-revisar');
   if(!v.length){
     cont.innerHTML = `
       <h2>Nada que revisar todavía</h2>
       <p class="sub">Cuando se grabe un video, aparece aquí para que lo veas y lo apruebes antes de
-        que se suba. Lo que toca hacer ahora está en la tarjeta de arriba.</p>`;
+        que se suba. Lo que toca hacer ahora está en la tarjeta de arriba.</p>
+      ${lineaCarpetaSalida()}`;
     return;
   }
   if(elegido >= v.length) elegido = 0;
@@ -1330,6 +1356,7 @@ function pintaRevisar(){
     <p class="sub">Míralo aquí mismo — el archivo está en este ${equipo()}. ${ESCRITORIO.matches
       ? 'Con <kbd>←</kbd> <kbd>→</kbd> pasas de un video a otro y con <kbd>F</kbd> lo ves a pantalla completa.'
       : 'Toca el video para pantalla completa.'}</p>
+    ${lineaCarpetaSalida()}
     ${leyendaSubidos(v)}
     <div class="thumbs">${miniaturas(v)}</div>
 
@@ -2990,7 +3017,7 @@ function firmaAjustes(){
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria), E.dias_espera_tiktok, E.notificar_fallos,
-          E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
+          E.usar_chip_android, E.videos_a_la_vez, E.carpeta_salida, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length, JSON.stringify(E.ultimo_respaldo)].join('~');
 }
@@ -3218,7 +3245,7 @@ function bloquePasarAlPC(){
             ni música. Mándatelo al PC (Drive, WhatsApp a ti mismo, correo) y en el panel de Windows:
             Ajustes → Tareas → «Traer todo del teléfono».</div>
           <div class="muted" style="margin-top:4px">Cuando el PC ya esté funcionando, desactiva este teléfono
-            con el botón de apagar (el de arriba a la derecha) y «Desactivar»: así no publican los dos a la vez.</div>
+            con el botón ☢️ de arriba a la derecha: así no publican los dos a la vez.</div>
           <div class="muted" style="margin-top:4px;color:var(--warn)">Lleva tus claves: no lo mandes a nadie más.</div>
         </div>
         <button class="btn go" id="b-exportar-ajustes">📤 Exportar</button>
@@ -3597,9 +3624,17 @@ function pintaAjustes(){
     <div class="muted" style="margin-top:8px">Los niveles son absolutos: subir la música no baja la voz sola.
       Por encima del 20% la música empieza a tapar consonantes en el altavoz del teléfono.</div>
 
-    ${E.es_android ? `
     <h3 class="sec">Render</h3>
     <div class="list">
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Videos a la vez</div><div class="m">${E.es_android
+          ? 'Cuántas historias se graban al mismo tiempo. En el teléfono, 1: con una el procesador ya va al máximo, y dos lo calientan sin terminar mucho antes.'
+          : 'Cuántas historias se graban al mismo tiempo. Mientras una espera la voz o monta los cortes, otra aprovecha la tarjeta. En un PC, 2 o 3; más de 4 no gana nada y la tarjeta tiene un tope de compresiones a la vez.'}</div></div>
+        <select class="btn sm" id="s-a-la-vez">
+          ${[1,2,3,4].map(n=>`<option value="${n}" ${n===E.videos_a_la_vez?'selected':''}>${n}</option>`).join('')}
+        </select>
+      </div>
+    ${E.es_android ? `
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Comprimir con el chip de video</div><div class="m">Lo hace el chip del teléfono
           dedicado al video (MediaCodec): más rápido, menos batería y menos calor. Apagado, lo hace
@@ -3607,8 +3642,8 @@ function pintaAjustes(){
           con colores raros, apágalo.</div></div>
         <label class="switch"><input type="checkbox" id="chk-chip-android" ${E.usar_chip_android?'checked':''}>
           <span class="rail"></span></label>
-      </div>
-    </div>` : ''}
+      </div>` : ''}
+    </div>
     </section>
 
     <section class="aj-grupo" data-grupo="fuentes" ${grupoAjustes==='fuentes'?'':'hidden'}>
@@ -3796,6 +3831,14 @@ function pintaAjustes(){
     try{ const j = await post('/api/musica/auto',{auto: !E.musica_auto});
       toast(j.auto ? 'La música se cambiará sola tras cada render'
                    : 'La música solo cambia cuando lo pidas'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  const sVez = $('#s-a-la-vez');
+  if(sVez) sVez.onchange = async ()=>{
+    try{ const j = await post('/api/video/a_la_vez', {n: +sVez.value});
+      E.videos_a_la_vez = j.videos_a_la_vez;
+      toast(j.videos_a_la_vez === 1 ? 'El próximo render graba de uno en uno'
+                                    : `El próximo render graba ${j.videos_a_la_vez} a la vez`);
     }catch(e){ toast(e.message); }
   };
   const chkChip = $('#chk-chip-android');
@@ -4200,39 +4243,46 @@ const ICONO_APAGAR = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 24 
   stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="display:inline-block;vertical-align:-0.15em">
   <path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>`;
 
-/* Botón de apagar: apagar el panel, o desactivar este aparato (dispositivo.py) para
-   pasarse al otro sin que los dos publiquen a la vez. Desactivar dura hasta
-   pulsar «Reactivar», también tras cerrar y volver a abrir el panel. */
-$('#b-apagar').onclick = ()=>{
+/* Dos botones separados a propósito: ⏻ solo apaga el panel, como siempre;
+   ☢️ desactiva este aparato (dispositivo.py) para pasarse al otro sin que
+   los dos publiquen a la vez. Juntos en un mismo diálogo era fácil tocar
+   uno queriendo el otro. Desactivar dura hasta pulsar «Reactivar», también
+   tras cerrar y volver a abrir el panel. */
+function loQueSePierde(){
   const j = E && E.trabajo, enEspera = ((E && E.cola) || []).length;
   const corriendo = j && (j.estado==='corriendo'||j.estado==='pausado');
-  const pierde = corriendo ? `Se interrumpe «${esc(j.nombre)}»${enEspera ? ` y se pierden ${enEspera} en espera` : ''}.`
+  return corriendo ? `Se interrumpe «${j.nombre}»${enEspera ? ` y se pierden ${enEspera} en espera` : ''}.`
     : enEspera ? `Se pierden los ${enEspera} que están en espera.` : '';
-  const ya = E && E.desactivado;
+}
+
+$('#b-apagar').onclick = async ()=>{
+  const pierde = loQueSePierde();
+  if(!confirm('¿Apagar el panel?' + (pierde ? '\n\n' + pierde : '')
+    + (E && E.es_android ? '\n\nEl horario automático sigue corriendo aunque el panel esté apagado.' : ''))) return;
+  try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
+  pantallaApagado(false);
+};
+
+$('#b-desactivar').onclick = ()=>{
+  if(E && E.desactivado){
+    const b = $('#b-reactivar');
+    if(b) return b.click();
+  }
+  const pierde = loQueSePierde();
   const caja = document.createElement('div');
   caja.className = 'modal';
   caja.innerHTML = `
     <div class="caja">
-      <b style="font-size:16px">${ICONO_APAGAR(16)} Apagar</b>
-      ${pierde ? `<div class="aviso warn" style="margin:10px 0 0"><span>⚠</span><div>${pierde}</div></div>` : ''}
-      <div class="list" style="margin-top:12px">
-        ${ya ? '' : `<div class="row" style="display:block">
-          <b>Desactivar este ${equipo()}</b>
-          <div class="muted" style="margin:3px 0 8px">Para pasarte al otro aparato. Para lo que esté
-            corriendo${E.es_android ? ', quita el horario automático' : ''} y no deja arrancar nada —ni
-            solo ni con botones— hasta que pulses «Reactivar». Así el teléfono y el PC no publican a la vez.</div>
-          <div style="display:flex;gap:7px;flex-wrap:wrap">
-            <button class="btn go" data-ap="desactivar-apagar">Desactivar y apagar</button>
-            <button class="btn" data-ap="desactivar">Solo desactivar</button>
-          </div></div>`}
-        <div class="row" style="display:block">
-          <b>Solo apagar el panel</b>
-          <div class="muted" style="margin:3px 0 8px">${E.es_android
-            ? 'Suelta Termux y el wake lock. El horario automático sigue corriendo aunque el panel esté apagado.'
-            : 'Cierra el panel. Para volver, abre otra vez iniciar_windows.bat.'}</div>
-          <button class="btn" data-ap="apagar">Apagar el panel</button></div>
+      <b style="font-size:16px">☢️ Desactivar este ${equipo()}</b>
+      <div class="muted" style="margin:8px 0 0">Para pasarte al otro aparato. Para lo que esté
+        corriendo${E.es_android ? ', quita el horario automático' : ''} y no deja arrancar nada —ni
+        solo ni con botones— hasta que pulses «Reactivar». Así el teléfono y el PC no publican a la vez.</div>
+      ${pierde ? `<div class="aviso warn" style="margin:10px 0 0"><span>⚠</span><div>${esc(pierde)}</div></div>` : ''}
+      <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:14px">
+        <button class="btn go" data-ap="desactivar-apagar">Desactivar y apagar</button>
+        <button class="btn" data-ap="desactivar">Solo desactivar</button>
+        <button class="btn" data-ap="no" style="margin-left:auto">Cancelar</button>
       </div>
-      <div style="display:flex;margin-top:12px"><button class="btn" data-ap="no" style="margin-left:auto">Cancelar</button></div>
     </div>`;
   document.body.appendChild(caja);
   caja.onclick = async ev => {
@@ -4241,10 +4291,6 @@ $('#b-apagar').onclick = ()=>{
     if(!b) return;
     const que = b.dataset.ap;
     caja.remove();
-    if(que === 'apagar'){
-      try{ await fetch('/api/apagar',{method:'POST'}); }catch(e){}
-      return pantallaApagado(false);
-    }
     try{
       const r = await post('/api/dispositivo/desactivar', {apagar: que === 'desactivar-apagar'});
       if(que === 'desactivar-apagar') return pantallaApagado(true, r.mensaje);

@@ -1705,6 +1705,8 @@ def api_estado():
         "solo_wifi": cfg.get("solo_wifi", True),
         "es_android": gvm.ES_ANDROID,
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
+        "videos_a_la_vez": _videos_a_la_vez(cfg, gvm.ES_ANDROID),
+        "carpeta_salida": cfg.get("carpeta_salida"),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
@@ -2179,6 +2181,51 @@ def api_wifi():
     cfg["solo_wifi"] = bool((request.json or {}).get("solo_wifi", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "solo_wifi": cfg["solo_wifi"]})
+
+
+def _videos_a_la_vez(cfg, es_android):
+    """Lo mismo que generar_video_maestro.videos_a_la_vez, sin importar la
+    config del motor: 1 en el teléfono y 2 en un PC si no se eligió."""
+    try:
+        n = int((cfg.get("video") or {}).get("videos_a_la_vez"))
+    except (TypeError, ValueError):
+        n = 1 if es_android else 2
+    return max(1, min(4, n))
+
+
+@app.post("/api/video/a_la_vez")
+def api_video_a_la_vez():
+    """Cuántos videos graba a la vez el próximo render (1-4)."""
+    try:
+        n = max(1, min(4, int((request.json or {}).get("n"))))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Tiene que ser un número del 1 al 4."}), 400
+    cfg = leer_json(RUTA_CONFIG, {})
+    video_cfg = dict(cfg.get("video") or {})
+    video_cfg["videos_a_la_vez"] = n
+    cfg["video"] = video_cfg
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "videos_a_la_vez": n})
+
+
+@app.post("/api/salida/abrir")
+def api_salida_abrir():
+    """Abre la carpeta de los videos en el Explorador (Windows) o el gestor
+    de archivos (Linux). En Android no hay forma fiable de abrir una carpeta
+    desde Termux: allí el panel enseña la ruta y dónde verlos."""
+    carpeta = cfg_actual().get("carpeta_salida") or ""
+    if not os.path.isdir(carpeta):
+        return jsonify({"error": f"La carpeta todavía no existe: {carpeta}. Se crea al grabar el primer video."}), 404
+    try:
+        if ES_WINDOWS:
+            os.startfile(carpeta)                  # solo existe en Windows
+            return jsonify({"ok": True})
+        if shutil.which("xdg-open"):
+            subprocess.Popen(["xdg-open", carpeta], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return jsonify({"ok": True})
+    except OSError as e:
+        return jsonify({"error": f"No se pudo abrir: {e}"}), 500
+    return jsonify({"error": f"Aquí no sé abrir carpetas. Está en {carpeta}"}), 501
 
 
 @app.post("/api/video/chip_android")
