@@ -1,0 +1,451 @@
+{
+ "schemaVersion": 2,
+ "generatedAt": "2026-09-30T20:16:05+00:00",
+ "title": "Design System: Mesa de Revisión",
+ "extensions": {
+  "colorMeta": {
+   "suelo-carbon": {
+    "role": "neutral",
+    "displayName": "Suelo Carbon",
+    "canonical": "#0b0d10",
+    "tonalRamp": [
+     "#1f252d",
+     "#343d4c",
+     "#49566a",
+     "#5e6e88",
+     "#7788a2",
+     "#9eaabd",
+     "#c9cfda",
+     "#f0f2f5"
+    ]
+   },
+   "modulo-rack": {
+    "role": "neutral",
+    "displayName": "Modulo Rack",
+    "canonical": "#15181c",
+    "tonalRamp": [
+     "#21252c",
+     "#373e49",
+     "#4c5766",
+     "#627083",
+     "#7c8a9d",
+     "#a2acb9",
+     "#cbd0d8",
+     "#f0f2f4"
+    ]
+   },
+   "modulo-rack-alto": {
+    "role": "neutral",
+    "displayName": "Modulo Rack Alto",
+    "canonical": "#1c2025",
+    "tonalRamp": [
+     "#21262c",
+     "#373f49",
+     "#4d5866",
+     "#637183",
+     "#7c8a9c",
+     "#a2acb9",
+     "#cbd0d7",
+     "#f0f2f4"
+    ]
+   },
+   "filete": {
+    "role": "neutral",
+    "displayName": "Filete",
+    "canonical": "#2b3037",
+    "tonalRamp": [
+     "#22252b",
+     "#383e48",
+     "#4e5764",
+     "#657081",
+     "#7e8a9a",
+     "#a3acb7",
+     "#cbd0d7",
+     "#f1f2f4"
+    ]
+   },
+   "tinta": {
+    "role": "neutral",
+    "displayName": "Tinta",
+    "canonical": "#eef0f3",
+    "tonalRamp": [
+     "#20252d",
+     "#353e4b",
+     "#4a5669",
+     "#5f6f87",
+     "#7888a0",
+     "#9fabbb",
+     "#c9d0d9",
+     "#f0f2f4"
+    ]
+   },
+   "tinta-tenue": {
+    "role": "neutral",
+    "displayName": "Tinta Tenue",
+    "canonical": "#a6aeb8",
+    "tonalRamp": [
+     "#22262b",
+     "#393f47",
+     "#4f5863",
+     "#667180",
+     "#7f8b99",
+     "#a4acb7",
+     "#ccd1d6",
+     "#f1f2f4"
+    ]
+   },
+   "tinta-apagada": {
+    "role": "neutral",
+    "displayName": "Tinta Apagada",
+    "canonical": "#7a838e",
+    "tonalRamp": [
+     "#232629",
+     "#3b3f45",
+     "#525961",
+     "#69727c",
+     "#838b96",
+     "#a7adb4",
+     "#cdd1d5",
+     "#f1f2f3"
+    ]
+   },
+   "tecla-senal": {
+    "role": "primary",
+    "displayName": "Tecla Senal",
+    "canonical": "#4aa3ff",
+    "tonalRamp": [
+     "#00264c",
+     "#003f80",
+     "#0058b2",
+     "#0071e6",
+     "#1a8aff",
+     "#5cacff",
+     "#a3d0ff",
+     "#e5f2ff"
+    ]
+   },
+   "tally-aire": {
+    "role": "secondary",
+    "displayName": "Tally Aire",
+    "canonical": "#ff3b30",
+    "tonalRamp": [
+     "#4c0400",
+     "#800700",
+     "#b20900",
+     "#e60c00",
+     "#ff261a",
+     "#ff645c",
+     "#ffa8a3",
+     "#ffe7e5"
+    ]
+   },
+   "tally-previo": {
+    "role": "secondary",
+    "displayName": "Tally Previo",
+    "canonical": "#34d26d",
+    "tonalRamp": [
+     "#0e3f1f",
+     "#176834",
+     "#209249",
+     "#2abc5e",
+     "#43d578",
+     "#79e19f",
+     "#b4eec9",
+     "#eafaf0"
+    ]
+   },
+   "tally-espera": {
+    "role": "secondary",
+    "displayName": "Tally Espera",
+    "canonical": "#ffb224",
+    "tonalRamp": [
+     "#4c3200",
+     "#805300",
+     "#b27400",
+     "#e69500",
+     "#ffae1a",
+     "#ffc65c",
+     "#ffdfa3",
+     "#fff6e5"
+    ]
+   },
+   "fallo": {
+    "role": "secondary",
+    "displayName": "Fallo",
+    "canonical": "#ff5a4f",
+    "tonalRamp": [
+     "#4c0500",
+     "#800800",
+     "#b20b00",
+     "#e60e00",
+     "#ff281a",
+     "#ff665c",
+     "#ffa9a3",
+     "#ffe7e5"
+    ]
+   },
+   "negro-monitor": {
+    "role": "neutral",
+    "displayName": "Negro Monitor",
+    "canonical": "#060708",
+    "tonalRamp": [
+     "#21262c",
+     "#374049",
+     "#4c5966",
+     "#627383",
+     "#7c8c9d",
+     "#a2adb9",
+     "#cbd1d8",
+     "#f0f2f4"
+    ]
+   },
+   "estudio-hormigon": {
+    "role": "neutral",
+    "displayName": "Estudio Hormigon",
+    "canonical": "#e4e7eb",
+    "tonalRamp": [
+     "#21252c",
+     "#363e49",
+     "#4c5767",
+     "#627084",
+     "#7b8a9d",
+     "#a1acba",
+     "#cad0d8",
+     "#f0f2f4"
+    ]
+   },
+   "estudio-modulo": {
+    "role": "neutral",
+    "displayName": "Estudio Modulo",
+    "canonical": "#fbfcfd",
+    "tonalRamp": [
+     "#192633",
+     "#2a4055",
+     "#3b5977",
+     "#4c7399",
+     "#668cb3",
+     "#92adc9",
+     "#c2d1e0",
+     "#eef2f6"
+    ]
+   },
+   "estudio-tecla": {
+    "role": "primary",
+    "displayName": "Estudio Tecla",
+    "canonical": "#0a5cc2",
+    "tonalRamp": [
+     "#042249",
+     "#063979",
+     "#0950aa",
+     "#0b68da",
+     "#2581f4",
+     "#64a5f7",
+     "#a8cdfa",
+     "#e7f1fe"
+    ]
+   },
+   "estudio-aire": {
+    "role": "secondary",
+    "displayName": "Estudio Aire",
+    "canonical": "#d7261b",
+    "tonalRamp": [
+     "#440c09",
+     "#71140e",
+     "#9f1c14",
+     "#cc241a",
+     "#e53e33",
+     "#ed756e",
+     "#f5b2ad",
+     "#fceae8"
+    ]
+   },
+   "estudio-previo": {
+    "role": "secondary",
+    "displayName": "Estudio Previo",
+    "canonical": "#12803d",
+    "tonalRamp": [
+     "#094320",
+     "#107035",
+     "#169c4b",
+     "#1cc960",
+     "#36e379",
+     "#70eba0",
+     "#aff4ca",
+     "#e9fcf0"
+    ]
+   },
+   "estudio-espera": {
+    "role": "secondary",
+    "displayName": "Estudio Espera",
+    "canonical": "#a86400",
+    "tonalRamp": [
+     "#4c2e00",
+     "#804c00",
+     "#b26a00",
+     "#e68900",
+     "#ffa21a",
+     "#ffbd5c",
+     "#ffdaa3",
+     "#fff5e5"
+    ]
+   }
+  },
+  "typographyMeta": {
+   "display": {
+    "displayName": "Rótulo de vista",
+    "purpose": "Título de cada vista, en Bebas Neue mayúscula."
+   },
+   "headline": {
+    "displayName": "Rótulo de sección",
+    "purpose": "Encabezados de sección y pestañas."
+   },
+   "title": {
+    "displayName": "Título",
+    "purpose": "Títulos de tarjeta y del trabajo en curso."
+   },
+   "body": {
+    "displayName": "Cuerpo",
+    "purpose": "Explicaciones y listas."
+   },
+   "label": {
+    "displayName": "Etiqueta mono",
+    "purpose": "Pills, rótulos de monitor, contadores y tiempos."
+   }
+  },
+  "shadows": [
+   {
+    "name": "relieve",
+    "value": "inset 0 1px 0 rgba(255,255,255,.05), inset 0 -1px 0 rgba(0,0,0,.4)",
+    "purpose": "Canto de teclas y módulos."
+   },
+   {
+    "name": "contacto",
+    "value": "0 1px 0 rgba(0,0,0,.5), 0 2px 4px rgba(0,0,0,.3)",
+    "purpose": "Toasts y diálogos."
+   },
+   {
+    "name": "luz-encendida",
+    "value": "inset 0 0 0 1px rgba(255,255,255,.35)",
+    "purpose": "LED encendido, sin halo."
+   }
+  ],
+  "motion": [
+   {
+    "name": "ease-out",
+    "value": "cubic-bezier(.23,1,.32,1)",
+    "purpose": "Toda transición de estado; 100–160 ms."
+   },
+   {
+    "name": "pulsacion",
+    "value": "transform: scale(.97) 100ms",
+    "purpose": ":active de teclas."
+   }
+  ],
+  "breakpoints": [
+   {
+    "name": "telefono",
+    "value": "412px"
+   },
+   {
+    "name": "pc",
+    "value": "1100px"
+   }
+  ]
+ },
+ "components": [
+  {
+   "name": "Tecla",
+   "kind": "button",
+   "refersTo": "button-tecla",
+   "description": "Botón normal: tecla de mezclador con relieve.",
+   "html": "<button class=\"ds-tecla\">Ver detalle</button>",
+   "css": ".ds-tecla{font:600 13px/1.1 system-ui,sans-serif;background:var(--surface-2,#1c2025);color:var(--ink,#eef0f3);border:1px solid var(--line,#2b3037);border-radius:4px;min-height:36px;padding:8px 13px;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),inset 0 -1px 0 rgba(0,0,0,.4);transition:background 160ms cubic-bezier(.23,1,.32,1),transform 100ms cubic-bezier(.23,1,.32,1);cursor:pointer}.ds-tecla:hover{background:#252a31}.ds-tecla:focus-visible{outline:2px solid var(--accent,#4aa3ff);outline-offset:2px}.ds-tecla:active{transform:scale(.97)}"
+  },
+  {
+   "name": "Tecla principal",
+   "kind": "button",
+   "refersTo": "button-tecla-go",
+   "description": "La acción que toca ahora.",
+   "html": "<button class=\"ds-tecla-go\">Grabar →</button>",
+   "css": ".ds-tecla-go{font:600 13px/1.1 system-ui,sans-serif;background:var(--accent,#4aa3ff);color:var(--accent-ink,#04121f);border:1px solid var(--accent,#4aa3ff);border-radius:4px;min-height:36px;padding:8px 13px;transition:transform 100ms cubic-bezier(.23,1,.32,1);cursor:pointer}.ds-tecla-go:focus-visible{outline:2px solid #fff;outline-offset:2px}.ds-tecla-go:active{transform:scale(.97)}"
+  },
+  {
+   "name": "Pestaña de bus",
+   "kind": "nav",
+   "refersTo": "tab-bus",
+   "description": "Pestañas del panel como teclas de bus.",
+   "html": "<nav class=\"ds-bus\"><button class=\"on\">Revisar <span>4</span></button><button>Cola <span>1</span></button><button>Ajustes</button></nav>",
+   "css": ".ds-bus{display:flex;gap:8px;flex-wrap:wrap}.ds-bus button{font:400 17px/1 'Bebas Neue','Arial Narrow',sans-serif;letter-spacing:.07em;text-transform:uppercase;background:#1c2025;color:#a6aeb8;border:1px solid #2b3037;border-radius:4px;padding:9px 12px;cursor:pointer}.ds-bus button span{font:600 11px/1 ui-monospace,monospace;background:rgba(0,0,0,.28);padding:3px 5px;border-radius:3px;margin-left:6px}.ds-bus button.on{background:#4aa3ff;color:#04121f;border-color:#4aa3ff;box-shadow:inset 0 -3px 0 #3472b2}.ds-bus button:focus-visible{outline:2px solid #4aa3ff;outline-offset:2px}"
+  },
+  {
+   "name": "Pill tally",
+   "kind": "chip",
+   "refersTo": "pill-tally",
+   "description": "Estado corto con LED cuadrado.",
+   "html": "<span class=\"ds-pill ds-aire\">Al aire</span> <span class=\"ds-pill\">En espera</span>",
+   "css": ".ds-pill{display:inline-flex;align-items:center;gap:6px;font:600 10.5px/1 ui-monospace,monospace;letter-spacing:.07em;text-transform:uppercase;color:#a6aeb8;border:1px solid #2b3037;border-radius:3px;padding:4px 7px}.ds-pill::before{content:'';width:7px;height:7px;background:currentColor;opacity:.55}.ds-aire{color:#ff3b30;border-color:#ff3b30}.ds-aire::before{opacity:1;box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}"
+  },
+  {
+   "name": "Módulo",
+   "kind": "card",
+   "refersTo": "card-modulo",
+   "description": "Tarjeta de rack.",
+   "html": "<div class=\"ds-modulo\"><b>Último respaldo</b><p>Hace 2 días, 14 MB.</p></div>",
+   "css": ".ds-modulo{background:#15181c;border:1px solid #2b3037;border-radius:6px;padding:14px;color:#eef0f3;font:14px/1.5 system-ui,sans-serif;box-shadow:inset 0 1px 0 rgba(255,255,255,.05)}.ds-modulo p{margin:4px 0 0;color:#a6aeb8}"
+  },
+  {
+   "name": "Monitor de programa",
+   "kind": "custom",
+   "refersTo": "monitor-programa",
+   "description": "El trabajo en curso: UMD, timecode y línea de tiempo.",
+   "html": "<div class=\"ds-mon\"><div class=\"ds-umd\"><span>● Al aire</span><span>00:08:15</span></div><div class=\"ds-cuerpo\"><b>Renderizando</b><div class=\"ds-tl\"><i style=\"width:46%\"></i></div></div></div>",
+   "css": ".ds-mon{background:#060708;border:1px solid #ff3b30;box-shadow:0 0 0 1px #ff3b30;border-radius:6px;color:#e9ecef;font:14px system-ui,sans-serif}.ds-umd{display:flex;justify-content:space-between;padding:8px 14px;border-bottom:1px solid #23272d;font:400 17px/1 'Bebas Neue','Arial Narrow',sans-serif;letter-spacing:.07em;text-transform:uppercase;color:#ff3b30}.ds-umd span:last-child{font:700 17px ui-monospace,monospace;color:#e9ecef;font-variant-numeric:tabular-nums}.ds-cuerpo{padding:12px 14px}.ds-tl{margin-top:12px;height:8px;border-radius:2px;background:repeating-linear-gradient(90deg,transparent 0 calc(10% - 1px),#2a2f36 calc(10% - 1px) 10%),#101216}.ds-tl i{display:block;height:100%;position:relative;background:#8a2a24;border-radius:2px}.ds-tl i::after{content:'';position:absolute;right:-1px;top:-3px;bottom:-3px;width:2px;background:#fff}"
+  }
+ ],
+ "narrative": {
+  "northStar": "La sala de control",
+  "overview": "El panel es el control central de un canal de TV de una sola persona. Lo que se está grabando está al aire, lo que espera el visto bueno está en previo, y lo demás es una pared de monitores y un banco de teclas. Cada estado tiene su luz, y la luz siempre va con palabra o forma al lado: nunca color solo.",
+  "keyCharacteristics": [
+   "Tres tallies con significado fijo: rojo al aire, verde previo, ámbar en espera.",
+   "Rótulos UMD en Bebas Neue mayúscula; cuerpo en la sans del sistema; tiempos y contadores en mono tabular.",
+   "Teclas de mezclador con relieve y pulsación (`scale(.97)`), no botones planos.",
+   "El trabajo en curso es un monitor de programa: tira UMD, timecode, línea de tiempo con cabezal.",
+   "Iconos dibujados de Lucide, del color del texto."
+  ],
+  "rules": [
+   {
+    "name": "The Tally Rule",
+    "body": "Rojo, verde y ámbar solo dicen «al aire», «previo» y «en espera». Nunca se usan como decoración ni como acento.",
+    "section": "colors"
+   },
+   {
+    "name": "The Sin Halo Rule",
+    "body": "Las luces encendidas son planas con un filo interior claro, nunca un resplandor difuso de color.",
+    "section": "colors"
+   },
+   {
+    "name": "The Números en Columna Rule",
+    "body": "Todo tiempo o contador va en mono con tabular-nums, para que no baile al repintarse cada 1,5 s.",
+    "section": "typography"
+   },
+   {
+    "name": "The Borde o Sombra Rule",
+    "body": "Un módulo con filete de 1 px no lleva además una sombra ancha y difusa.",
+    "section": "elevation"
+   }
+  ],
+  "dos": [
+   "Do poner palabra o forma junto a cada luz de estado (tally + texto).",
+   "Do escribir los iconos de botón como emoji al inicio del texto («🗑 Borrar») y añadir el dibujo de Lucide a `ICONO_DE`/`TRAZOS` si falta.",
+   "Do mantener el video en Negro Monitor también en el tema claro.",
+   "Do probar cada vista a 412px y a 1440px, en los dos temas."
+  ],
+  "donts": [
+   "Don't usar resplandores de color (`box-shadow: 0 0 Npx <color>`) ni texto con degradado.",
+   "Don't usar rojo, verde o ámbar para algo que no sea su estado.",
+   "Don't poner una etiqueta pequeña encima de un título; si hace falta, va en línea.",
+   "Don't añadir bordes laterales gruesos de color a avisos o tarjetas.",
+   "Don't cargar fuentes o iconos de internet: el panel funciona sin conexión."
+  ]
+ }
+}

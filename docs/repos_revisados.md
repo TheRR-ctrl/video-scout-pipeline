@@ -848,3 +848,21 @@ su sitio en un clon limpio y encadena `instalar.sh` e `instalar_cron.sh`.
 Es un `tar` sin comprimir: los `.mp4` no se comprimen más y comprimir en el
 teléfono tarda.
 
+
+## 18. Iconos del panel — SE COPIARON LOS TRAZOS de Lucide
+
+El rediseño del panel («sala de control de TV») cambió los emojis de los
+botones por iconos dibujados. Se miró Lucide (`lucide-icons/lucide`,
+paquete `lucide-static`), el juego de iconos SVG de trazo más usado.
+
+- **Qué hace:** ~2100 iconos SVG de 24×24, un solo trazo de 2 px, sin
+  relleno, al color del texto.
+- **Termux:** no se instala nada. Se copiaron a mano los trazos de los ~50
+  iconos que usa el panel dentro de `web/index.html` (`TRAZOS`); ni npm ni
+  internet en el teléfono.
+- **Mantenimiento:** ninguno. Un icono nuevo es copiar un `<path>` de
+  lucide.dev y añadir su emoji a `ICONO_DE`.
+- **Licencia:** ISC, compatible; la cita va en el comentario de `TRAZOS`.
+
+Descartado: Font Awesome y Material Symbols (fuente de iconos que hay que
+servir entera o bajar de internet) y dibujar los iconos a mano.
