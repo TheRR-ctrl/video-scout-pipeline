@@ -510,7 +510,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
     </div>
     <div class="nav-acc">
       <button class="btn sm" id="b-actualizar" title="Volver a mirar qué hay ahora mismo">↻</button>
-      <button class="btn sm" id="b-apagar" title="Apagar el panel, o desactivar este aparato">⏻</button>
+      <button class="btn sm" id="b-apagar" title="Apagar el panel, o desactivar este aparato" aria-label="Apagar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="display:block"><path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg></button>
     </div>
   </div>
   <div class="tabs">
@@ -3218,10 +3218,10 @@ function bloquePasarAlPC(){
             ni música. Mándatelo al PC (Drive, WhatsApp a ti mismo, correo) y en el panel de Windows:
             Ajustes → Tareas → «Traer todo del teléfono».</div>
           <div class="muted" style="margin-top:4px">Cuando el PC ya esté funcionando, desactiva este teléfono
-            con ⏻ (arriba a la derecha) → «Desactivar»: así no publican los dos a la vez.</div>
+            con el botón de apagar (el de arriba a la derecha) y «Desactivar»: así no publican los dos a la vez.</div>
           <div class="muted" style="margin-top:4px;color:var(--warn)">Lleva tus claves: no lo mandes a nadie más.</div>
         </div>
-        <button class="btn go" id="b-exportar-ajustes">⇪ Exportar</button>
+        <button class="btn go" id="b-exportar-ajustes">📤 Exportar</button>
       </div>
     </div>`;
   return `
@@ -3239,7 +3239,7 @@ function bloquePasarAlPC(){
             con lo del teléfono. Una variable de entorno de Windows (como <code style="font:11.5px var(--mono)">GEMINI_API_KEY</code>)
             sigue ganando a la clave del respaldo.</div>
         </div>
-        <label class="btn go" style="position:relative;overflow:hidden">⇩ Elegir archivo…
+        <label class="btn go" style="position:relative;overflow:hidden">📥 Elegir archivo…
           <input type="file" id="f-importar" accept=".tar,application/x-tar"
                  style="position:absolute;inset:0;opacity:0;cursor:pointer"></label>
       </div>
@@ -3269,7 +3269,16 @@ function bloqueUltimoRespaldo(){
         <button class="btn" id="b-copiar-ruta-respaldo">Copiar la ruta</button>
       </div>
       ${E.es_android ? `<div class="muted" style="margin-top:8px">«Enviar» abre el menú de compartir de Android:
-        WhatsApp a ti mismo, Drive o correo. Necesita la app Termux:API.</div>` : ''}
+        WhatsApp a ti mismo, Drive o correo. Necesita la app Termux:API.</div>
+      <details id="ayuda-compartir" style="margin-top:8px">
+        <summary style="cursor:pointer;font-size:13.5px">¿No se abre nada al pulsar «Enviar»?</summary>
+        <div class="muted" style="margin-top:6px">Android no deja que una app en segundo plano abra el menú
+          de compartir si no tiene permiso. Una sola vez:
+          <b>Ajustes de Android → Apps → Termux:API → Mostrar sobre otras apps → Permitir</b>
+          (si sigue sin salir, lo mismo con <b>Termux</b>), y vuelve a pulsar «Enviar».</div>
+        <div class="muted" style="margin-top:6px">O a mano, sin permisos: abre la app <b>Archivos</b> → <b>Descargas</b>,
+          mantén pulsado <code style="font:11.5px var(--mono)">${esc(r.nombre)}</code> y toca <b>Compartir</b>.</div>
+      </details>` : ''}
     </div>`;
 }
 
@@ -3278,7 +3287,11 @@ function conectarPasarAlPC(){
   if(bComp) bComp.onclick = async ()=>{
     try{
       const j = await post('/api/respaldo/compartir', {});
-      toast(j.como === 'compartir' ? 'Elige dónde mandarlo' : 'Abriendo la carpeta…');
+      toast(j.como === 'compartir' ? 'Abriendo el menú de compartir…' : 'Abriendo la carpeta…');
+      // Si Android lo bloquea no hay error que recibir: se deja a la vista
+      // la explicación y el camino a mano, por si el menú no aparece.
+      const ayuda = $('#ayuda-compartir');
+      if(ayuda) ayuda.open = true;
     }catch(e){ toast(e.message); }
   };
   const bRuta = $('#b-copiar-ruta-respaldo');
@@ -4181,7 +4194,13 @@ addEventListener('keydown', ev=>{
   ev.preventDefault();
 });
 
-/* ⏻: apagar el panel, o desactivar este aparato (dispositivo.py) para
+/* El símbolo de apagar (⏻, U+23FB) no está en la fuente de muchos
+   Android y salía como un cuadrito: va dibujado. */
+const ICONO_APAGAR = (px) => `<svg width="${px}" height="${px}" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.4" stroke-linecap="round" aria-hidden="true" style="display:inline-block;vertical-align:-0.15em">
+  <path d="M12 3v9"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg>`;
+
+/* Botón de apagar: apagar el panel, o desactivar este aparato (dispositivo.py) para
    pasarse al otro sin que los dos publiquen a la vez. Desactivar dura hasta
    pulsar «Reactivar», también tras cerrar y volver a abrir el panel. */
 $('#b-apagar').onclick = ()=>{
@@ -4194,7 +4213,7 @@ $('#b-apagar').onclick = ()=>{
   caja.className = 'modal';
   caja.innerHTML = `
     <div class="caja">
-      <b style="font-size:16px">⏻ Apagar</b>
+      <b style="font-size:16px">${ICONO_APAGAR(16)} Apagar</b>
       ${pierde ? `<div class="aviso warn" style="margin:10px 0 0"><span>⚠</span><div>${pierde}</div></div>` : ''}
       <div class="list" style="margin-top:12px">
         ${ya ? '' : `<div class="row" style="display:block">
@@ -4239,7 +4258,7 @@ function pantallaApagado(desactivado, extra){
     : E && E.es_android ? '<b>panel</b> en Termux (o abre la app)' : 'vuelve a arrancar el panel';
   document.body.innerHTML = `<div style="max-width:440px;margin:22vh auto;padding:0 20px;
     text-align:center;font:15px/1.6 var(--body);color:var(--ink-dim)">
-    <div style="font-size:34px;margin-bottom:12px">${desactivado ? '⏸' : '⏻'}</div>
+    <div style="font-size:34px;margin-bottom:12px">${desactivado ? '⏸' : ICONO_APAGAR(34)}</div>
     <b style="color:var(--ink);font-size:16px">${desactivado ? `Este ${equipo()} quedó desactivado` : 'Panel apagado'}</b>
     <p>${desactivado ? 'No corre nada, tampoco solo. ' : ''}${E && E.es_windows
       ? 'Ya puedes cerrar esta pestaña; la ventana negra se cierra sola.'

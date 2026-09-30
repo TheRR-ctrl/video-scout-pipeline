@@ -42,7 +42,7 @@ notificaciones de Android. Si el PC tiene tarjeta NVIDIA, el render la usa.
 
 **No publiques desde el PC y el teléfono a la vez**: cada uno lleva su
 propio registro de lo subido y podrían subir el mismo video dos veces. En
-el que dejas, **⏻ → «Desactivar»**: para lo que esté corriendo, quita el
+el que dejas, **botón de apagar (arriba a la derecha) → «Desactivar»**: para lo que esté corriendo, quita el
 horario automático y no deja arrancar nada hasta pulsar «Reactivar» en el
 aviso que queda arriba del panel. Para
 pasar de uno a otro, respaldo en el que dejas y restauración en el nuevo
