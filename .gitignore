@@ -41,3 +41,6 @@ guion_prueba.txt
 
 # La marca de aparato desactivado (dispositivo.py): es de cada aparato.
 desactivado.json
+
+# Capturas de la revisión de diseño de impeccable
+.impeccable/review/

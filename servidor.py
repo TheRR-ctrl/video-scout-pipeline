@@ -3154,6 +3154,23 @@ def api_icono(tam):
     return send_file(ruta, mimetype="image/png")
 
 
+# La letra de los rótulos del panel (web/index.html, «Rotulo»). Sale de
+# fuentes/, que ya lleva el repo para los subtítulos, y no de Google Fonts:
+# el panel tiene que verse igual sin internet. Lista cerrada: esto no sirve
+# archivos cualesquiera de la carpeta.
+LETRAS_PANEL = {"BebasNeue-Regular.ttf"}
+
+
+@app.get("/letra/<nombre>")
+def api_letra(nombre):
+    ruta = os.path.join(BASE_DIR, "fuentes", nombre)
+    if nombre not in LETRAS_PANEL or not os.path.exists(ruta):
+        abort(404)
+    resp = send_file(ruta, mimetype="font/ttf")
+    resp.headers["Cache-Control"] = "public, max-age=604800"
+    return resp
+
+
 @app.get("/")
 def index():
     ruta = os.path.join(WEB_DIR, "index.html")
