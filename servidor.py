@@ -1710,6 +1710,7 @@ def api_estado():
         "cadena_auto": cadena_automatica(),
         "es_windows": ES_WINDOWS,
         "desactivado": dispositivo.desactivado(),
+        "ultimo_respaldo": ultimo_respaldo(),
         "notificar_fallos": avisar_de_fallos(),
         "dias_espera_tiktok": _publisher().dias_espera_tiktok(publisher_cfg_y_tiktok()[0]),
         "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
@@ -1828,6 +1829,48 @@ def _recargar_secretos_si_cambiaron():
     if _SECRETOS_MTIME[0] != m:
         _SECRETOS_MTIME[0] = m
         secretos.cargar()
+
+
+def ultimo_respaldo():
+    """El último respaldo hecho aquí, si el archivo sigue existiendo."""
+    import respaldo
+    d = almacen.leer(respaldo.RUTA_ULTIMO, None)
+    if not isinstance(d, dict) or not os.path.isfile(str(d.get("ruta") or "")):
+        return None
+    return {**d, "nombre": os.path.basename(d["ruta"])}
+
+
+@app.post("/api/respaldo/compartir")
+def api_respaldo_compartir():
+    """Sacar el último respaldo del aparato sin buscarlo a mano.
+
+    En Android abre el menú «Compartir» (termux-share, del paquete termux-api
+    que ya instala instalar_panel.sh): WhatsApp, Drive, correo… En Windows
+    abre el Explorador con el archivo marcado. La ruta sale de
+    ultimo_respaldo.json, nunca de la petición: esto no abre archivos
+    arbitrarios.
+    """
+    d = ultimo_respaldo()
+    if not d:
+        return jsonify({"error": "No hay ningún respaldo hecho (o se borró). Pulsa «Exportar» primero."}), 404
+    ruta = d["ruta"]
+    try:
+        if shutil.which("termux-share"):
+            # Popen y no run: termux-share espera a que elijas la app.
+            subprocess.Popen(["termux-share", "-a", "send", "-c", "application/x-tar", ruta],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return jsonify({"ok": True, "como": "compartir"})
+        if ES_WINDOWS:
+            subprocess.Popen(["explorer", f"/select,{ruta}"])
+            return jsonify({"ok": True, "como": "carpeta"})
+        if shutil.which("xdg-open"):
+            subprocess.Popen(["xdg-open", os.path.dirname(ruta)],
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return jsonify({"ok": True, "como": "carpeta"})
+    except OSError as e:
+        return jsonify({"error": f"No se pudo abrir: {e}. El archivo está en {ruta}"}), 500
+    return jsonify({"error": f"Aquí no sé abrir el menú de compartir (¿falta termux-api?). "
+                             f"El archivo está en {ruta}"}), 501
 
 
 CARPETA_IMPORTANDO = os.path.join(BASE_DIR, ".importando")

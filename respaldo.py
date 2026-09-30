@@ -43,6 +43,7 @@ from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PREFIJO = "video-scout-respaldo-"
+RUTA_ULTIMO = os.path.join(BASE_DIR, "pipeline_state", "ultimo_respaldo.json")
 
 # Lo que no vale la pena guardar: se regenera solo o es basura.
 # .importando es donde el panel deja el respaldo que le subes al restaurar:
@@ -57,7 +58,7 @@ FUERA_SUFIJOS = (".pyc", ".log", ".parcial", ".tmp")
 FUERA_CONTIENE = (".bak",)
 # La marca de «este aparato está desactivado» (dispositivo.py) es de este
 # aparato, no de los ajustes: al restaurar en otro lo dejaría desactivado.
-FUERA_NOMBRES = ("desactivado.json",)
+FUERA_NOMBRES = ("desactivado.json", "pipeline_state/ultimo_respaldo.json")
 
 # Lo que no puede faltar: si no está, se avisa (no es un fallo).
 IMPORTANTES = {
@@ -97,7 +98,7 @@ def archivos_del_proyecto():
         if any(p in FUERA_DIRS for p in partes[:-1]):
             continue
         if (r.endswith(FUERA_SUFIJOS) or any(c in partes[-1] for c in FUERA_CONTIENE)
-                or r in FUERA_NOMBRES):
+                or r in FUERA_NOMBRES or partes[-1].startswith(PREFIJO)):
             continue
         if os.path.isfile(os.path.join(BASE_DIR, r)):
             quedan.append(r)
@@ -328,6 +329,15 @@ def main(argv=None):
     try:
         os.chmod(ruta, 0o600)
     except OSError:
+        pass
+    # Para el panel: dónde quedó, y así enseñar la ruta y el botón de enviarlo
+    # sin tener que leer la salida del trabajo.
+    try:
+        import almacen
+        almacen.guardar(RUTA_ULTIMO, {"ruta": ruta, "bytes": os.path.getsize(ruta),
+                                      "fecha": datetime.now().isoformat(timespec="seconds"),
+                                      "tipo": ("ajustes" if args.solo_ajustes else cuales)})
+    except Exception:                              # noqa: BLE001 — el respaldo ya está hecho
         pass
 
     print(f"\n   ✓ {ruta}  ({_mb(os.path.getsize(ruta))})")
