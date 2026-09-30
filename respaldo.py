@@ -1,0 +1,194 @@
+"""
+Un solo archivo con todo lo que git no trae, para reinstalar el teléfono
+(o cambiar de teléfono) sin perder nada.
+
+    python respaldo.py                 # claves, estado, guiones, material y
+                                       # los videos que aún no se subieron
+    python respaldo.py --sin-videos    # igual, pero sin ningún video grabado
+    python respaldo.py --todos-los-videos
+
+Deja el archivo en Descargas (/sdcard/Download/video-scout-respaldo-FECHA.tar)
+para sacarlo del teléfono: Google Drive, un PC o una tarjeta SD. Un reinicio
+de fábrica borra también Descargas, así que tiene que salir del teléfono.
+Para volver a ponerlo todo: bash restaurar.sh (ver allí).
+
+Qué entra: todo lo que hay en la carpeta del proyecto y git no sigue —
+secretos.env, los tokens de YouTube y TikTok, client_secret.json,
+config*.json, guion*.txt, pipeline_state/ (lo subido, la metadata, los
+tramos excluidos, el horario…), los fondos, la música y la plantilla—, y de
+la carpeta de salida resultado_lote.json y los videos. Se saca de git en vez
+de ir con una lista: así un archivo nuevo que el proyecto empiece a usar
+entra solo, sin acordarse de añadirlo aquí.
+
+Qué no entra: lo que se rehace solo (__pycache__, logs, copias .bak, la
+caché de HyperFrames, lo que compila Android).
+
+OJO: lleva las claves. Guárdalo donde solo lo veas tú (tu Drive, sin
+compartir). Sin claves, al restaurar habría que volver a sacarlas todas.
+
+Va sin comprimir a propósito: casi todo el peso son videos .mp4, que no se
+comprimen más, y comprimir en el teléfono tarda.
+"""
+import os
+import sys
+import io
+import json
+import tarfile
+import argparse
+import subprocess
+from datetime import datetime
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+PREFIJO = "video-scout-respaldo-"
+
+# Lo que no vale la pena guardar: se regenera solo o es basura.
+FUERA_DIRS = ("__pycache__", ".gradle", "build", "hyperframes_cache", ".git")
+FUERA_SUFIJOS = (".pyc", ".log", ".parcial", ".tmp")
+FUERA_CONTIENE = (".bak",)
+
+# Lo que no puede faltar: si no está, se avisa (no es un fallo).
+IMPORTANTES = {
+    "secretos.env": "las claves (Gemini, Jamendo, Pexels…)",
+    "youtube_token.json": "la sesión de YouTube",
+    "client_secret.json": "el permiso de la app de YouTube",
+    "pipeline_state/publicados.json": "qué se subió ya (sin esto se volvería a subir todo)",
+    "guion.txt": "la cola de historias",
+}
+
+
+def _cargar_json(ruta, defecto):
+    try:
+        with open(ruta, encoding="utf-8") as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return defecto
+
+
+def archivos_del_proyecto():
+    """Los archivos de la carpeta que git no sigue, sin la basura."""
+    try:
+        salida = subprocess.run(["git", "ls-files", "--others", "-z"], cwd=BASE_DIR,
+                                capture_output=True, check=True).stdout
+        rutas = [r for r in salida.decode("utf-8", "replace").split("\0") if r]
+    except (OSError, subprocess.CalledProcessError):
+        # Sin git (una copia bajada en zip): todo lo que haya, menos el código.
+        rutas = []
+        for raiz, dirs, archivos in os.walk(BASE_DIR):
+            dirs[:] = [d for d in dirs if d not in FUERA_DIRS]
+            for a in archivos:
+                if not a.endswith((".py", ".md", ".sh")):
+                    rutas.append(os.path.relpath(os.path.join(raiz, a), BASE_DIR))
+    quedan = []
+    for r in rutas:
+        partes = r.split("/")
+        if any(p in FUERA_DIRS for p in partes[:-1]):
+            continue
+        if r.endswith(FUERA_SUFIJOS) or any(c in partes[-1] for c in FUERA_CONTIENE):
+            continue
+        if os.path.isfile(os.path.join(BASE_DIR, r)):
+            quedan.append(r)
+    return sorted(quedan)
+
+
+def carpeta_salida():
+    cfg = _cargar_json(os.path.join(BASE_DIR, "config.json"), {})
+    if cfg.get("carpeta_salida"):
+        return cfg["carpeta_salida"]
+    try:
+        import publisher
+        return publisher.cargar_config()["carpeta_salida"]
+    except Exception:                              # noqa: BLE001 — sin salida, sin videos
+        return None
+
+
+def videos_a_guardar(salida, cuales):
+    """Los .mp4 de la salida que entran: ninguno, los que aún no se subieron
+    a YouTube, o todos."""
+    if cuales == "ninguno" or not salida or not os.path.isdir(salida):
+        return []
+    todos = sorted(os.path.join(salida, f) for f in os.listdir(salida) if f.endswith(".mp4"))
+    if cuales == "todos":
+        return todos
+    estado = os.path.join(BASE_DIR, "pipeline_state")
+    ya = {p.get("ruta") for p in _cargar_json(os.path.join(estado, "publicados.json"), [])}
+    ya |= {r.get("ruta") for r in _cargar_json(os.path.join(estado, "rechazados.json"), [])}
+    ya_nombres = {os.path.basename(r) for r in ya if r}
+    return [v for v in todos if os.path.basename(v) not in ya_nombres]
+
+
+def destino_por_omision():
+    for d in ("/sdcard/Download", os.path.expanduser("~/storage/downloads")):
+        if os.path.isdir(d) and os.access(d, os.W_OK):
+            return d
+    return BASE_DIR
+
+
+def _mb(n):
+    return f"{n / (1024 * 1024):,.0f} MB"
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(description="Guarda en un archivo todo lo que git no trae.")
+    g = ap.add_mutually_exclusive_group()
+    g.add_argument("--sin-videos", action="store_true", help="Sin ningún video grabado.")
+    g.add_argument("--todos-los-videos", action="store_true",
+                   help="También los ya subidos (pueden ser varios GB).")
+    ap.add_argument("--destino", help="Carpeta donde dejarlo (por omisión, Descargas).")
+    args = ap.parse_args(argv if argv is not None else sys.argv[1:])
+    cuales = "ninguno" if args.sin_videos else "todos" if args.todos_los_videos else "sin_subir"
+
+    proyecto = archivos_del_proyecto()
+    salida = carpeta_salida()
+    videos = videos_a_guardar(salida, cuales)
+    lote = os.path.join(salida, "resultado_lote.json") if salida else None
+
+    destino = args.destino or destino_por_omision()
+    os.makedirs(destino, exist_ok=True)
+    nombre = f"{PREFIJO}{datetime.now().strftime('%Y%m%d-%H%M')}.tar"
+    ruta = os.path.join(destino, nombre)
+    parcial = ruta + ".parcial"
+
+    peso = sum(os.path.getsize(os.path.join(BASE_DIR, r)) for r in proyecto)
+    peso += sum(os.path.getsize(v) for v in videos)
+    print(f"\n  Guardando {len(proyecto)} archivo(s) del proyecto"
+          + (f" y {len(videos)} video(s)" if videos else "") + f" (~{_mb(peso)})…")
+
+    # Un .parcial que se renombra al final: si Android mata el proceso a
+    # medias, no queda un respaldo cortado con cara de bueno.
+    with tarfile.open(parcial, "w") as tar:
+        for r in proyecto:
+            tar.add(os.path.join(BASE_DIR, r), arcname=f"proyecto/{r}")
+        if lote and os.path.isfile(lote):
+            tar.add(lote, arcname="salida/resultado_lote.json")
+        for v in videos:
+            tar.add(v, arcname=f"salida/{os.path.basename(v)}")
+        # Dónde estaba la salida, para devolver los videos a su sitio.
+        info = json.dumps({"carpeta_salida": salida, "fecha": datetime.now().isoformat(
+            timespec="seconds"), "videos": cuales}, ensure_ascii=False).encode("utf-8")
+        ti = tarfile.TarInfo("respaldo.json")
+        ti.size = len(info)
+        tar.addfile(ti, io.BytesIO(info))
+    os.replace(parcial, ruta)
+    try:
+        os.chmod(ruta, 0o600)
+    except OSError:
+        pass
+
+    print(f"\n   ✓ {ruta}  ({_mb(os.path.getsize(ruta))})")
+    faltan = [f"{k} — {v}" for k, v in IMPORTANTES.items() if k not in proyecto]
+    if faltan:
+        print("\n  No estaban (no se pudieron guardar):")
+        for f in faltan:
+            print(f"   ○ {f}")
+    if cuales == "sin_subir":
+        print(f"\n  Videos: {len(videos)} sin subir a YouTube. Los ya subidos no van "
+              "(para incluirlos: --todos-los-videos).")
+    print("\n  ⚠ Lleva tus claves y tokens: guárdalo donde solo lo veas tú.")
+    print("  Sácalo del teléfono ANTES de reiniciar (Google Drive, un PC o una SD):")
+    print("  el reinicio de fábrica borra también Descargas.")
+    print("\n  Para restaurar, en el teléfono nuevo:  bash restaurar.sh  (ver INSTALAR.md)\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

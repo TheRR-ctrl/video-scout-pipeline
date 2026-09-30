@@ -17,6 +17,15 @@ Con "partir_automatico": true en config.json (Ajustes → Automático), además
 script_writer.py parte al escribirla la historia que nace larga, y la tanda
 de mantenimiento parte las que haya en la cola.
 
+En el video, la voz y la tarjeta dicen primero el título, limpio, y la parte
+va justo después como primera frase («… Parte 2 de 3.»), para que quien
+llega a mitad de la serie sepa cuál está viendo (generar_video_maestro).
+
+La historia entera no se pierde: además de sus partes, se guarda en
+guion_largas.txt (archivar_largas.guardar_para_largos) y, en cuanto se
+abran los largos, pipeline.py la devuelve sola a la cola para grabarla y
+subirla entera como video largo.
+
 El texto no se reescribe. Gemini solo elige ENTRE QUÉ FRASES se corta,
 buscando que cada parte acabe en suspenso; si falla, o no hay clave, se
 corta a partes iguales. Así lo que se publica es exactamente lo que ya
@@ -324,7 +333,21 @@ def partir_si_hace_falta(bloque, client=None):
         return [bloque]
     logger.info(f"  ✂ {plan['palabras']} palabras no caben en un short: "
                 f"sale en {len(partes)} partes ({plan['origen']}).")
+    _guardar_enteras([bloque])
     return partes
+
+
+def _guardar_enteras(bloques):
+    """La historia entera, además de sus partes, se guarda para el video
+    largo: cuando se abran los largos vuelve sola a la cola
+    (archivar_largas.devolver_si_se_abrieron)."""
+    try:
+        import archivar_largas
+        n = archivar_largas.guardar_para_largos(bloques)
+        if n:
+            logger.info(f"  📦 {n} guardada(s) entera(s) para el video largo, cuando se abran.")
+    except Exception as exc:                       # noqa: BLE001 — las partes valen igual
+        logger.warning(f"  No se pudo guardar la historia entera para los largos: {exc}")
 
 
 def _cliente_gemini():
@@ -434,6 +457,7 @@ def main(argv=None):
     # algo falla entre medias, mejor una historia repetida que una perdida.
     limpiar_cola.archivar_en_historial(quitadas)
     limpiar_cola.archivar_en_historial(partidas, motivo="Partida en varios shorts")
+    _guardar_enteras(partidas)
     respaldo = f"{RUTA_GUION}.bak-{datetime.now().strftime('%Y%m%d-%H%M%S')}"
     shutil.copy2(RUTA_GUION, respaldo)
     _escribir_guion(nuevos)

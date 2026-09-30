@@ -2,12 +2,13 @@
 # Instalación completa en un teléfono desde cero.
 #
 #   pkg install -y git && \
-#   git clone -b claude/contenido-automatico-gemini-vhga6y \
-#     https://github.com/TheRR-ctrl/video-scout-pipeline && \
+#   git clone https://github.com/TheRR-ctrl/video-scout-pipeline && \
 #   bash video-scout-pipeline/instalar.sh
 #
 # Es idempotente: correrlo otra vez actualiza en vez de duplicar, así que
-# sirve igual para instalar y para poner al día.
+# sirve igual para instalar y para poner al día. Para reinstalar con todo lo
+# de antes (claves, estado, videos), mejor restaurar.sh, que acaba llamando
+# a este.
 #
 # Lo que git NO trae (y por qué): las credenciales y el material pesado están
 # en .gitignore a propósito. Subir una clave de API a un repo es un error que

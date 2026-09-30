@@ -9,13 +9,51 @@ abandonada desde 2020 y `pkg install` falla en ella.
 
 <https://f-droid.org/packages/com.termux/>
 
+## Reinstalar el teléfono (o cambiar de teléfono)
+
+Si ya lo tenías funcionando, no hace falta repetir los pasos de abajo uno
+por uno: un respaldo guarda todo lo que git no trae y una orden lo pone de
+vuelta.
+
+**Antes de borrar el teléfono**, en el panel: **Ajustes → 🧰 Tareas →
+«Respaldo para reinstalar el teléfono»** (o `python respaldo.py`). Deja en
+Descargas un archivo `video-scout-respaldo-FECHA.tar` con:
+
+- las claves y los tokens (`secretos.env`, YouTube, TikTok, `client_secret.json`),
+- la configuración y el estado (`config*.json`, `pipeline_state/`: lo subido,
+  la metadata, los tramos excluidos, el horario…),
+- la cola y las historias guardadas para los largos (`guion*.txt`),
+- los fondos, la música y la plantilla,
+- los videos que aún no se subieron a YouTube (`--sin-videos` para no
+  llevarlos; `--todos-los-videos` para llevarlos todos).
+
+**Sácalo del teléfono** —súbelo a tu Google Drive o pásalo a un PC—: el
+reinicio de fábrica borra también Descargas. Lleva tus claves: no lo
+compartas con nadie.
+
+**En el teléfono nuevo**, instala Termux desde F-Droid (paso 1), baja el
+respaldo a Descargas y:
+
+```bash
+pkg install -y git
+git clone https://github.com/TheRR-ctrl/video-scout-pipeline
+bash video-scout-pipeline/restaurar.sh
+```
+
+Pide el permiso de almacenamiento, busca solo el respaldo más reciente en
+Descargas, devuelve cada cosa a su sitio (los videos a su carpeta de la
+galería), instala todo con `instalar.sh` y, si tenías horario automático,
+lo vuelve a poner. Lo único que no puede traer es lo que es de Android:
+reinstalar Termux:API y Termux:Boot desde F-Droid, quitar a Termux la
+optimización de batería y, si la usabas, la app del panel.
+
 ## 2. Traer el proyecto e instalarlo
 
 Tres órdenes, copiadas tal cual:
 
 ```bash
 pkg install -y git
-git clone -b claude/contenido-automatico-gemini-vhga6y https://github.com/TheRR-ctrl/video-scout-pipeline
+git clone https://github.com/TheRR-ctrl/video-scout-pipeline
 bash video-scout-pipeline/instalar.sh
 ```
 
@@ -160,7 +198,8 @@ python limpiar_cola.py --si  # lo hace, guardando antes una copia
 
 Empareja por título contra los `.mp4` de la carpeta de salida **y** contra
 `resultado_lote.json`, así que también quita las que se grabaron y luego se
-borraron del teléfono a los 7 días.
+borraron del teléfono al cumplir su plazo (14 días sin subir a TikTok,
+7 si ya están allí; ver Ajustes → Automático).
 
 Ojo con la numeración: el video se llama `NN_Titulo.mp4`, donde `NN` es la
 posición dentro de `guion.txt`. Al quitar historias, las que quedan se

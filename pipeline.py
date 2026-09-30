@@ -189,6 +189,12 @@ def main():
 
     grabar = i_desde <= ETAPAS.index("video") <= i_hasta
     if grabar:
+        # Las historias que se partieron en shorts se guardaron también
+        # enteras: con los largos abiertos vuelven a la cola y se graban y
+        # suben como video largo, sin que nadie tenga que acordarse.
+        import archivar_largas
+        archivar_largas.devolver_si_se_abrieron()
+    if grabar:
         # Con poca batería y sin cargador, el render espera: el panel lo
         # enseña y graba solo en cuanto se conecta (ver bateria.py). No es un
         # fallo, así que no pinta el día en rojo.

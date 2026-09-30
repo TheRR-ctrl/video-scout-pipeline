@@ -21,6 +21,7 @@ import almacen
 import fondos_excluidos  # tramos de los fondos que no se usan (panel: ✂ Tramos)
 import hyperframes_broll
 import narrador   # género de quien narra: decide la voz del video
+import titulos    # «Parte N de M — » de las historias partidas
 
 try:
     import edge_tts
@@ -1933,6 +1934,17 @@ def renderizar_una_historia(contenido, num=1):
         # locución de cinco minutos para descubrirlo después.
         aplazar_si_es_largo(cue, num, n_arch)
 
+        # Una historia partida trae «Parte 2 de 3 — Título» en la primera
+        # línea. En voz y en la tarjeta va primero el título, limpio, y la
+        # parte justo después, como primera frase de la narración: así quien
+        # llega a la parte 2 sabe en cuál está sin que el título lo tape.
+        # `tit` se queda como está: de él salen el nombre del archivo y el
+        # «(Parte 2/3)» del título de YouTube.
+        parte = titulos.parte_de_titulo(tit)
+        tit_voz = titulos.sin_marca_de_parte(tit) if parte else tit
+        if parte:
+            cue = f"Parte {parte[0]} de {parte[1]}. {cue}"
+
         print(f"\n🎬 [Video {num}] Procesando: {n_arch}")
         print(f" ├─ ⚙️  Emoción: {emocion.upper()} ({origen_emocion(contenido)}) | Música: {musica or 'Ninguna'}")
         
@@ -1940,7 +1952,7 @@ def renderizar_una_historia(contenido, num=1):
         a_tit, a_cue = gestor.registrar(f"a_tit_{num}.m4a"), gestor.registrar(f"a_cue_{num}.m4a")
         s_dum, s_raw = gestor.registrar(f"s_dum_{num}.srt"), gestor.registrar(f"s_raw_{num}.srt")
         
-        with open(t_tit, "w", encoding="utf-8") as f: f.write(limpiar_texto_seguro(tit))
+        with open(t_tit, "w", encoding="utf-8") as f: f.write(limpiar_texto_seguro(tit_voz))
         with open(t_cue, "w", encoding="utf-8") as f: f.write(limpiar_texto_seguro(cue))
 
         term_cols = shutil.get_terminal_size((40, 24)).columns
@@ -2049,7 +2061,7 @@ def renderizar_una_historia(contenido, num=1):
 
         act_gra(0.0)
         img_tar = gestor.registrar(f"tar_{num}.png")
-        crear_tarjeta_intro_impecable(tit, img_tar, es_short, ancho=w, alto=h)
+        crear_tarjeta_intro_impecable(tit_voz, img_tar, es_short, ancho=w, alto=h)
 
         act_gra(33.3)
         a_loc = gestor.registrar(f"a_loc_{num}.m4a")

@@ -74,6 +74,24 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
      fondo oscuro casi no se lee. */
   a{color:var(--accent);text-underline-offset:2px}
   .acciones-aviso{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+  .fallos{margin-top:10px;border:1px solid var(--crit);border-radius:8px;background:var(--crit-soft);
+    padding:9px 11px}
+  .fallos-tit{font-weight:600;color:var(--crit);margin-bottom:4px}
+  .fallo{padding:7px 0;border-top:1px solid color-mix(in srgb,var(--crit) 25%,transparent)}
+  .fallo:first-of-type{border-top:0}
+  .fallo-cab{display:flex;gap:8px;align-items:baseline;min-width:0}
+  .fallo-cab b{overflow-wrap:anywhere}
+  .fallo-txt{font:11.5px/1.45 var(--mono);color:var(--ink);overflow-wrap:anywhere;margin-top:2px}
+  .alerta-fallo{position:fixed;left:10px;right:10px;top:10px;z-index:60;display:flex;gap:10px;
+    align-items:flex-start;background:var(--surface);border:1px solid var(--crit);
+    border-left:5px solid var(--crit);border-radius:10px;padding:10px 12px;
+    box-shadow:0 8px 24px rgba(0,0,0,.35);max-width:600px;margin:0 auto}
+  .alerta-fallo .ico{color:var(--crit);font-size:18px;line-height:1.2}
+  .alerta-fallo b{color:var(--crit)}
+  .alerta-fallo .en{font-size:13px;margin-top:2px;overflow-wrap:anywhere}
+  .alerta-fallo .que{font:11.5px/1.4 var(--mono);color:var(--ink-dim);margin-top:3px;
+    overflow-wrap:anywhere;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+  .alerta-fallo .acc{display:flex;gap:6px;align-items:center;flex-shrink:0}
   /* Pestañas de Ajustes: ruedan de lado en un renglón, como las de arriba. */
   .tabs-aj{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;margin:4px -14px 6px;
     padding:2px 14px 6px}
@@ -482,6 +500,7 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   <div class="barra"><i id="mini-barra"></i></div>
 </button>
 
+<div class="alerta-fallo" id="alerta-fallo" hidden role="alert"></div>
 <div class="toast" id="toast"></div>
 <audio id="oido" style="display:none"></audio>
 
@@ -763,6 +782,77 @@ function bloqueModelos(mo, vivo){
   </div>`;
 }
 
+/* Qué falló, en qué y cuándo: una fila por fallo, lo último arriba, con
+   lo que estaba procesando («Video 3 · 03_Titulo.txt»), el mensaje real y,
+   si el diccionario lo conoce, qué hacer. Lo apunta el servidor al vuelo
+   (Trabajo._mirar_fallo), así que sale en cuanto pasa, no al terminar. */
+function bloqueFallos(fs, maximo = 5){
+  if(!fs || !fs.length) return '';
+  const ult = fs.slice(-maximo).reverse();
+  const hora = seg => `${Math.floor(seg/60)}:${String(seg%60).padStart(2,'0')}`;
+  return `<div class="fallos">
+    <div class="fallos-tit">⚠ ${fs.length === 1 ? 'Un fallo' : fs.length + ' fallos'} en este trabajo
+      ${fs.length > maximo ? `<span class="m">(los ${maximo} últimos)</span>` : ''}</div>
+    ${ult.map(f => `<div class="fallo">
+      <div class="fallo-cab"><span class="m">${hora(f.seg)}</span>
+        <b>${esc(f.contexto || 'Sin detalle de qué procesaba')}</b></div>
+      <div class="fallo-txt">${esc(f.texto)}</div>
+      ${f.explicacion ? `<div class="m" style="margin-top:3px">💡 <b>${esc(f.explicacion.titulo)}.</b>
+        ${esc(f.explicacion.que_hacer)}
+        ${f.explicacion.ir ? ` <a href="#" onclick="irA('${esc(f.explicacion.ir)}');return false">Ir allí</a>` : ''}</div>` : ''}
+    </div>`).join('')}
+  </div>`;
+}
+
+/* El aviso de fallo que sale en cualquier pestaña, en el momento: la
+   tarjeta del trabajo solo se ve en su pestaña, y un fallo a media tanda
+   no puede esperar a que alguien vaya a mirar. Uno por fallo nuevo; si
+   llegan varios seguidos, dice cuántos. Con el panel en segundo plano,
+   además vibra y cambia el título de la pestaña (y el servidor manda una
+   notificación de Android, ver avisar_fallo). */
+let fallosVistos = null;   // "inicio:n" del último fallo ya avisado
+function vigilarFallos(){
+  const fuentes = [E && E.trabajo, ...((E && E.hechos) || []).slice(-3)].filter(Boolean);
+  let nuevo = null, total = 0, dueño = null;
+  for(const t of fuentes){
+    for(const f of (t.fallos || [])){
+      const clave = `${t.inicio}:${f.n}`;
+      if(fallosVistos === null) continue;
+      if(!fallosVistos.has(clave)){ fallosVistos.add(clave); nuevo = f; dueño = t; total++; }
+    }
+  }
+  if(fallosVistos === null){
+    // Al abrir el panel, lo que ya había fallado no se avisa como nuevo:
+    // está en la tarjeta y en «Ya terminados».
+    fallosVistos = new Set(fuentes.flatMap(t => (t.fallos || []).map(f => `${t.inicio}:${f.n}`)));
+    return;
+  }
+  if(!nuevo) return;
+  const caja = $('#alerta-fallo');
+  const exp = nuevo.explicacion;
+  caja.innerHTML = `<span class="ico">⚠</span>
+    <div style="min-width:0;flex:1">
+      <b>${total > 1 ? total + ' fallos' : 'Falló'} · ${esc(dueño.nombre)}</b>
+      ${nuevo.contexto ? `<div class="en">${esc(nuevo.contexto)}</div>` : ''}
+      <div class="que">${esc(exp ? exp.titulo + ': ' : '')}${esc(nuevo.texto)}</div>
+    </div>
+    <div class="acc">
+      ${dueño.vista ? `<button class="btn sm" id="af-ver">Ver</button>` : ''}
+      <button class="tbtn" id="af-cerrar" title="Cerrar">✕</button>
+    </div>`;
+  caja.hidden = false;
+  const ver = $('#af-ver');
+  if(ver) ver.onclick = ()=>{ caja.hidden = true; irA(dueño.vista); };
+  $('#af-cerrar').onclick = ()=>{ caja.hidden = true; };
+  try{ if(navigator.vibrate) navigator.vibrate([200, 100, 200]); }catch(e){}
+  if(document.hidden){
+    document.title = '⚠ Falló · ' + TITULO_BASE;
+    document.addEventListener('visibilitychange', function volver(){
+      if(!document.hidden){ document.title = TITULO_BASE; document.removeEventListener('visibilitychange', volver); }
+    });
+  }
+}
+
 function bloqueExplicacion(ex){
   if(!ex || !ex.length) return '';
   return `<div class="explica">${ex.map(e=>`
@@ -851,10 +941,12 @@ function pintaColaTrabajos(){
         <div class="row" style="grid-template-columns:1fr auto auto auto">
           <div style="min-width:0">
             <span class="t">${esc(h.nombre)}</span>
-            ${!h.explicacion ? '' : h.explicacion.map(e=>`<div class="m" style="margin-top:3px">
+            ${!h.explicacion ? '' : h.explicacion.filter(e => !(h.fallos || []).some(f =>
+              f.explicacion && f.explicacion.id === e.id)).map(e=>`<div class="m" style="margin-top:3px">
               💡 <b>${esc(e.titulo)}.</b> ${esc(e.que_hacer)}</div>`).join('')}
             ${h.modelos ? bloqueModelos(h.modelos, false) : ''}
-            ${!h.lineas ? '' : `<div class="m" style="font:11px var(--mono);
+            ${h.fallos ? bloqueFallos(h.fallos, 3) : ''}
+            ${!h.lineas || h.fallos ? '' : `<div class="m" style="font:11px var(--mono);
               color:var(--ink-faint);white-space:pre-wrap">${esc(h.lineas.join('\n'))}</div>`}
           </div>
           <span class="m">${Math.floor(h.segundos/60)}:${String(h.segundos%60).padStart(2,'0')}</span>
@@ -948,6 +1040,7 @@ function pintaJob(){
           <button class="tbtn" id="b-cerrar" title="Cerrar">✕</button>
         </div>
         <div class="paso" id="job-paso"></div>
+        <div id="job-fallos"></div>
         <div id="job-modelos"></div>
         <div id="job-explica"></div>
         <div class="barra"><i id="job-barra"></i></div>
@@ -1048,16 +1141,24 @@ function pintaJob(){
 
   // Solo se repinta si cambió: si no, el botón «Ir a…» se recrearía cada
   // segundo y medio y se perdería el toque a medias.
-  const ex = JSON.stringify(j.explicacion || []);
+  // Lo que ya explica un fallo concreto no se repite debajo en general.
+  const yaEnFallos = new Set((j.fallos || []).map(f => f.explicacion && f.explicacion.id).filter(Boolean));
+  const explicacion = (j.explicacion || []).filter(e => !yaEnFallos.has(e.id));
+  const ex = JSON.stringify(explicacion);
   const cajaMod = $('#job-modelos'), fm = JSON.stringify(j.modelos || null);
   if(cajaMod.dataset.firma !== fm){
     cajaMod.dataset.firma = fm;
     cajaMod.innerHTML = bloqueModelos(j.modelos, j.estado==='corriendo' || j.estado==='pausado');
   }
+  const cajaFa = $('#job-fallos'), ff = JSON.stringify(j.fallos || []);
+  if(cajaFa.dataset.firma !== ff){
+    cajaFa.dataset.firma = ff;
+    cajaFa.innerHTML = bloqueFallos(j.fallos);
+  }
   const cajaEx = $('#job-explica');
   if(cajaEx.dataset.firma !== ex){
     cajaEx.dataset.firma = ex;
-    cajaEx.innerHTML = bloqueExplicacion(j.explicacion);
+    cajaEx.innerHTML = bloqueExplicacion(explicacion);
   }
 
   const log = $('#log');
@@ -2171,7 +2272,8 @@ function pintaPublicados(){
   const porBorrar = p.filter(x=>x.dias_restantes!==null && x.dias_restantes<=2 && !x.borrado_local);
   $('#v-publicados').innerHTML = `
     <h2>Subidos</h2>
-    <p class="sub">Los archivos se quedan 7 días en el teléfono tras subirse, para que te dé tiempo de pasarlos a TikTok.</p>
+    <p class="sub">Tras subirse a YouTube, los archivos se quedan ${E.dias_espera_tiktok || 14} días en el teléfono
+      para que te dé tiempo de pasarlos a TikTok (7 si ya están allí). Se cambia en Ajustes → Automático.</p>
     ${(()=>{ const mal = p.filter(x=>x.programado_ok === false).length;
       return mal ? `<div class="aviso crit"><span>⛔</span><div>
         <b>${mal} video(s) se publicaron sin ventana de revisión.</b>
@@ -2674,7 +2776,7 @@ function pintaTiktok(){
 
     ${perdidos ? `<div class="aviso crit"><span>⏳</span><div>
       <b>${perdidos} vídeo(s) se borrarán del teléfono antes de que les toque.</b>
-      El archivo local dura 7 días tras subirse a YouTube, y a ${alcance} por
+      El archivo local dura ${E.dias_espera_tiktok || 14} días tras subirse a YouTube, y a ${alcance} por
       corrida no da tiempo. Sube más de golpe o márcalos si no los quieres.
     </div></div>` : ''}
 
@@ -2821,7 +2923,7 @@ function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
-          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria),
+          JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria), E.dias_espera_tiktok, E.notificar_fallos,
           E.usar_chip_android, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length].join('~');
@@ -3032,6 +3134,12 @@ function enlazarConectar(){
    falla se mira por SSH— y así la lista sirve de chuleta además de botón.
    Las que cambian algo van con aviso; las que solo miran, sin él. */
 const MANTENIMIENTO = [
+  {accion:'respaldo', que:'Respaldo para reinstalar el teléfono', cmd:'respaldo.py', boton:'Hacerlo',
+   nota:'Un solo archivo en Descargas con claves, estado, guiones, fondos, música y los videos '
+     + 'sin subir. Sácalo del teléfono (Drive, PC) antes de reiniciar; se restaura con '
+     + '<code>bash restaurar.sh</code>. Lleva tus claves: no lo compartas.'},
+  {accion:'respaldo_ligero', que:'Respaldo sin videos', cmd:'respaldo.py --sin-videos', boton:'Hacerlo',
+   nota:'Lo mismo, sin ningún video grabado: pesa poco y basta si ya subiste todo.'},
   {accion:'estado_cola', que:'Ver la cola', cmd:'trend_scout.py --estado',
    nota:'Cuántas historias hay escritas y sin grabar.'},
   {accion:'ver_limpiar_cola', que:'Ver qué sobra en la cola', cmd:'limpiar_cola.py',
@@ -3128,6 +3236,22 @@ function pintaAjustes(){
           Gemini escribe los guiones de lo encontrado y después se graban solos los que caben en un
           short. Apagado, cada paso espera a que lo pulses.</div></div>
         <button class="btn sm" id="b-cadena-auto">${E.cadena_auto?'activado':'desactivado'}</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Avisar al momento si algo falla</div><div class="m">Una notificación del teléfono
+          con qué falló y en qué video o historia, aunque el panel esté cerrado. Necesita la app
+          Termux:API. Con el panel abierto, el aviso sale también arriba, en cualquier pestaña.</div></div>
+        <button class="btn sm" id="b-notificar-fallos">${E.notificar_fallos?'activado':'desactivado'}</button>
+      </div>
+      <div class="row" style="grid-template-columns:1fr auto">
+        <div><div>Esperar a TikTok antes de borrar</div><div class="m">Días que un video ya subido a
+          YouTube se queda en el teléfono mientras no esté en TikTok, para que dé tiempo a pasarlo.
+          Los que ya están en TikTok se borran a los 7.</div></div>
+        <select class="btn sm" id="s-espera-tiktok">
+          ${[7,10,14,21,30].concat([7,10,14,21,30].includes(E.dias_espera_tiktok) ? [] : [E.dias_espera_tiktok])
+            .sort((a,b)=>a-b).map(d =>
+            `<option value="${d}" ${d===E.dias_espera_tiktok?'selected':''}>${d} días</option>`).join('')}
+        </select>
       </div>
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Con poca batería, esperar al cargador</div><div class="m">Si la batería está por
@@ -3428,6 +3552,17 @@ function pintaAjustes(){
                    : 'Cada paso esperará a que lo pulses'); refrescar();
     }catch(e){ toast(e.message); }
   };
+  $('#b-notificar-fallos').onclick = async ()=>{
+    try{ const j = await post('/api/fallos/notificar', {activo: !E.notificar_fallos});
+      toast(j.activo ? 'Te llegará una notificación cuando algo falle' : 'Sin notificaciones de fallos');
+      refrescar();
+    }catch(e){ toast(e.message); }
+  };
+  $('#s-espera-tiktok').onchange = async e =>{
+    try{ const j = await post('/api/tiktok/espera', {dias: +e.target.value});
+      toast(`Sin subir a TikTok, se guardan ${j.dias} días en el teléfono`); refrescar();
+    }catch(err){ toast(err.message); refrescar(); }
+  };
   $('#b-bateria').onclick = async ()=>{
     try{ const j = await post('/api/bateria/cuidar',{cuidar: !E.bateria.cuidar});
       toast(j.cuidar ? `Con menos del ${j.umbral}% se esperará al cargador`
@@ -3604,6 +3739,7 @@ function pintar(){
   contador('#c-tk', (E.tiktok && E.tiktok.pendientes) ? E.tiktok.pendientes.length : 0);
   pintaJob();
   pintaColaTrabajos();
+  vigilarFallos();
   pintaPaso();
 
   const v = vistaActual();

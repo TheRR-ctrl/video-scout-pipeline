@@ -46,6 +46,40 @@ def archivadas():
         return [b.strip() for b in f.read().split(SEPARADOR) if b.strip()]
 
 
+def guardar_para_largos(bloques):
+    """Guarda enteras las historias que se acaban de partir en shorts, para
+    grabarlas también como video largo cuando se abran los largos
+    (devolver_si_se_abrieron). Las que ya estaban guardadas no se repiten.
+    Devuelve cuántas se añadieron."""
+    guardadas = archivadas()
+    nuevas = [b.strip() for b in bloques if b.strip() and b.strip() not in guardadas]
+    if nuevas:
+        almacen.escribir_texto(RUTA_LARGAS, _juntar(guardadas + nuevas))
+    return len(nuevas)
+
+
+def devolver_si_se_abrieron():
+    """Si los largos ya están abiertos (500 suscriptores, ver formato.py),
+    devuelve a la cola las guardadas para que el render las grabe enteras y
+    el publicador las suba. Lo llama pipeline.py antes de grabar; sin nada
+    guardado, o con los largos cerrados, no hace nada. Devuelve cuántas."""
+    guardadas = archivadas()
+    if not guardadas:
+        return 0
+    try:
+        import formato
+        politica = formato.politica()
+    except Exception as exc:                       # noqa: BLE001 — sin saberlo, se espera
+        print(f"  No se pudo saber si los largos están abiertos ({exc}); las guardadas esperan.")
+        return 0
+    if not politica.get("permite_largos"):
+        return 0
+    print(f"\n  Los largos ya están abiertos ({politica.get('motivo', '')}): "
+          f"vuelven a la cola {len(guardadas)} historia(s) guardada(s) para grabarlas enteras.")
+    devolver(si=True)
+    return len(guardadas)
+
+
 def apartar(si):
     import limpiar_cola
     import partir_historias

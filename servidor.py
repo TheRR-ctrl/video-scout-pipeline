@@ -104,6 +104,31 @@ _RE_CODIFICADOR = re.compile(r"Render \((chip de video|procesador|tarjeta NVIDIA
 _RE_USO_PROCESADOR = re.compile(r"Procesador: (\d+)%")
 
 
+# ---------------------------------------------------------
+# Fallos: cuándo, en qué y qué dijo
+# ---------------------------------------------------------
+# Qué estaba haciendo el script en cada momento, para poder decir en qué
+# falló («Video 3 · 03_Titulo.mp4», «Historia 8 de 32 · A guy told me»)
+# y no solo que algo falló. Son las líneas que ya escriben los scripts.
+_RE_CONTEXTO = [
+    (re.compile(r"\[Video (\d+)\] Procesando: (.+)$"), lambda m: f"Video {m[1]} · {m[2]}"),
+    (re.compile(r"\[INFO\] \[(\d+)/(\d+)\] (.+?)(?:\.\.\.)?$"),
+     lambda m: f"Historia {m[1]} de {m[2]} · {m[3]}"),
+    (re.compile(r"Procesando: (.+)$"), lambda m: m[1]),
+]
+# Una línea que dice que algo salió mal de verdad: errores del log, los ❌
+# del render, «Fallo en candidato…» del escritor, «Fallo al subir…» del
+# publicador y la última línea de una traza de Python. Los avisos de algo
+# que se arregló solo («…reintentando con el procesador») no entran.
+_RE_FALLO = re.compile(r"\[(?:ERROR|CRITICAL)\]|❌|\bFallo (?:en|al) |^\s*[A-Z]\w*(?:Error|Exception): ")
+_RE_PREFIJO_LOG = re.compile(r"^\d{4}-\d\d-\d\d [\d:,.]+ \[\w+\]\s*")
+FALLOS_QUE_SE_GUARDAN = 20
+
+
+def _texto_del_fallo(linea):
+    return _RE_PREFIJO_LOG.sub("", linea).strip().lstrip("❌").strip()[:300]
+
+
 def _anotar_modelo(modelos, linea):
     m = _RE_MODELO_USA.search(linea)
     if m:
@@ -152,6 +177,13 @@ class Trabajo:
         # saca de `lineas` porque esas se recortan: en una tanda larga el
         # "sin cuota" del principio ya no estaría ahí.
         self.modelos = {}
+        # Lo que falló en este trabajo, en el momento en que pasó: el panel
+        # lo enseña al instante y Android lo notifica (ver _anotar_fallo).
+        self.fallos = []
+        self.contexto = None      # qué estaba procesando el script
+        self._en_traza = False    # dentro de un Traceback de Python
+        self._ultimo_aviso = 0.0
+        self._aviso_pendiente = False
         self.codificador = None   # "chip de video" | "procesador" | "tarjeta NVIDIA"
         self.uso_procesador = None   # % del procesador entero que usa ffmpeg
 
@@ -182,15 +214,58 @@ class Trabajo:
                 m = _RE_USO_PROCESADOR.search(limpia)
                 if m:
                     self.uso_procesador = int(m.group(1))
+                fallo = self._mirar_fallo(limpia)
                 if len(self.lineas) > 400:
                     del self.lineas[:100]
+            if fallo:
+                avisar_fallo(self, fallo)
         self.proc.wait()
         if self.estado not in ("abortado",):
             self.estado = "ok" if self.proc.returncode == 0 else "error"
+        if self.estado == "error" and not self.fallos:
+            # Terminó mal sin ninguna línea reconocible: el fallo es el final
+            # de su salida, que es lo que hay que leer.
+            with self._lock:
+                ultima = next((l for l in reversed(self.lineas) if l.strip()), "")
+                fallo = self._nuevo_fallo(_texto_del_fallo(ultima) or
+                                          f"Terminó con error (código {self.proc.returncode}).")
+            avisar_fallo(self, fallo)
         # Encadena con lo que estuviera esperando. Va aquí, en el hilo que
         # lee la salida, porque es el único sitio que se entera de que el
         # proceso acabó: nadie garantiza que el panel esté mirando.
         seguir_con_la_cola(self)
+
+    def _mirar_fallo(self, linea):
+        """Apunta el contexto y, si la línea es un fallo, el fallo. Devuelve
+        el fallo nuevo o None. Se llama con el candado puesto."""
+        for rx, como in _RE_CONTEXTO:
+            m = rx.search(linea)
+            if m:
+                self.contexto = como(m)[:120]
+                break
+        if linea.startswith("Traceback (most recent call last)"):
+            self._en_traza = True
+            return None
+        if self._en_traza:
+            # De la traza solo interesa la última línea, la de la excepción.
+            if linea[:1].isspace() or linea.startswith(("During handling", "The above exception")):
+                return None
+            self._en_traza = False
+            return self._nuevo_fallo(_texto_del_fallo(linea))
+        if _RE_FALLO.search(linea):
+            return self._nuevo_fallo(_texto_del_fallo(linea))
+        return None
+
+    def _nuevo_fallo(self, texto):
+        if not texto or any(f["texto"] == texto for f in self.fallos[-5:]):
+            return None
+        exp = errores.explicar([texto], maximo=1)
+        fallo = {"n": len(self.fallos) + 1, "seg": int(time.time() - self.inicio),
+                 "contexto": self.contexto, "texto": texto,
+                 "explicacion": exp[0] if exp else None}
+        self.fallos.append(fallo)
+        del self.fallos[:-FALLOS_QUE_SE_GUARDAN]
+        return fallo
 
     def pausar(self):
         if self.proc and self.estado == "corriendo":
@@ -240,7 +315,64 @@ class Trabajo:
             "vista": vista_del_trabajo(self.nombre, self.cmd),
             "codificador": self.codificador,
             "uso_procesador": self.uso_procesador,
+            "inicio": self.inicio,
+            "fallos": list(self.fallos),
         }
+
+
+def avisar_de_fallos():
+    """¿Mandar una notificación de Android cuando algo falla? Encendido de
+    fábrica; se apaga en Ajustes → Automático."""
+    return bool(leer_json(RUTA_CONFIG, {}).get("notificar_fallos", True))
+
+
+def avisar_fallo(trabajo, fallo):
+    """Notificación de Android en cuanto algo falla, aunque el panel esté
+    cerrado o en segundo plano (el panel, abierto, lo enseña él solo).
+
+    Una por trabajo, que se va actualizando (mismo --id): una tanda de 30
+    guiones con 5 fallos es un aviso que dice «5 fallos», no cinco pitidos.
+    Y como mucho una vez cada 20 s, salvo el primero.
+    """
+    if not fallo or not avisar_de_fallos() or not shutil.which("termux-notification"):
+        return
+    ahora = time.time()
+    espera = 20 - (ahora - trabajo._ultimo_aviso) if trabajo._ultimo_aviso else 0
+    if espera > 0:
+        # Demasiado seguido: la notificación se actualiza cuando toque, con
+        # el último fallo y la cuenta al día. Un solo aviso pendiente.
+        if not trabajo._aviso_pendiente:
+            trabajo._aviso_pendiente = True
+
+            def mas_tarde():
+                trabajo._aviso_pendiente = False
+                trabajo._ultimo_aviso = 0.0
+                avisar_fallo(trabajo, trabajo.fallos[-1] if trabajo.fallos else None)
+            threading.Timer(espera, mas_tarde).start()
+        return
+    trabajo._ultimo_aviso = ahora
+    n = len(trabajo.fallos)
+    titulo = f"⚠ {trabajo.nombre}: " + ("falló" if n == 1 else f"{n} fallos")
+    exp = fallo.get("explicacion")
+    cuerpo = " · ".join(x for x in (fallo.get("contexto"), exp["titulo"] if exp else None,
+                                    fallo["texto"]) if x)
+    cmd = ["termux-notification", "--id", f"vsp-fallo-{int(trabajo.inicio)}",
+           "--title", titulo, "--content", cuerpo[:400], "--priority", "high",
+           "--vibrate", "200,100,200", "--group", "video-scout-fallos"]
+    if PUERTO[0]:
+        cmd += ["--action", f"termux-open-url http://127.0.0.1:{PUERTO[0]}/"]
+
+    def lanzar_aviso():
+        # Sin la app Termux:API, la orden se queda colgada: se corta a los
+        # 10 s para que no se acumulen procesos.
+        try:
+            subprocess.run(cmd, timeout=10, capture_output=True)
+        except Exception:
+            pass
+    threading.Thread(target=lanzar_aviso, daemon=True).start()
+
+
+PUERTO = [None]   # lo pone main(): el enlace de la notificación abre el panel
 
 
 # En qué pestaña del panel sale la tarjeta grande de cada trabajo; en las
@@ -258,7 +390,7 @@ VISTA_POR_SCRIPT = {
     "relanzar.py": "canal", "revision_quincenal.sh": "canal", "formato.py": "canal",
     "previsualizar_estilos.py": "estilo",
     "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
-    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes",
+    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes",
 }
 
 
@@ -518,6 +650,9 @@ def seguir_con_la_cola(terminado):
             hecho["explicacion"] = final["explicacion"]
         if final["modelos"]:
             hecho["modelos"] = final["modelos"]
+        if final["fallos"]:
+            hecho["fallos"] = final["fallos"]
+            hecho["inicio"] = final["inicio"]
         TRABAJO["hechos"].append(hecho)
         del TRABAJO["hechos"][:-HECHOS_QUE_SE_RECUERDAN]
 
@@ -1068,7 +1203,7 @@ def api_borrar_video(archivo):
     Lo mismo con publicados.json: lo que se subió a YouTube se subió, y el
     historial no cambia porque el archivo local ya no esté. Lo que sí se
     marca es _borrado_local, que es como publisher.py anota los que se llevó
-    la limpieza de los siete días; sin eso la pestaña Publicados seguiría
+    la limpieza por plazo (7 días, o 14 sin TikTok); sin eso la pestaña Publicados seguiría
     diciendo que el video está en el teléfono hasta que venciera el plazo.
     """
     nombre = os.path.basename(archivo)
@@ -1358,6 +1493,22 @@ def _resumen_canal():
     }
 
 
+def _publisher():
+    import publisher
+    return publisher
+
+
+def publisher_cfg_y_tiktok():
+    """La config del publicador y lo que ya está en TikTok, para calcular
+    cuántos días le quedan a cada video en el teléfono."""
+    pub = _publisher()
+    try:
+        cfg = pub.cargar_config()
+    except Exception:
+        cfg = dict(pub.CONFIG_DEFAULT)
+    return cfg, pub.nombres_en_tiktok()
+
+
 def tiktok_resumen():
     """Lo que el panel enseña de TikTok: registro, pendientes y días de disco.
 
@@ -1379,6 +1530,7 @@ def tiktok_resumen():
 
     ahora = datetime.now(timezone.utc)
     dias_por_ruta = {}
+    cfg_pub, en_tiktok = publisher_cfg_y_tiktok()
     for p in leer_json(os.path.join(CARPETA_ESTADO, "publicados.json"), []):
         if not p.get("subido_en") or p.get("_borrado_local"):
             continue
@@ -1386,7 +1538,8 @@ def tiktok_resumen():
             s = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
         except ValueError:
             continue
-        dias_por_ruta[p["ruta"]] = max(0, 7 - (ahora - s).days)
+        dias_por_ruta[p["ruta"]] = max(0, _publisher().dias_de_retencion(p, cfg_pub, en_tiktok)
+                                       - (ahora - s).days)
 
     return {
         "activo": cfg["activo"],
@@ -1433,12 +1586,14 @@ def api_estado():
     import relanzar
     vistas_guardadas, _ = relanzar.vistas_guardadas()
     pubs = []
+    cfg_pub, en_tiktok = publisher_cfg_y_tiktok()
     for p in publicados:
         dias = None
         if p.get("subido_en") and not p.get("_borrado_local"):
             try:
                 s = datetime.strptime(p["subido_en"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
-                dias = max(0, 7 - (ahora - s).days)
+                dias = max(0, _publisher().dias_de_retencion(p, cfg_pub, en_tiktok)
+                               - (ahora - s).days)
             except ValueError:
                 pass
         pubs.append({
@@ -1479,6 +1634,8 @@ def api_estado():
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
+        "notificar_fallos": avisar_de_fallos(),
+        "dias_espera_tiktok": _publisher().dias_espera_tiktok(publisher_cfg_y_tiktok()[0]),
         "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
                     "espera": bateria.en_espera()},
         "guiones_por_tanda": GUIONES_POR_TANDA,
@@ -1565,6 +1722,10 @@ ACCIONES = {
     "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
     "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
     "vistas": ("Releyendo las vistas del canal", [sys.executable, "relanzar.py", "--refrescar-vistas"]),
+    "respaldo": ("Haciendo el respaldo (con los videos sin subir)",
+                 [sys.executable, "respaldo.py"]),
+    "respaldo_ligero": ("Haciendo el respaldo (sin videos)",
+                        [sys.executable, "respaldo.py", "--sin-videos"]),
     "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
                           [sys.executable, "relanzar.py", "--problemas"]),
     "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
@@ -2021,6 +2182,30 @@ def api_cadena_auto():
     cfg["cadena_automatica"] = bool((request.json or {}).get("auto", True))
     guardar_json(RUTA_CONFIG, cfg)
     return jsonify({"ok": True, "auto": cfg["cadena_automatica"]})
+
+
+@app.post("/api/fallos/notificar")
+def api_fallos_notificar():
+    """Enciende o apaga la notificación de Android cuando algo falla."""
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["notificar_fallos"] = bool((request.json or {}).get("activo", True))
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "activo": cfg["notificar_fallos"]})
+
+
+@app.post("/api/tiktok/espera")
+def api_tiktok_espera():
+    """Días que un video subido a YouTube espera en el teléfono a pasar a TikTok."""
+    try:
+        dias = int((request.json or {}).get("dias"))
+    except (TypeError, ValueError):
+        return jsonify({"error": "Tiene que ser un número de días."}), 400
+    if not 1 <= dias <= 90:
+        return jsonify({"error": "Entre 1 y 90 días."}), 400
+    cfg = leer_json(RUTA_CONFIG, {})
+    cfg["dias_espera_tiktok"] = dias
+    guardar_json(RUTA_CONFIG, cfg)
+    return jsonify({"ok": True, "dias": dias})
 
 
 @app.post("/api/bateria/cuidar")
@@ -2631,6 +2816,7 @@ def main():
         except Exception:
             pass
 
+    PUERTO[0] = args.puerto
     print(f"\n  Panel listo en:  http://127.0.0.1:{args.puerto}")
     print( "  Ábrelo en Chrome. Ctrl+C aquí para apagarlo.")
     if wakelock:
