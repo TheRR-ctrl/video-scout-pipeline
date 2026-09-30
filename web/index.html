@@ -3134,6 +3134,12 @@ function enlazarConectar(){
    falla se mira por SSH— y así la lista sirve de chuleta además de botón.
    Las que cambian algo van con aviso; las que solo miran, sin él. */
 const MANTENIMIENTO = [
+  {accion:'respaldo', que:'Respaldo para reinstalar el teléfono', cmd:'respaldo.py', boton:'Hacerlo',
+   nota:'Un solo archivo en Descargas con claves, estado, guiones, fondos, música y los videos '
+     + 'sin subir. Sácalo del teléfono (Drive, PC) antes de reiniciar; se restaura con '
+     + '<code>bash restaurar.sh</code>. Lleva tus claves: no lo compartas.'},
+  {accion:'respaldo_ligero', que:'Respaldo sin videos', cmd:'respaldo.py --sin-videos', boton:'Hacerlo',
+   nota:'Lo mismo, sin ningún video grabado: pesa poco y basta si ya subiste todo.'},
   {accion:'estado_cola', que:'Ver la cola', cmd:'trend_scout.py --estado',
    nota:'Cuántas historias hay escritas y sin grabar.'},
   {accion:'ver_limpiar_cola', que:'Ver qué sobra en la cola', cmd:'limpiar_cola.py',

@@ -32,3 +32,6 @@ guion_prueba.txt
 # Los logs de las tandas automáticas (cron).
 *.log
 *.parcial
+
+# Lo que deja restaurar.sh a medias si no pudo copiar los videos.
+.restaurando/

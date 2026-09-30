@@ -824,3 +824,27 @@ peor que pasa es que se vuelve a subir de cero. Después, `verificar_subida`
 mira `uploadStatus`/`processingDetails` y `subir_y_verificar` borra y
 vuelve a subir lo que YouTube dio por `failed`.
 
+## 17. Respaldo para reinstalar el teléfono — SE DESCARTÓ LO GENÉRICO, se escribió
+
+**El problema.** Un reinicio de fábrica borra Termux y todo lo que git no
+trae: claves, tokens, `pipeline_state/` (sin `publicados.json` el
+publicador volvería a subir el canal entero), la cola, los fondos, la
+música y los videos grabados sin subir, que están fuera de Termux, en la
+galería.
+
+**Qué se encontró.** Termux trae `termux-backup` (termux/termux-tools,
+`scripts/termux-backup.in`), y hay envoltorios como
+`laraib07/TermuxBackupTools` o `MrAlpha786/TERBR-TermuxBackupTool`. Todos
+guardan `$HOME` y `$PREFIX` enteros: cientos de MB de paquetes que
+`instalar.sh` vuelve a bajar en minutos, y **no** la carpeta de la galería
+donde viven los videos. Restaurar `$PREFIX` en otro teléfono u otra versión
+de Android además puede romper paquetes.
+
+**Qué se hizo.** `respaldo.py` guarda solo lo que no se puede volver a
+bajar: lo que `git ls-files --others` dice que git no sigue (así un archivo
+nuevo entra solo), menos lo regenerable, más `resultado_lote.json` y los
+videos sin subir de la carpeta de salida. `restaurar.sh` lo devuelve todo a
+su sitio en un clon limpio y encadena `instalar.sh` e `instalar_cron.sh`.
+Es un `tar` sin comprimir: los `.mp4` no se comprimen más y comprimir en el
+teléfono tarda.
+

@@ -390,7 +390,7 @@ VISTA_POR_SCRIPT = {
     "relanzar.py": "canal", "revision_quincenal.sh": "canal", "formato.py": "canal",
     "previsualizar_estilos.py": "estilo",
     "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
-    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes",
+    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes",
 }
 
 
@@ -1722,6 +1722,10 @@ ACCIONES = {
     "ver_relanzar_sin": ("Buscando videos que no vio nadie", [sys.executable, "relanzar.py", "--sin-vistas"]),
     "relanzar_sin": ("Borrando y devolviendo a la cola", [sys.executable, "relanzar.py", "--sin-vistas", "--si"]),
     "vistas": ("Releyendo las vistas del canal", [sys.executable, "relanzar.py", "--refrescar-vistas"]),
+    "respaldo": ("Haciendo el respaldo (con los videos sin subir)",
+                 [sys.executable, "respaldo.py"]),
+    "respaldo_ligero": ("Haciendo el respaldo (sin videos)",
+                        [sys.executable, "respaldo.py", "--sin-videos"]),
     "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
                           [sys.executable, "relanzar.py", "--problemas"]),
     "ver_revision": ("Revisión del canal (solo mirar)", ["bash", "revision_quincenal.sh", "--ver"]),
