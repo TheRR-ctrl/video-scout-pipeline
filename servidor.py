@@ -16,6 +16,7 @@ pipeline, así que no debe quedar expuesto a la red. Si algún día lo quieres
 abrir desde otro dispositivo, usa --host 0.0.0.0 sabiendo lo que implica.
 """
 import os
+import json
 import re
 import sys
 import glob
@@ -2504,6 +2505,52 @@ def api_conectar_guardar(clave):
                     "aviso": formato[1] if formato else None})
 
 
+def _revisar_credencial(nombre, datos):
+    """None si el JSON pegado es lo que dice ser; si no, qué le falta.
+
+    Se mira la forma, no se prueba contra Google: el token solo se comprueba
+    subiendo, y aquí basta con no dejar escribir cualquier cosa encima."""
+    if not isinstance(datos, dict):
+        return "No es el contenido de un archivo .json."
+    if nombre == "YOUTUBE_TOKEN":
+        faltan = [k for k in ("refresh_token", "client_id", "client_secret") if not datos.get(k)]
+        if faltan:
+            return ("No parece youtube_token.json: le falta " + ", ".join(faltan)
+                    + ". Cópialo con «Ver / copiar» en el panel donde sí está.")
+        return None
+    if nombre == "YOUTUBE_CLIENT_SECRET":
+        dentro = datos.get("installed") or datos.get("web")
+        if not isinstance(dentro, dict) or not dentro.get("client_id") or not dentro.get("client_secret"):
+            return ('No parece client_secret.json: tiene que empezar por {"installed": … '
+                    "con client_id y client_secret.")
+        return None
+    return None
+
+
+def _guardar_archivo_de_credenciales(nombre, archivo, texto):
+    """Pegar el contenido de youtube_token.json o client_secret.json y que se
+    escriba el archivo: para pasarlos del teléfono al PC (o al revés) sin
+    mover archivos a mano. Se copian con «Ver / copiar» en el otro panel."""
+    texto = (texto or "").strip()
+    if not texto:
+        return jsonify({"error": "Pega el contenido del archivo."}), 400
+    try:
+        datos = json.loads(texto)
+    except ValueError:
+        return jsonify({"error": "Eso no es un JSON: pega el contenido entero, "
+                                 "desde la primera { hasta la última }."}), 400
+    problema = _revisar_credencial(nombre, datos)
+    if problema:
+        return jsonify({"error": problema}), 400
+    try:
+        # Atómico y en 600 desde el primer momento, como el resto de claves.
+        almacen.escribir_texto(os.path.join(BASE_DIR, archivo),
+                               json.dumps(datos, ensure_ascii=False), privado=True)
+    except OSError as exc:
+        return jsonify({"error": f"No se pudo escribir {archivo}: {exc}"}), 500
+    return jsonify({"ok": True, "nombre": nombre, "archivo": archivo})
+
+
 @app.post("/api/secretos/<nombre>")
 def api_secreto_guardar(nombre):
     """Guarda una clave en secretos.env desde el panel.
@@ -2518,8 +2565,9 @@ def api_secreto_guardar(nombre):
     lo valida secretos.guardar, que es quien sabe qué rompe el archivo.
     """
     conocido = copiables().get(nombre)
-    if conocido and conocido[0] != "entorno":
-        return jsonify({"error": "Los archivos de credenciales no se editan aquí"}), 400
+    if conocido and conocido[0] == "archivo":
+        return _guardar_archivo_de_credenciales(nombre, conocido[1],
+                                                (request.json or {}).get("valor", ""))
     ref = conocido[1] if conocido else nombre
 
     valor = (request.json or {}).get("valor", "")
