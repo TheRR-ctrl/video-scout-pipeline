@@ -1711,6 +1711,10 @@ def api_estado():
         "es_windows": ES_WINDOWS,
         "desactivado": dispositivo.desactivado(),
         "ultimo_respaldo": ultimo_respaldo(),
+        # De dónde toma «Re-enlazar material» los videos: en el PC no es la
+        # carpeta del teléfono, y sin decirlo no había forma de saber dónde
+        # dejarlos.
+        "carpeta_material": _carpeta_material(),
         "notificar_fallos": avisar_de_fallos(),
         "dias_espera_tiktok": _publisher().dias_espera_tiktok(publisher_cfg_y_tiktok()[0]),
         "bateria": {"cuidar": bateria.cuidar(cfg), "umbral": bateria.umbral(cfg),
@@ -1829,6 +1833,11 @@ def _recargar_secretos_si_cambiaron():
     if _SECRETOS_MTIME[0] != m:
         _SECRETOS_MTIME[0] = m
         secretos.cargar()
+
+
+def _carpeta_material():
+    import vincular_fondos
+    return vincular_fondos.CARPETA_POR_DEFECTO
 
 
 def ultimo_respaldo():

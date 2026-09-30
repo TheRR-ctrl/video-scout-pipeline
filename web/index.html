@@ -3536,6 +3536,9 @@ function pintaAjustes(){
         <div class="muted" style="margin:8px 0">
           Plantilla: ${m.plantilla?esc(m.plantilla):'<span style="color:var(--warn)">falta — se usa el respaldo</span>'} ·
           Efectos: ${m.efectos||'<span style="color:var(--warn)">ninguno</span>'}</div>
+        ${E.carpeta_material ? `<div class="muted" style="margin:0 0 8px">«Re-enlazar» toma los videos de fondo,
+          la música y la plantilla de <code style="font:11.5px var(--mono);overflow-wrap:anywhere">${esc(E.carpeta_material)}</code>${
+          E.es_android ? '' : ' (si no existe, la crea y la abre)'}.</div>` : ''}
         <div style="display:flex;gap:6px;flex-wrap:wrap">
           <button class="btn go sm" onclick="ejecutar('fondos')">↻ Re-enlazar material</button>
           <button class="btn sm" onclick="abrirFondos()">✂ Tramos que no se usan</button>

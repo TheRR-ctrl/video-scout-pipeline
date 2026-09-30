@@ -58,7 +58,8 @@ FUERA_SUFIJOS = (".pyc", ".log", ".parcial", ".tmp")
 FUERA_CONTIENE = (".bak",)
 # La marca de «este aparato está desactivado» (dispositivo.py) es de este
 # aparato, no de los ajustes: al restaurar en otro lo dejaría desactivado.
-FUERA_NOMBRES = ("desactivado.json", "pipeline_state/ultimo_respaldo.json")
+FUERA_NOMBRES = ("desactivado.json", "pipeline_state/ultimo_respaldo.json",
+                 "pipeline_state/fondos_enlazados.json")
 
 # Lo que no puede faltar: si no está, se avisa (no es un fallo).
 IMPORTANTES = {
