@@ -14,10 +14,11 @@ import textwrap
 import tempfile
 import collections
 from datetime import datetime, timedelta
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from PIL import Image, ImageDraw, ImageFont
 
 import almacen
+import concurrencia   # cuántos videos a la vez: historial y regulador
 import fondos_excluidos  # tramos de los fondos que no se usan (panel: ✂ Tramos)
 import hyperframes_broll
 import narrador   # género de quien narra: decide la voz del video
@@ -538,7 +539,8 @@ def obtener_metricas_hardware(old_cpu, old_gpu, old_ram, old_disk):
 # El porcentaje de delante es el de toda la tanda: es el primero de la línea
 # y es el que el panel pone en la barra. «Render (…)» sigue diciendo con qué
 # se codifica (servidor._RE_CODIFICADOR).
-_PARALELO = {"n": 1, "total": 0, "hechos": 0, "estado": {}, "t": 0.0}
+_PARALELO = {"n": 1, "total": 0, "hechos": 0, "estado": {}, "t": 0.0,
+             "reg": None, "auto": False, "codificador": None}
 _HILO = threading.local()
 _CANDADO_HUD = threading.Lock()
 _RE_FASE = re.compile(r"\[(\d)/4\]")
@@ -546,15 +548,21 @@ _RE_PCT_HUD = re.compile(r"(\d{1,3}(?:\.\d)?)%")
 
 
 def videos_a_la_vez():
-    """Cuántas historias se graban a la vez: 1 en el teléfono (el procesador
-    ya va al máximo con una, y dos lo calientan), 2 en un PC. Se cambia en
-    Ajustes → Música y video → Render (config.json → video.videos_a_la_vez)."""
-    valor = (CONFIG.get("video") or {}).get("videos_a_la_vez")
+    """(automático, n): cuántas historias se graban a la vez.
+
+    Por omisión es automático (concurrencia.py): empieza por lo que mejor
+    rindió en tandas anteriores, o lo medido con «Medir», o 1 en el teléfono
+    y 2 en un PC; y en un PC lo ajusta durante la tanda según el procesador,
+    la tarjeta y la memoria. Un número fijo en Ajustes → Música y video →
+    Render (config.json → video.videos_a_la_vez) manda sobre todo eso."""
+    vid = CONFIG.get("video") or {}
+    valor = vid.get("videos_a_la_vez", "auto")
     try:
-        n = int(valor)
+        return False, max(1, min(tope_a_la_vez(), int(valor)))
     except (TypeError, ValueError):
-        n = 1 if ES_ANDROID else 2
-    return max(1, min(tope_a_la_vez(), n))
+        calibrado = (vid.get("calibracion") or {}).get("elegido")
+        return True, concurrencia.punto_de_partida(tope_a_la_vez(), calibrado,
+                                                   1 if ES_ANDROID else 2)
 
 
 def tope_a_la_vez():
@@ -583,8 +591,24 @@ def _hud_paralelo(mensaje_lista, finalizado):
         estado = dict(_PARALELO["estado"])
         total = max(1, _PARALELO["total"])
         global_pct = min(100.0, (_PARALELO["hechos"] + sum(a for _, a in estado.values())) / total * 100)
-    partes = " · ".join(f"#{n} {t}" for n, (t, _) in sorted(estado.items()))
-    print(f" ├─ 🎬 [{global_pct:5.1f}%] {len(estado)} a la vez · {partes}", flush=True)
+        partes = " · ".join(f"#{n} {t}" for n, (t, _) in sorted(estado.items()))
+        reg = _PARALELO["reg"]
+        auto = f" (auto, hasta {reg.limite})" if reg is not None and _PARALELO["auto"] else ""
+        # Dentro del candado: dos hilos imprimiendo a la vez pegaban sus
+        # líneas en una sola.
+        print(f" ├─ 🎬 [{global_pct:5.1f}%] {len(estado)} a la vez{auto} · {partes}", flush=True)
+
+
+def _tope_de_la_tarjeta():
+    """Con varios a la vez, que la tarjeta rechace una compresión suele ser
+    su tope de sesiones: las que sí comprimen son el máximo para el resto
+    de la tanda (concurrencia.Regulador)."""
+    reg = _PARALELO["reg"]
+    if reg is None:
+        return
+    with _CANDADO_HUD:
+        comprimiendo = sum(1 for t, _ in _PARALELO["estado"].values() if "tarjeta NVIDIA" in t)
+    reg.tope_de_la_tarjeta(max(1, comprimiendo - 1))
 
 
 def actualizar_hud(mensaje_lista, finalizado=False):
@@ -2321,6 +2345,7 @@ def renderizar_una_historia(contenido, num=1):
         # gráficos sino el bloque que solo codifica video (MediaCodec).
         # servidor._RE_CODIFICADOR lee estos nombres tal cual.
         def ejecutar_render(flags_encoder, con="procesador"):
+            _PARALELO["codificador"] = con
             txt_ren = f" ├─ 🚀 [4/4] Render ({con}):"
             cmd = cmd_ff + flags_encoder + flags_audio_comunes + [ruta_out]
             proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True, encoding='utf-8', errors='ignore')
@@ -2386,6 +2411,7 @@ def renderizar_una_historia(contenido, num=1):
             exito_render, txt_ren = ejecutar_render(flags_gpu, "tarjeta NVIDIA")
             if not exito_render:
                 logger.warning(f"Render con la tarjeta NVIDIA falló para el video {num}, reintentando con el procesador (libx264).")
+                _tope_de_la_tarjeta()
                 exito_render, txt_ren = ejecutar_render(flags_cpu)
 
         if not exito_render:
@@ -2590,10 +2616,15 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None, a_la_vez_pedi
                 logger.error(f"Video {i} falló: {exc}")
                 print(f"\n❌ Video {i} falló: {exc}")
 
-        a_la_vez = min(videos_a_la_vez() if a_la_vez_pedido is None
-                       else max(1, min(tope_a_la_vez(), a_la_vez_pedido)),
-                       len(pares))
-        if a_la_vez <= 1:
+        if a_la_vez_pedido is not None:
+            automatico, inicial = False, max(1, min(tope_a_la_vez(), a_la_vez_pedido))
+        else:
+            automatico, inicial = videos_a_la_vez()
+        reg = concurrencia.Regulador(min(inicial, len(pares)), min(tope_a_la_vez(), len(pares)),
+                                     concurrencia.Medidor() if automatico else None,
+                                     ajustar=automatico)
+        t_inicio = time.time()
+        if reg.limite <= 1 and not reg.ajustar:
             for i, h in pares:
                 try:
                     anotar(i, lambda: renderizar_una_historia(h, i))
@@ -2602,9 +2633,13 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None, a_la_vez_pedi
                     # registro se escribe abajo igual, no se pierde el trabajo.
                     print(f"\n\n⏹️  Interrumpido en la historia {i}. Se guarda lo completado.")
                     break
+                reg.tick(1)
         else:
-            print(f"⚡ {a_la_vez} videos a la vez")
-            _PARALELO.update(n=a_la_vez, total=len(pares), hechos=0, estado={}, t=0.0)
+            print(f"⚡ {reg.limite} videos a la vez"
+                  + (" para empezar; se ajusta solo según el procesador y la tarjeta" if reg.ajustar
+                     else " (automático, según las tandas anteriores)" if automatico else ""))
+            _PARALELO.update(n=2, total=len(pares), hechos=0, estado={}, t=0.0,
+                             reg=reg, auto=automatico)
 
             def en_su_hilo(i, h):
                 _HILO.num = i
@@ -2615,18 +2650,44 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None, a_la_vez_pedi
                         _PARALELO["estado"].pop(i, None)
                         _PARALELO["hechos"] += 1
 
-            ex = ThreadPoolExecutor(max_workers=a_la_vez)
-            futuros = {ex.submit(en_su_hilo, i, h): i for i, h in pares}
+            # Un hueco por video en marcha; el regulador decide cuántos huecos
+            # hay en cada momento. Bajar el límite no para a nadie: solo no
+            # arranca el siguiente hasta que haya sitio.
+            ex = ThreadPoolExecutor(max_workers=reg.tope)
+            pendientes, activos = list(pares), {}
+            limite_antes = reg.limite
             try:
-                for fut in as_completed(futuros):
-                    anotar(futuros[fut], fut.result)
+                while pendientes or activos:
+                    while pendientes and len(activos) < reg.limite:
+                        i, h = pendientes.pop(0)
+                        activos[ex.submit(en_su_hilo, i, h)] = i
+                    listos, _ = wait(list(activos), timeout=5, return_when=FIRST_COMPLETED)
+                    # Los que estaban en marcha durante la espera, antes de
+                    # quitar los que acaban de terminar: si no, el regulador
+                    # nunca ve todos los huecos ocupados y no abre ninguno.
+                    reg.tick(len(activos))
+                    for fut in listos:
+                        anotar(activos.pop(fut), fut.result)
+                    if reg.limite != limite_antes:
+                        print(f" ├─ ⚖️ {limite_antes} → {reg.limite} a la vez ({reg.motivo})", flush=True)
+                        limite_antes = reg.limite
             except KeyboardInterrupt:
-                for fut in futuros:
-                    fut.cancel()
+                pendientes.clear()
                 print("\n\n⏹️  Interrumpido. Se guarda lo completado.")
             finally:
                 ex.shutdown(wait=True, cancel_futures=True)
-                _PARALELO["n"] = 1
+                _PARALELO.update(n=1, reg=None)
+
+        # Para la próxima tanda en automático: cuántos por hora salieron, y
+        # con cuántos a la vez de media.
+        try:
+            hecha = concurrencia.apuntar_tanda(len(completados), time.time() - t_inicio, reg,
+                                               _PARALELO["codificador"])
+            if hecha:
+                print(f"📈 {hecha['por_hora']} videos/hora con {hecha['media']} a la vez de media"
+                      + (f" (llegó a {hecha['maximo']})" if hecha["maximo"] != hecha["inicial"] else ""))
+        except Exception as exc:                  # noqa: BLE001 — es solo estadística
+            logger.warning(f"No se pudo apuntar el rendimiento de la tanda: {exc}")
 
         guardar_resultado_lote(completados, fallidas, avisar=True)
 
