@@ -439,7 +439,7 @@ VISTA_POR_SCRIPT = {
     "relanzar.py": "canal", "revision_quincenal.sh": "canal", "revision_quincenal.py": "canal", "formato.py": "canal",
     "previsualizar_estilos.py": "estilo",
     "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
-    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes",
+    "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes", "calibrar_render.py": "ajustes",
 }
 
 
@@ -1706,6 +1706,7 @@ def api_estado():
         "es_android": gvm.ES_ANDROID,
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "videos_a_la_vez": _videos_a_la_vez(cfg, gvm.ES_ANDROID),
+        "calibracion": (cfg.get("video") or {}).get("calibracion"),
         "carpeta_salida": cfg.get("carpeta_salida"),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
@@ -1809,6 +1810,8 @@ ACCIONES = {
                  [sys.executable, "respaldo.py"]),
     "respaldo_ligero": ("Haciendo el respaldo (sin videos)",
                         [sys.executable, "respaldo.py", "--sin-videos"]),
+    "calibrar_render": ("Midiendo cuántos videos a la vez aguanta",
+                        [sys.executable, "calibrar_render.py"]),
     "respaldo_ajustes": ("Exportando los ajustes",
                          [sys.executable, "respaldo.py", "--solo-ajustes"]),
     "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
@@ -2190,16 +2193,18 @@ def _videos_a_la_vez(cfg, es_android):
         n = int((cfg.get("video") or {}).get("videos_a_la_vez"))
     except (TypeError, ValueError):
         n = 1 if es_android else 2
-    return max(1, min(4, n))
+    return max(1, min(4 if es_android else 8, n))
 
 
 @app.post("/api/video/a_la_vez")
 def api_video_a_la_vez():
-    """Cuántos videos graba a la vez el próximo render (1-4)."""
+    """Cuántos videos graba a la vez el próximo render (hasta 8 en un PC, 4
+    en el teléfono: calibrar_render.TOPE_PC / TOPE_ANDROID)."""
+    import calibrar_render
     try:
-        n = max(1, min(4, int((request.json or {}).get("n"))))
+        n = max(1, min(calibrar_render.tope(), int((request.json or {}).get("n"))))
     except (TypeError, ValueError):
-        return jsonify({"error": "Tiene que ser un número del 1 al 4."}), 400
+        return jsonify({"error": "Tiene que ser un número."}), 400
     cfg = leer_json(RUTA_CONFIG, {})
     video_cfg = dict(cfg.get("video") or {})
     video_cfg["videos_a_la_vez"] = n

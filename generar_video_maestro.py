@@ -554,7 +554,12 @@ def videos_a_la_vez():
         n = int(valor)
     except (TypeError, ValueError):
         n = 1 if ES_ANDROID else 2
-    return max(1, min(4, n))
+    return max(1, min(tope_a_la_vez(), n))
+
+
+def tope_a_la_vez():
+    """8 en un PC, 4 en el teléfono (calibrar_render.py mide hasta ahí)."""
+    return 4 if ES_ANDROID else 8
 
 
 def _hud_paralelo(mensaje_lista, finalizado):
@@ -2585,7 +2590,8 @@ def renderizar_lote_historias(archivo="guion.txt", seleccion=None, a_la_vez_pedi
                 logger.error(f"Video {i} falló: {exc}")
                 print(f"\n❌ Video {i} falló: {exc}")
 
-        a_la_vez = min(videos_a_la_vez() if a_la_vez_pedido is None else max(1, min(4, a_la_vez_pedido)),
+        a_la_vez = min(videos_a_la_vez() if a_la_vez_pedido is None
+                       else max(1, min(tope_a_la_vez(), a_la_vez_pedido)),
                        len(pares))
         if a_la_vez <= 1:
             for i, h in pares:
@@ -2690,8 +2696,9 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--a-la-vez", type=int, metavar="N",
-        help="Cuántos videos grabar a la vez en esta corrida (1-4). Por omisión, "
-             "el ajuste del panel: 1 en el teléfono, 2 en un PC.",
+        help="Cuántos videos grabar a la vez en esta corrida (hasta 8 en un PC, 4 en "
+             "el teléfono). Por omisión, "
+             "el ajuste del panel (calibrar_render.py lo mide): 1 en el teléfono, 2 en un PC.",
     )
     args = parser.parse_args()
 
