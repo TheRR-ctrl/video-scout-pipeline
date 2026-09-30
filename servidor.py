@@ -1622,6 +1622,7 @@ def tiktok_resumen():
 @app.get("/api/estado")
 def api_estado():
     import generar_video_maestro as gvm
+    _recargar_secretos_si_cambiaron()
     cfg = cfg_actual()
     historias, videos, cr = historias_del_guion(), videos_renderizados(), credenciales()
     candidatos = len(cola.cargar_pendientes())
@@ -1775,6 +1776,8 @@ ACCIONES = {
                  [sys.executable, "respaldo.py"]),
     "respaldo_ligero": ("Haciendo el respaldo (sin videos)",
                         [sys.executable, "respaldo.py", "--sin-videos"]),
+    "respaldo_ajustes": ("Exportando los ajustes",
+                         [sys.executable, "respaldo.py", "--solo-ajustes"]),
     "problemas_youtube": ("Buscando lo que YouTube quitó o limitó",
                           [sys.executable, "relanzar.py", "--problemas"]),
     "ver_revision": ("Revisión del canal (solo mirar)", [sys.executable, "revision_quincenal.py", "--ver"]),
@@ -1782,6 +1785,63 @@ ACCIONES = {
     "tiktok_estado": ("Estado de TikTok", [sys.executable, "tiktok_publisher.py", "--estado"]),
     "tiktok_simular": ("Simulando la subida a TikTok", [sys.executable, "tiktok_publisher.py", "--simular"]),
 }
+
+
+# secretos.env se lee al arrancar el panel. Si luego lo cambia otro proceso
+# —restaurar un respaldo, sobre todo—, el panel seguiría diciendo que faltan
+# las claves hasta reiniciarlo. Se mira la fecha del archivo y se vuelve a
+# cargar: solo añade las que falten, así que el entorno sigue ganando.
+_SECRETOS_MTIME = [None]
+
+
+def _recargar_secretos_si_cambiaron():
+    try:
+        m = os.path.getmtime(secretos.RUTA_SECRETOS)
+    except OSError:
+        return
+    if _SECRETOS_MTIME[0] != m:
+        _SECRETOS_MTIME[0] = m
+        secretos.cargar()
+
+
+CARPETA_IMPORTANDO = os.path.join(BASE_DIR, ".importando")
+
+
+@app.post("/api/respaldo/importar")
+def api_respaldo_importar():
+    """Recibe el .tar de respaldo desde el navegador y lo restaura.
+
+    Es el camino de Windows: elegir el archivo en el panel en vez de dejarlo
+    en Descargas y abrir PowerShell. El cuerpo es el archivo tal cual (no un
+    formulario): se escribe a disco a trozos, porque un respaldo con videos
+    pueden ser varios GB y no cabe en memoria. La restauración en sí la hace
+    respaldo.py como un trabajo más, para ver su salida en la tarjeta.
+    """
+    import respaldo
+    os.makedirs(CARPETA_IMPORTANDO, exist_ok=True)
+    destino = os.path.join(CARPETA_IMPORTANDO, respaldo.PREFIJO + "subido.tar")
+    parcial = destino + ".parcial"
+    try:
+        with open(parcial, "wb") as f:
+            while True:
+                trozo = request.stream.read(1024 * 1024)
+                if not trozo:
+                    break
+                f.write(trozo)
+    except OSError as e:
+        return jsonify({"error": f"No se pudo guardar el archivo: {e}"}), 500
+    if not respaldo.es_respaldo(parcial):
+        os.remove(parcial)
+        return jsonify({"error": "Ese archivo no es un respaldo de Video Scout (o llegó cortado). "
+                                 "Tiene que ser el video-scout-respaldo-….tar del teléfono."}), 400
+    os.replace(parcial, destino)
+    t, encolado, err = lanzar("Restaurando el respaldo del teléfono",
+                              [sys.executable, "respaldo.py", "--restaurar", destino, "--borrar"])
+    if err:
+        return jsonify({"error": err}), 409
+    if encolado:
+        return jsonify({"ok": True, "encolado": encolado})
+    return jsonify({"ok": True, "trabajo": t.como_dict()})
 
 
 @app.post("/api/ejecutar/<accion>")

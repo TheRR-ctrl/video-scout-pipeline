@@ -6,6 +6,9 @@ Un solo archivo con todo lo que git no trae, para reinstalar el teléfono
                                        # los videos que aún no se subieron
     python respaldo.py --sin-videos    # igual, pero sin ningún video grabado
     python respaldo.py --todos-los-videos
+    python respaldo.py --solo-ajustes  # para pasar al PC: claves, config,
+                                       # estado y guiones; sin videos, sin
+                                       # fondos ni música (pesa unos KB)
 
 Deja el archivo en Descargas (/sdcard/Download/video-scout-respaldo-FECHA.tar)
 para sacarlo del teléfono: Google Drive, un PC o una tarjeta SD. Un reinicio
@@ -42,7 +45,14 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PREFIJO = "video-scout-respaldo-"
 
 # Lo que no vale la pena guardar: se regenera solo o es basura.
-FUERA_DIRS = ("__pycache__", ".gradle", "build", "hyperframes_cache", ".git")
+# .importando es donde el panel deja el respaldo que le subes al restaurar:
+# meterlo dentro del siguiente respaldo sería guardar un respaldo en otro.
+FUERA_DIRS = ("__pycache__", ".gradle", "build", "hyperframes_cache", ".git",
+              ".importando", ".restaurando")
+# Lo que pesa de verdad y no es un ajuste: con --solo-ajustes se queda fuera.
+# El material se vuelve a bajar en el otro aparato (Pexels, Jamendo) o se
+# copia aparte si es propio.
+PESADOS = (".mp4", ".webm", ".mkv", ".mov", ".mp3", ".m4a", ".wav", ".aac", ".ogg")
 FUERA_SUFIJOS = (".pyc", ".log", ".parcial", ".tmp")
 FUERA_CONTIENE = (".bak",)
 
@@ -164,7 +174,18 @@ def _salida_de_aqui(vieja):
     return os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados")
 
 
-def restaurar(archivo=None):
+def es_respaldo(archivo):
+    """¿Es un .tar hecho por respaldo.py? Mira dentro, no el nombre: el
+    navegador o WhatsApp pueden haberlo renombrado."""
+    try:
+        with tarfile.open(archivo) as tar:
+            nombres = tar.getnames()
+    except (OSError, tarfile.TarError):
+        return False
+    return "respaldo.json" in nombres or any(n.startswith("proyecto/") for n in nombres)
+
+
+def restaurar(archivo=None, borrar=False):
     import shutil
     import almacen
 
@@ -173,6 +194,10 @@ def restaurar(archivo=None):
         print("\n  No encontré ningún video-scout-respaldo-*.tar en Descargas.")
         print("  Bájalo de donde lo guardaste (Google Drive…) a Descargas y repite,")
         print("  o dame la ruta:  python respaldo.py --restaurar RUTA\\AL\\ARCHIVO.tar\n")
+        return 1
+    if not es_respaldo(archivo):
+        print(f"\n  {os.path.basename(archivo)} no es un respaldo de Video Scout (o está cortado).")
+        print("  Tiene que ser el video-scout-respaldo-FECHA.tar que deja «Respaldo» en el teléfono.\n")
         return 1
     print(f"\n  Restaurando {os.path.basename(archivo)}…")
 
@@ -232,6 +257,12 @@ def restaurar(archivo=None):
         print(f"   ✓ rutas de {vieja} cambiadas a {nueva} en config.json y {tocados} registro(s)")
 
     shutil.rmtree(tmp, ignore_errors=True)
+    if borrar:
+        # El que subió el panel: lleva las claves y ya no hace falta.
+        try:
+            os.remove(archivo)
+        except OSError:
+            pass
     print("\n  Listo. Abre el panel y revisa Ajustes → 🔑 Servicios: todo debería salir conectado.\n")
     return 0
 
@@ -242,23 +273,30 @@ def main(argv=None):
     g.add_argument("--sin-videos", action="store_true", help="Sin ningún video grabado.")
     g.add_argument("--todos-los-videos", action="store_true",
                    help="También los ya subidos (pueden ser varios GB).")
+    g.add_argument("--solo-ajustes", action="store_true",
+                   help="Solo claves, config, estado y guiones: sin videos, fondos ni música.")
     ap.add_argument("--destino", help="Carpeta donde dejarlo (por omisión, Descargas).")
     ap.add_argument("--restaurar", nargs="?", const="", metavar="ARCHIVO",
                     help="Al revés: pone de vuelta un respaldo (el más reciente de "
                          "Descargas si no se dice cuál). En Termux, mejor restaurar.sh.")
+    ap.add_argument("--borrar", action="store_true",
+                    help="Con --restaurar: borra el archivo al terminar bien.")
     args = ap.parse_args(argv if argv is not None else sys.argv[1:])
     if args.restaurar is not None:
-        return restaurar(args.restaurar or None)
-    cuales = "ninguno" if args.sin_videos else "todos" if args.todos_los_videos else "sin_subir"
+        return restaurar(args.restaurar or None, borrar=args.borrar)
+    cuales = "ninguno" if (args.sin_videos or args.solo_ajustes) else "todos" if args.todos_los_videos else "sin_subir"
 
     proyecto = archivos_del_proyecto()
+    if args.solo_ajustes:
+        proyecto = [r for r in proyecto if not r.lower().endswith(PESADOS)]
     salida = carpeta_salida()
     videos = videos_a_guardar(salida, cuales)
     lote = os.path.join(salida, "resultado_lote.json") if salida else None
 
     destino = args.destino or destino_por_omision()
     os.makedirs(destino, exist_ok=True)
-    nombre = f"{PREFIJO}{datetime.now().strftime('%Y%m%d-%H%M')}.tar"
+    nombre = (f"{PREFIJO}{datetime.now().strftime('%Y%m%d-%H%M')}"
+              f"{'-ajustes' if args.solo_ajustes else ''}.tar")
     ruta = os.path.join(destino, nombre)
     parcial = ruta + ".parcial"
 
@@ -300,7 +338,12 @@ def main(argv=None):
     print("\n  ⚠ Lleva tus claves y tokens: guárdalo donde solo lo veas tú.")
     print("  Sácalo del teléfono ANTES de reiniciar (Google Drive, un PC o una SD):")
     print("  el reinicio de fábrica borra también Descargas.")
-    print("\n  Para restaurar, en el teléfono nuevo:  bash restaurar.sh  (ver INSTALAR.md)\n")
+    if args.solo_ajustes:
+        print("\n  Para el PC: mándatelo (Drive, WhatsApp a ti mismo, correo) y en el panel")
+        print("  de Windows: Ajustes → 🧰 Tareas → «Traer todo del teléfono» → elegir el archivo.\n")
+    else:
+        print("\n  Para restaurar, en el teléfono nuevo:  bash restaurar.sh  (ver INSTALAR.md)")
+        print("  En el PC: Ajustes → 🧰 Tareas → «Traer todo del teléfono».\n")
     return 0
 
 

@@ -27,6 +27,15 @@ abandonada desde 2020 y `pkg install` falla en ella.
      con las rutas del teléfono cambiadas a las del PC;
    - abre el panel en el navegador. Para cerrarlo, cierra la ventana.
 
+**Pasar todo del teléfono sin tocar PowerShell:** en el panel del
+teléfono, Ajustes → Tareas → **«Exportar»** deja en Descargas un
+`video-scout-respaldo-FECHA-ajustes.tar` de pocos KB (claves, sesión de
+YouTube, ajustes, lo ya subido y la cola; sin videos, fondos ni música).
+Mándatelo al PC (Drive, WhatsApp a ti mismo, correo) y en el panel de
+Windows, Ajustes → Tareas → **«Traer todo del teléfono» → Elegir
+archivo**. Sirve igual el respaldo completo, con videos. Lleva tus claves:
+no lo mandes a nadie más.
+
 Lo que en Windows no hay: el **horario automático** (usa cron; cada paso
 se lanza con su botón), el chip de video del teléfono, la batería y las
 notificaciones de Android. Si el PC tiene tarjeta NVIDIA, el render la usa.
@@ -34,8 +43,8 @@ notificaciones de Android. Si el PC tiene tarjeta NVIDIA, el render la usa.
 **No publiques desde el PC y el teléfono a la vez**: cada uno lleva su
 propio registro de lo subido y podrían subir el mismo video dos veces. Para
 pasar de uno a otro, respaldo en el que dejas y restauración en el nuevo
-(en el PC, `iniciar_windows.bat` lo ofrece; o `python respaldo.py
---restaurar`).
+(en el PC, «Traer todo del teléfono» en Ajustes → Tareas;
+`iniciar_windows.bat` también lo ofrece, o `python respaldo.py --restaurar`).
 
 ## Reinstalar el teléfono (o cambiar de teléfono)
 

@@ -3199,6 +3199,85 @@ function enlazarConectar(){
   document.querySelectorAll('[data-cx-copiar]').forEach(b => b.onclick = ()=> copiarPie(b, b.dataset.cxCopiar));
 }
 
+/* Pasar todo del teléfono al PC. En el teléfono, un botón que deja en
+   Descargas un .tar con solo los ajustes (claves, config, estado, guiones:
+   unos KB, cabe en un WhatsApp a ti mismo). En el PC, elegir ese archivo
+   aquí mismo y restaurarlo, sin PowerShell. Sirve también el respaldo
+   completo, con videos. */
+function bloquePasarAlPC(){
+  if(E.es_android) return `
+    <h3 class="sec">Pasar todo al PC</h3>
+    <div class="card">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1 1 240px;min-width:0">
+          <b>Exportar los ajustes</b>
+          <div class="muted" style="margin-top:4px">Un archivo pequeño en Descargas
+            (<code style="font:11.5px var(--mono)">video-scout-respaldo-…-ajustes.tar</code>) con tus claves,
+            la sesión de YouTube, los ajustes, lo ya subido y la cola de historias. Sin videos, fondos
+            ni música. Mándatelo al PC (Drive, WhatsApp a ti mismo, correo) y en el panel de Windows:
+            Ajustes → Tareas → «Traer todo del teléfono».</div>
+          <div class="muted" style="margin-top:4px;color:var(--warn)">Lleva tus claves: no lo mandes a nadie más.</div>
+        </div>
+        <button class="btn go" id="b-exportar-ajustes">⇪ Exportar</button>
+      </div>
+    </div>`;
+  return `
+    <h3 class="sec">Traer todo del teléfono</h3>
+    <div class="card">
+      <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap">
+        <div style="flex:1 1 280px;min-width:0">
+          <b>Elegir el respaldo del teléfono</b>
+          <div class="muted" style="margin-top:4px">
+            1. En el panel del teléfono: Ajustes → Tareas → «Exportar» (o «Respaldo», si quieres también los videos).<br>
+            2. Pásalo a este ${equipo()} (Drive, WhatsApp, cable…).<br>
+            3. Elígelo aquí: se ponen las claves, la sesión de YouTube, los ajustes, lo ya subido y la
+               cola, y los videos que traiga van a la carpeta «Videos Creados» del Escritorio.</div>
+          <div class="muted" style="margin-top:4px;color:var(--warn)">Reemplaza lo que haya en este ${equipo()}
+            con lo del teléfono. Una variable de entorno de Windows (como <code style="font:11.5px var(--mono)">GEMINI_API_KEY</code>)
+            sigue ganando a la clave del respaldo.</div>
+        </div>
+        <label class="btn go" style="position:relative;overflow:hidden">⇩ Elegir archivo…
+          <input type="file" id="f-importar" accept=".tar,application/x-tar"
+                 style="position:absolute;inset:0;opacity:0;cursor:pointer"></label>
+      </div>
+    </div>`;
+}
+
+function conectarPasarAlPC(){
+  const bExp = $('#b-exportar-ajustes');
+  if(bExp) bExp.onclick = ()=> ejecutar('respaldo_ajustes');
+  const f = $('#f-importar');
+  if(!f) return;
+  f.onchange = ()=>{
+    const archivo = f.files && f.files[0];
+    f.value = '';
+    if(!archivo) return;
+    if(!confirm(`¿Restaurar «${archivo.name}» en este ${equipo()}?\n\n`
+      + 'Pone las claves, la sesión de YouTube, los ajustes, lo ya subido y la cola del teléfono, '
+      + 'reemplazando lo que haya aquí.')) return;
+    // XMLHttpRequest y no fetch: es lo único que da el avance de la subida,
+    // y un respaldo con videos tarda.
+    const x = new XMLHttpRequest();
+    x.open('POST', '/api/respaldo/importar');
+    x.setRequestHeader('Content-Type', 'application/octet-stream');
+    x.upload.onprogress = e => {
+      if(e.lengthComputable) toast(`Subiendo el respaldo… ${Math.round(e.loaded / e.total * 100)}%`);
+    };
+    x.onload = ()=>{
+      let j = {};
+      try{ j = JSON.parse(x.responseText); }catch(e){}
+      if(x.status >= 400) return toast(j.error || `Falló (${x.status})`);
+      toast(j.encolado ? `En espera (${j.encolado.posicion}º): restaurar el respaldo`
+                       : 'Restaurando… mira la tarjeta de arriba');
+      secretosCache = []; conectarCache = null; horarioCache = null;
+      refrescar();
+    };
+    x.onerror = ()=> toast('Se cortó la subida. ¿Sigue abierto el panel?');
+    toast('Subiendo el respaldo…');
+    x.send(archivo);
+  };
+}
+
 /* Las tareas de mantenimiento del panel. Cada una lleva su orden de Termux
    escrita al lado a propósito: el panel no siempre está a mano —un cron que
    falla se mira por SSH— y así la lista sirve de chuleta además de botón.
@@ -3210,6 +3289,8 @@ const MANTENIMIENTO = [
      + '<code>bash restaurar.sh</code>. Lleva tus claves: no lo compartas.'},
   {accion:'respaldo_ligero', que:'Respaldo sin videos', cmd:'respaldo.py --sin-videos', boton:'Hacerlo',
    nota:'Lo mismo, sin ningún video grabado: pesa poco y basta si ya subiste todo.'},
+  {accion:'respaldo_ajustes', que:'Exportar solo los ajustes', cmd:'respaldo.py --solo-ajustes', boton:'Hacerlo',
+   nota:'Claves, ajustes, estado y cola; sin videos, fondos ni música. Unos KB: es el que se pasa al PC.'},
   {accion:'estado_cola', que:'Ver la cola', cmd:'trend_scout.py --estado',
    nota:'Cuántas historias hay escritas y sin grabar.'},
   {accion:'ver_limpiar_cola', que:'Ver qué sobra en la cola', cmd:'limpiar_cola.py',
@@ -3534,6 +3615,7 @@ function pintaAjustes(){
     </section>
 
     <section class="aj-grupo" data-grupo="tareas" ${grupoAjustes==='tareas'?'':'hidden'}>
+    ${bloquePasarAlPC()}
     <h3 class="sec">Tareas sueltas</h3>
     <p class="sub">Y de uno en uno, lo que si no habría que escribir a mano en Termux. Debajo de cada uno
       está la orden que ejecuta, por si lo quieres correr desde la terminal.</p>
@@ -3553,6 +3635,7 @@ function pintaAjustes(){
       preguntando cuáles marcar.</div>
     </section>`;
 
+  conectarPasarAlPC();
   // Sliders: se muestra en vivo, se guarda al soltar (un POST por pixel
   // arrastrado reescribiría config.json decenas de veces por segundo).
   document.querySelectorAll('[data-aj]').forEach(r=>{
@@ -3894,9 +3977,15 @@ function irA(vista){
   window.scrollTo({top:0, behavior:'smooth'});
 }
 
+let firmaCredenciales = null;
 async function refrescar(){
   try{
     E = await api('/api/estado');
+    // Si las credenciales cambiaron por fuera (restaurar un respaldo, otra
+    // pestaña), lo que se guardó de Servicios ya no vale: se vuelve a pedir.
+    const fc = JSON.stringify(E.credenciales);
+    if(firmaCredenciales !== null && fc !== firmaCredenciales){ secretosCache = []; conectarCache = null; }
+    firmaCredenciales = fc;
     // Los secretos van aparte: el valor no viaja aquí, solo si están puestos.
     if(vistaActual() === 'ajustes' && !secretosCache.length){
       try{ secretosCache = await api('/api/secretos'); }catch(e){}
