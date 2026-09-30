@@ -191,6 +191,11 @@ def es_respaldo(archivo):
     return "respaldo.json" in nombres or any(n.startswith("proyecto/") for n in nombres)
 
 
+def _ruta_segura(nombre):
+    partes = nombre.replace("\\", "/").split("/")
+    return not (nombre.startswith(("/", "\\")) or ":" in partes[0] or ".." in partes)
+
+
 def restaurar(archivo=None, borrar=False):
     import shutil
     import almacen
@@ -209,12 +214,33 @@ def restaurar(archivo=None, borrar=False):
 
     tmp = os.path.join(BASE_DIR, ".restaurando")
     shutil.rmtree(tmp, ignore_errors=True)
+    enlaces = []
+
+    def solo_archivos(miembro, destino=None):
+        # Los enlaces se saltan: en el teléfono «Enlazar material» deja la
+        # plantilla, la música y los fondos como enlaces a Descargas, y un
+        # respaldo viejo los lleva así. Apuntan a rutas del teléfono que
+        # aquí no existen, y con filter="data" uno solo tumbaba la
+        # restauración entera (LinkOutsideDestinationError).
+        if miembro.issym() or miembro.islnk():
+            enlaces.append(miembro.name)
+            return None
+        if destino is None:                       # Python < 3.12: sin data_filter
+            return miembro if _ruta_segura(miembro.name) else None
+        return tarfile.data_filter(miembro, destino)
+
     with tarfile.open(archivo) as tar:
-        # filter="data": no deja escribir fuera de la carpeta ni enlaces raros.
-        try:
-            tar.extractall(tmp, filter="data")
-        except TypeError:                          # Python < 3.12
-            tar.extractall(tmp)
+        # data_filter: no deja escribir fuera de la carpeta ni permisos raros.
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(tmp, filter=solo_archivos)
+        else:
+            tar.extractall(tmp, members=[m for m in tar.getmembers() if solo_archivos(m)])
+    if enlaces:
+        print(f"   ○ {len(enlaces)} enlace(s) del teléfono no se restauran (apuntan a sus carpetas):")
+        for e in enlaces[:6]:
+            print(f"       {e.removeprefix('proyecto/')}")
+        print("     Es el material (fondos, música, plantilla): ponlo en la carpeta de material")
+        print("     y pulsa «Re-enlazar material» en Ajustes → Música y video.")
 
     proyecto = os.path.join(tmp, "proyecto")
     if os.path.isdir(proyecto):
@@ -294,7 +320,10 @@ def main(argv=None):
 
     proyecto = archivos_del_proyecto()
     if args.solo_ajustes:
-        proyecto = [r for r in proyecto if not r.lower().endswith(PESADOS)]
+        # Tampoco los enlaces: son el material que enlaza «Enlazar material»
+        # (fondos, música, plantilla), no ajustes.
+        proyecto = [r for r in proyecto if not r.lower().endswith(PESADOS)
+                    and not os.path.islink(os.path.join(BASE_DIR, r))]
     salida = carpeta_salida()
     videos = videos_a_guardar(salida, cuales)
     lote = os.path.join(salida, "resultado_lote.json") if salida else None
@@ -313,7 +342,10 @@ def main(argv=None):
 
     # Un .parcial que se renombra al final: si Android mata el proceso a
     # medias, no queda un respaldo cortado con cara de bueno.
-    with tarfile.open(parcial, "w") as tar:
+    # dereference: un enlace entra con el contenido del archivo al que
+    # apunta. Guardado como enlace no serviría de nada en otro aparato (ni
+    # en este tras un reinicio de fábrica, que borra Descargas).
+    with tarfile.open(parcial, "w", dereference=True) as tar:
         for r in proyecto:
             tar.add(os.path.join(BASE_DIR, r), arcname=f"proyecto/{r}")
         if lote and os.path.isfile(lote):
