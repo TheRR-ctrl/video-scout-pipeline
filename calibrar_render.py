@@ -151,7 +151,12 @@ def medir(ver_solo=False):
             return 0
         cfg = _config()
         vid = dict(cfg.get("video") or {})
-        vid["videos_a_la_vez"] = elegido
+        # En automático (lo de fábrica) la medición es solo el punto de
+        # partida, mientras no haya tandas de verdad que digan otra cosa: no
+        # se pisa el modo. Con un número fijo puesto, se cambia por el medido.
+        automatico = not isinstance(vid.get("videos_a_la_vez", "auto"), int)
+        if not automatico:
+            vid["videos_a_la_vez"] = elegido
         vid["calibracion"] = {
             "fecha": datetime.now().isoformat(timespec="seconds"),
             "codificador": codificador, "elegido": elegido, "motivo": motivo,
@@ -159,7 +164,9 @@ def medir(ver_solo=False):
         }
         cfg["video"] = vid
         almacen.guardar(RUTA_CONFIG, cfg)
-        print("   Queda puesto en Ajustes → Música y video → Render → «Videos a la vez».")
+        print("   En automático, es el punto de partida hasta que haya tandas de verdad que comparar."
+              if automatico else
+              "   Queda puesto en Ajustes → Música y video → Render → «Videos a la vez».")
         return 0
     finally:
         shutil.rmtree(carpeta, ignore_errors=True)

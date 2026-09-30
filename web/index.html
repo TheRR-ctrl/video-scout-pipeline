@@ -1314,6 +1314,20 @@ function leyendaSubidos(v){
 /* Dónde quedan los videos, con un botón para abrir la carpeta en el PC. En
    Android no hay forma fiable de abrir una carpeta desde Termux: allí va la
    ruta y dónde verlos (la Galería los enseña si están en DCIM). */
+/* Lo que rindieron las tandas de verdad (concurrencia.py): es lo que usa el
+   automático para empezar, y lo que deja comparar un número con otro. */
+function bloqueRendimiento(){
+  const r = E.rendimiento; if(!r) return '';
+  const nums = Object.entries(r.por_numero || {});
+  const mejor = nums.length ? Math.max(...nums.map(([, v]) => v.por_hora)) : 0;
+  const u = r.ultima;
+  return (nums.length ? `<br><b>Tus tandas:</b> <span style="font:11px var(--mono)">${nums.map(([n, v]) =>
+      `${v.por_hora === mejor ? '<b>' : ''}${n} a la vez → ${v.por_hora} videos/h${v.por_hora === mejor ? '</b>' : ''}`
+      + ` (${v.tandas} tanda${v.tandas === 1 ? '' : 's'})`).join(' · ')}</span>` : '')
+    + (u ? `<br><b>Última:</b> ${u.videos} videos, ${u.por_hora}/h, ${u.media} a la vez de media${
+        u.maximo !== u.inicial ? ` (empezó en ${u.inicial} y llegó a ${u.maximo})` : ''}.` : '');
+}
+
 function lineaCarpetaSalida(){
   const c = E.carpeta_salida;
   if(!c) return '';
@@ -3017,7 +3031,7 @@ function firmaAjustes(){
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
   return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria), E.dias_espera_tiktok, E.notificar_fallos,
-          E.usar_chip_android, E.videos_a_la_vez, JSON.stringify(E.calibracion), E.carpeta_salida, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
+          E.usar_chip_android, E.videos_a_la_vez, JSON.stringify(E.calibracion), JSON.stringify(E.rendimiento), E.carpeta_salida, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
           JSON.stringify(E.musica), secretosCache.length, JSON.stringify(E.ultimo_respaldo)].join('~');
 }
@@ -3628,9 +3642,11 @@ function pintaAjustes(){
     <div class="list">
       <div class="row" style="grid-template-columns:1fr auto">
         <div><div>Videos a la vez</div><div class="m">${E.es_android
-          ? 'Cuántas historias se graban al mismo tiempo. En el teléfono, 1: con una el procesador ya va al máximo, y dos lo calientan sin terminar mucho antes. «Medir» lo comprueba.'
-          : 'Cuántas historias se graban al mismo tiempo. Mientras una espera la voz o monta los cortes, otra aprovecha la tarjeta. «Medir» busca el número que más rinde en este PC.'}</div></div>
+          ? 'Automático: empieza por lo que mejor rindió en tus tandas (o por lo medido con «Medir», o por 1) y no prueba más: el teléfono no deja ver cuánto procesador queda, y calentarlo para explorar no compensa.'
+          : 'Automático: empieza por lo que mejor rindió en tus tandas (o por lo medido con «Medir») y durante la tanda abre uno más mientras el procesador, la tarjeta y la memoria tengan sitio, y cierra uno si algo va al límite.'}
+          Un número fijo manda sobre todo eso.${bloqueRendimiento()}</div></div>
         <select class="btn sm" id="s-a-la-vez">
+          <option value="auto" ${E.videos_a_la_vez==='auto'?'selected':''}>Automático</option>
           ${Array.from({length: E.es_android ? 4 : 8}, (_, i) => i + 1).map(n=>
             `<option value="${n}" ${n===E.videos_a_la_vez?'selected':''}>${n}</option>`).join('')}
         </select>
@@ -3848,10 +3864,11 @@ function pintaAjustes(){
   };
   const sVez = $('#s-a-la-vez');
   if(sVez) sVez.onchange = async ()=>{
-    try{ const j = await post('/api/video/a_la_vez', {n: +sVez.value});
+    try{ const j = await post('/api/video/a_la_vez', {n: sVez.value === 'auto' ? 'auto' : +sVez.value});
       E.videos_a_la_vez = j.videos_a_la_vez;
-      toast(j.videos_a_la_vez === 1 ? 'El próximo render graba de uno en uno'
-                                    : `El próximo render graba ${j.videos_a_la_vez} a la vez`);
+      toast(j.videos_a_la_vez === 'auto' ? 'El render elige solo cuántos a la vez'
+            : j.videos_a_la_vez === 1 ? 'El próximo render graba de uno en uno'
+            : `El próximo render graba ${j.videos_a_la_vez} a la vez, fijo`);
     }catch(e){ toast(e.message); }
   };
   const chkChip = $('#chk-chip-android');

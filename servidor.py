@@ -1707,6 +1707,7 @@ def api_estado():
         "usar_chip_android": bool((cfg.get("video") or {}).get("usar_chip_android", False)),
         "videos_a_la_vez": _videos_a_la_vez(cfg, gvm.ES_ANDROID),
         "calibracion": (cfg.get("video") or {}).get("calibracion"),
+        "rendimiento": _rendimiento_render(),
         "carpeta_salida": cfg.get("carpeta_salida"),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
@@ -2187,13 +2188,21 @@ def api_wifi():
 
 
 def _videos_a_la_vez(cfg, es_android):
-    """Lo mismo que generar_video_maestro.videos_a_la_vez, sin importar la
-    config del motor: 1 en el teléfono y 2 en un PC si no se eligió."""
+    """"auto" (lo de fábrica: concurrencia.py lo elige) o el número fijo que
+    se puso en Ajustes, como en generar_video_maestro.videos_a_la_vez."""
+    valor = (cfg.get("video") or {}).get("videos_a_la_vez", "auto")
     try:
-        n = int((cfg.get("video") or {}).get("videos_a_la_vez"))
+        return max(1, min(4 if es_android else 8, int(valor)))
     except (TypeError, ValueError):
-        n = 1 if es_android else 2
-    return max(1, min(4 if es_android else 8, n))
+        return "auto"
+
+
+def _rendimiento_render():
+    """Lo que dicen las tandas de verdad (concurrencia.py): videos por hora
+    según cuántos a la vez, y la última tanda."""
+    import concurrencia
+    hist = concurrencia.historial()
+    return {"por_numero": concurrencia.resumen(), "ultima": hist[-1] if hist else None}
 
 
 @app.post("/api/video/a_la_vez")
@@ -2201,10 +2210,11 @@ def api_video_a_la_vez():
     """Cuántos videos graba a la vez el próximo render (hasta 8 en un PC, 4
     en el teléfono: calibrar_render.TOPE_PC / TOPE_ANDROID)."""
     import calibrar_render
+    pedido = (request.json or {}).get("n")
     try:
-        n = max(1, min(calibrar_render.tope(), int((request.json or {}).get("n"))))
+        n = "auto" if pedido == "auto" else max(1, min(calibrar_render.tope(), int(pedido)))
     except (TypeError, ValueError):
-        return jsonify({"error": "Tiene que ser un número."}), 400
+        return jsonify({"error": "Tiene que ser un número o «auto»."}), 400
     cfg = leer_json(RUTA_CONFIG, {})
     video_cfg = dict(cfg.get("video") or {})
     video_cfg["videos_a_la_vez"] = n

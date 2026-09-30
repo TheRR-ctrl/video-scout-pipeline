@@ -132,6 +132,21 @@ opciones de NVENC, del chip y de libx264 para medir cuántos videos a la vez
 rinden. Si cambian en `ejecutar_render`, se cambian allí también, o la
 medición estará midiendo otro codificador.
 
+## Cuántos videos a la vez: lo elige el render, no una prueba
+
+`videos_a_la_vez` vale `"auto"` de fábrica (`concurrencia.py`). La prueba de
+«Medir» (`calibrar_render.py`) es solo el punto de partida y se queda corta
+a propósito: pone a todos a comprimir a la vez, y en una tanda de verdad
+unos esperan la voz, otros cortan y otros comprimen. Lo que decide es el
+historial `pipeline_state/rendimiento_render.json` (videos por hora de cada
+tanda) y, en un PC, el regulador que abre un hueco más cada 45 s mientras
+procesador, tarjeta y memoria tengan sitio. El regulador recibe los videos
+que estaban en marcha **antes** de retirar los terminados: con los de
+después nunca ve los huecos llenos y no sube nunca.
+
+En Android no hay regulador: `/proc/stat` está cerrado y no hay con qué
+medir. Allí se usa el historial o lo medido, sin explorar hacia arriba.
+
 ## Resolución adaptativa: 2K si el fondo lo aguanta
 
 El render ya no está clavado en 1080x1920/1920x1080: si el fondo que le toca
