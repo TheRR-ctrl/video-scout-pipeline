@@ -115,6 +115,18 @@ anula toda la ganancia de haberlo usado. Ese bitrate sube en la misma
 proporción que la resolución elegida (ver más abajo): a más píxeles, más
 bits para no perder calidad, y por lo tanto más cerca de los 100 MB.
 
+## La tarjeta NVIDIA del PC: el fallo que no se ve
+
+En un PC el render final prueba `h264_nvenc` y, si falla, cae solo a
+`libx264`. Ese respaldo esconde cualquier error de la orden: durante meses
+`flags_gpu` llevó `-hwaccel cuda` después de las entradas, ffmpeg la
+rechazaba entera («cannot be applied to output url») y **todos** los videos
+salían por el procesador sin que nada lo dijera salvo la etiqueta
+«Render (procesador)» de la tarjeta del trabajo. Las opciones que van en
+`flags_gpu` son de salida; una de entrada (`-hwaccel`, `-ss` de entrada…)
+va antes del `-i` o no va. El tope de bitrate (`bitrate_max_nvenc`) está
+por la misma razón que el del chip: los 100 MB de `recomprimir.py`.
+
 ## Resolución adaptativa: 2K si el fondo lo aguanta
 
 El render ya no está clavado en 1080x1920/1920x1080: si el fondo que le toca
