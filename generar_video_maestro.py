@@ -2192,7 +2192,6 @@ def renderizar_una_historia(contenido, num=1):
         # cual sea la versión de ffmpeg que traiga Termux mañana.
         flags_audio_comunes = ["-map_metadata", "-1", "-c:a", "aac", "-b:a", "192k", "-shortest",
                                "-t", f"{dur_sec:.3f}", "-progress", "pipe:1"]
-        flags_gpu = ["-hwaccel", "cuda", "-c:v", "h264_nvenc", "-preset", "p4", "-rc", "vbr", "-cq", "19"]
         # "ultrafast" sin -crf comprime fatal: sale un vertical de dos minutos
         # de 400 MB, que tarda horas en subirse y que la app de TikTok ni
         # descarga para editarlo. "veryfast" tarda algo mas en el telefono y
@@ -2231,6 +2230,25 @@ def renderizar_una_historia(contenido, num=1):
                                "-b:v", bitrate_chip, "-maxrate", bitrate_chip,
                                "-bufsize", bufsize_chip]
         usar_chip_android = ES_ANDROID and bool(vid_cfg.get("usar_chip_android", False))
+
+        # La tarjeta NVIDIA del PC (NVENC). Antes llevaba delante
+        # "-hwaccel cuda", que es una opción de ENTRADA: puesta aquí, después
+        # de las entradas, ffmpeg rechazaba la orden entera («cannot be
+        # applied to output url») y cada video caía en silencio al
+        # procesador. Tampoco hace falta: los filtros (subtítulos, tarjeta,
+        # recortes) trabajan en memoria normal y a la tarjeta solo le toca
+        # comprimir, igual que al chip del teléfono.
+        #
+        # Calidad constante (-cq, el -crf de NVENC; -b:v 0 para que no haya
+        # un bitrate objetivo encima) con tope de bitrate como el del chip:
+        # sin tope, un fondo muy movido puede pasar de los 100 MB que
+        # recomprimir.py considera "pesa de más" y recomprimirlo por CPU
+        # después, que anula lo ganado.
+        tope_nvenc = _escalar_bitrate(vid_cfg.get("bitrate_max_nvenc", "6M"), factor_pixeles)
+        buf_nvenc = _escalar_bitrate(vid_cfg.get("bufsize_nvenc", "12M"), factor_pixeles)
+        flags_gpu = ["-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
+                     "-rc", "vbr", "-cq", str(vid_cfg.get("cq_nvenc", 23)), "-b:v", "0",
+                     "-maxrate", tope_nvenc, "-bufsize", buf_nvenc]
 
         # Con qué se codifica va en la misma línea del avance: el panel la
         # enseña en la tarjeta del trabajo, y es la única forma de saber
