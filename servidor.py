@@ -1708,7 +1708,7 @@ def api_estado():
         "videos_a_la_vez": _videos_a_la_vez(cfg, gvm.ES_ANDROID),
         "calibracion": (cfg.get("video") or {}).get("calibracion"),
         "rendimiento": _rendimiento_render(),
-        "carpeta_salida": cfg.get("carpeta_salida"),
+        "carpeta_salida": ruta_salida_visible(cfg.get("carpeta_salida")),
         "musica_auto": cfg.get("musica_rotacion_automatica", True),
         "partir_auto": bool(cfg.get("partir_automatico", False)),
         "cadena_auto": cadena_automatica(),
@@ -2223,12 +2223,23 @@ def api_video_a_la_vez():
     return jsonify({"ok": True, "videos_a_la_vez": n})
 
 
+def ruta_salida_visible(carpeta):
+    """La carpeta de los videos tal como la ve este sistema. En Windows una
+    ruta traída del teléfono («/storage/emulated/0/…») funciona para Python,
+    que la cuelga del disco actual, pero el Explorador no la abre y al leerla
+    nadie sabe dónde está: con abspath queda «C:\\storage\\emulated\\0\\…»,
+    que es la carpeta de verdad."""
+    if carpeta and ES_WINDOWS:
+        return os.path.abspath(carpeta)
+    return carpeta
+
+
 @app.post("/api/salida/abrir")
 def api_salida_abrir():
     """Abre la carpeta de los videos en el Explorador (Windows) o el gestor
     de archivos (Linux). En Android no hay forma fiable de abrir una carpeta
     desde Termux: allí el panel enseña la ruta y dónde verlos."""
-    carpeta = cfg_actual().get("carpeta_salida") or ""
+    carpeta = ruta_salida_visible(cfg_actual().get("carpeta_salida") or "")
     if not os.path.isdir(carpeta):
         return jsonify({"error": f"La carpeta todavía no existe: {carpeta}. Se crea al grabar el primer video."}), 404
     try:

@@ -173,9 +173,12 @@ def _cambiar_rutas(valor, vieja, nueva):
 
 def _salida_de_aqui(vieja):
     """Dónde van los videos en esta máquina. La del respaldo si se puede
-    usar aquí; si era del teléfono (/sdcard…) y esto no es un teléfono, la
-    de siempre en este sistema (Escritorio/Videos Creados)."""
-    if vieja and not (vieja.startswith("/sdcard") and not os.path.isdir("/sdcard")):
+    usar aquí; si era del teléfono (/sdcard… o /storage/emulated/…, que es
+    la misma memoria con otro nombre) y esto no es un teléfono, la de
+    siempre en este sistema (Escritorio/Videos Creados). En Windows una ruta
+    del teléfono no da error: se crea en C:\\storage\\… sin avisar."""
+    del_telefono = vieja and vieja.startswith(("/sdcard", "/storage/"))
+    if vieja and not (del_telefono and not os.path.isdir("/sdcard")):
         return vieja
     return os.path.join(os.path.expanduser("~"), "Desktop", "Videos Creados")
 
