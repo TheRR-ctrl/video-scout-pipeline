@@ -752,7 +752,9 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .leyenda .mu.sub{background:#2a3038;border-color:#2a3038;color:var(--monitor-ink)}
   /* El monitor de previo: el video con su rótulo encima. */
   .review > div:first-child{position:relative}
-  .review > div:first-child::before{content:"Previo";display:block;width:100%;
+  /* border-box a mano: el *{box-sizing} del principio no alcanza a los
+     ::before, y con el relleno la tira salía 20px más ancha que el video. */
+  .review > div:first-child::before{content:"Previo";display:block;width:100%;box-sizing:border-box;
     font:400 16px/1 var(--rotulo);letter-spacing:.08em;color:var(--previo-ink);background:var(--previo);
     padding:5px 10px 4px;border-radius:4px 4px 0 0}
   video{border-radius:0 0 4px 4px;border:1px solid var(--monitor-line);border-top:0}
@@ -809,6 +811,25 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .pill .ico{width:1.05em;height:1.05em;margin-right:.35em}
   .pill:has(> .ico)::before{display:none}
   #b-desactivar{color:var(--espera)}
+  /* Pantallas grandes (un 27–32" a 2K o más): la sala de control completa.
+     La pared de monitores a la izquierda y el previo fijo a la derecha, en
+     vez de una columna de 1280px en medio y el previo debajo de 65
+     miniaturas. El previo crece con la altura de la ventana. */
+  @media (min-width:1800px){
+    .wrap{max-width:2200px;padding:26px 40px 80px}
+    #v-revisar.on{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.15fr);
+      column-gap:32px;align-items:start}
+    #v-revisar > *{grid-column:1;min-width:0}
+    #v-revisar > .review{grid-column:2;grid-row:1 / span 20;position:sticky;top:20px;
+      max-height:calc(100vh - 40px);overflow-y:auto;margin-top:0;
+      grid-template-columns:auto minmax(320px,1fr)}
+    #v-revisar > .review > div:first-child{position:static}
+    #v-revisar > .review > .previo-vertical{width:calc((100vh - 230px) * 9 / 16);max-width:40vw}
+    .th{width:84px}
+    /* Las demás vistas son listas de «etiqueta … control»: a 2200px el
+       control quedaba a un metro de su nombre. */
+    .view:not(#v-revisar){max-width:1500px}
+  }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
