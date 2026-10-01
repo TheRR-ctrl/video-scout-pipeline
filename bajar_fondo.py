@@ -36,6 +36,10 @@ PREFIJOS = {"vertical": "fondo_vertical_", "horizontal": "fondo_horizontal_", "a
 # Firefox primero: Chrome y Edge cifran sus cookies desde 2024 de una forma
 # que yt-dlp a menudo no puede abrir, y con el navegador abierto el archivo
 # está bloqueado.
+# La sesión exportada una vez desde el navegador (Ajustes → Servicios →
+# YOUTUBE_COOKIES). Es la vía que sirve con Chrome y Edge, cuyas cookies
+# cifradas no se pueden leer en directo, y la única en el teléfono.
+RUTA_COOKIES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "youtube_cookies.txt")
 NAVEGADORES = ("firefox", "edge", "chrome", "brave", "opera", "vivaldi", "chromium")
 RE_BOT = re.compile(r"not a bot|Sign in to confirm|confirm your age|cookies-from-browser", re.I)
 
@@ -136,6 +140,17 @@ def bajar(url, forma="auto", carpeta=None):
     print(f"Enlace: {url}", flush=True)
     info, ruta, error = _intentar(yt_dlp, opciones, url)
     probados = []
+    if error and RE_BOT.search(error) and os.path.exists(RUTA_COOKIES):
+        print("YouTube pide demostrar que no eres un robot; pruebo con tu sesión guardada…",
+              flush=True)
+        info, ruta, error_ck = _intentar(yt_dlp, dict(opciones, cookiefile=RUTA_COOKIES), url)
+        if error_ck:
+            probados.append("sesión guardada: " + ("YouTube ya no la acepta (caducó: "
+                            "vuelve a exportarla)" if RE_BOT.search(error_ck) else _corto(error_ck)))
+            print(f"   · {probados[-1]}", flush=True)
+        else:
+            print("   ✓ con tu sesión guardada", flush=True)
+        error = error_ck
     if error and RE_BOT.search(error) and not vincular_fondos.ES_TERMUX:
         # En el teléfono no hay navegador del que leer nada.
         print("YouTube pide demostrar que no eres un robot; pruebo con la sesión de "
@@ -159,13 +174,9 @@ def bajar(url, forma="auto", carpeta=None):
                 + ((" — " + "; ".join(probados) + ".\n") if probados
                    else (" — no encontré ningún navegador instalado del que leer la sesión.\n"
                          if not vincular_fondos.ES_TERMUX else ".\n"))
-                + ("   Lo que funciona en el PC: instalar Firefox (si no lo tienes), entrar en "
-                   "youtube.com con tu cuenta, cerrarlo y volver a pulsar «Bajar». Su sesión sí "
-                   "se deja leer y no se guarda en ningún archivo. Chrome y Edge cifran la suya "
-                   "desde 2024 y no hay forma de usarla.\n"
-                   if not vincular_fondos.ES_TERMUX else
-                   "   En el teléfono: prueba desde el PC, o baja el video con la app Seal "
-                   "(con tu cuenta) a Download/Reddicuentos y pulsa «Re-enlazar material».\n")
+                + "   Solución: guarda tu sesión de YouTube en Ajustes → Servicios → "
+                  "YOUTUBE_COOKIES (allí dice cómo exportarla desde Chrome o Edge con una "
+                  "extensión). Sirve en el PC y en el teléfono.\n"
                 + "   Si pasa con todos los videos, pon al día yt-dlp: pip install -U yt-dlp")
         raise SystemExit(f"❌ No se pudo bajar: {error}")
 

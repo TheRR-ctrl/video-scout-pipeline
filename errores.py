@@ -141,10 +141,10 @@ CATALOGO = [
      "titulo": "YouTube pide confirmar que no eres un robot",
      "que_pasa": "Para descargas sin sesión iniciada YouTube a veces exige entrar con una "
                  "cuenta. Se probó con la sesión de tus navegadores y ninguna sirvió.",
-     "que_hacer": "En el PC: instala Firefox, entra en youtube.com con tu cuenta, ciérralo y "
-                  "vuelve a pulsar «Bajar» (la sesión de Chrome y Edge está cifrada y no se "
-                  "puede usar). En el teléfono: usa la app Seal con tu cuenta y guarda en "
-                  "Download/Reddicuentos. Si falla con todo, pip install -U yt-dlp."},
+     "que_hacer": "Guarda tu sesión de YouTube en Ajustes → Servicios → YOUTUBE_COOKIES: "
+                  "se exporta una vez desde Chrome o Edge con la extensión «Get cookies.txt "
+                  "LOCALLY». Si ya la guardaste y vuelve a pasar, caducó: expórtala otra vez.",
+     "ir": "ajustes/servicios"},
 
     # ---- Subir a YouTube --------------------------------------------------
     {"id": "youtube_limite_subidas", "tema": "Subida",

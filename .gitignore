@@ -20,6 +20,8 @@ __pycache__/
 *.pyc
 secretos.env
 tiktok_token.json
+# La sesión de YouTube para bajar fondos (bajar_fondo.py): es una credencial.
+youtube_cookies.txt
 
 # Copias y guiones de prueba: nunca al repo
 guion.bak

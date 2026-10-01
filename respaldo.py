@@ -250,7 +250,8 @@ def restaurar(archivo=None, borrar=False):
         shutil.copytree(proyecto, BASE_DIR, dirs_exist_ok=True)
         n = sum(len(f) for _, _, f in os.walk(proyecto))
         print(f"   ✓ {n} archivo(s) del proyecto (claves, estado, guiones, material)")
-    for f in ("secretos.env", "youtube_token.json", "tiktok_token.json", "client_secret.json"):
+    for f in ("secretos.env", "youtube_token.json", "tiktok_token.json", "client_secret.json",
+              "youtube_cookies.txt"):
         try:
             os.chmod(os.path.join(BASE_DIR, f), 0o600)
         except OSError:

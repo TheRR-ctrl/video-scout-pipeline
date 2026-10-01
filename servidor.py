@@ -1747,6 +1747,7 @@ def api_estado():
         # trajo Reddit se quedan en candidatos.json sin que se note.
         "candidatos": candidatos,
         "guiones_fallidos": guiones_fallidos(),
+        "youtube_cookies": os.path.exists(os.path.join(BASE_DIR, "youtube_cookies.txt")),
         "siguiente": siguiente_paso(cr, historias, videos, candidatos, TRABAJO["actual"]),
         "hechos": list(TRABAJO["hechos"]),
         "fuentes": fuentes_actuales(),
@@ -2771,6 +2772,10 @@ def api_tiktok_activo():
 SECRETOS_COPIABLES = {
     "YOUTUBE_TOKEN": ("archivo", "youtube_token.json"),
     "YOUTUBE_CLIENT_SECRET": ("archivo", "client_secret.json"),
+    # La sesión de YouTube del navegador, para que bajar_fondo.py no choque
+    # con «confirma que no eres un robot». No es JSON: es el cookies.txt que
+    # exporta una extensión del navegador (formato Netscape).
+    "YOUTUBE_COOKIES": ("archivo", "youtube_cookies.txt"),
     "GEMINI_API_KEY": ("entorno", "GEMINI_API_KEY"),
     "JAMENDO_CLIENT_ID": ("entorno", "JAMENDO_CLIENT_ID"),
     "YOUTUBE_API_KEY": ("entorno", "YOUTUBE_API_KEY"),
@@ -2899,6 +2904,36 @@ def _revisar_credencial(nombre, datos):
     return None
 
 
+def _guardar_cookies(nombre, archivo, texto):
+    """El cookies.txt de YouTube: líneas de 7 campos separados por tabulador
+    (formato Netscape). Solo se guardan las de YouTube y Google: una
+    extensión exporta a veces todas las del navegador, y no hay por qué
+    guardar en el teléfono la sesión del banco."""
+    def dominio(linea):
+        # «#HttpOnly_.youtube.com» NO es un comentario: es como ese formato
+        # marca las cookies HttpOnly, que son justo las de la sesión.
+        campo = linea.split("\t")[0]
+        if campo.startswith("#HttpOnly_"):
+            return campo[len("#HttpOnly_"):].lstrip(".")
+        return None if campo.startswith("#") else campo.lstrip(".")
+    lineas = [l for l in texto.replace("\r", "").split("\n") if l.strip()]
+    buenas = [l for l in lineas if len(l.split("\t")) == 7 and dominio(l)
+              and re.search(r"(^|\.)(youtube|google)\.com$", dominio(l))]
+    if not buenas:
+        return jsonify({"error": "No hay cookies de YouTube ahí. Exporta con la extensión "
+                                 "«Get cookies.txt LOCALLY» estando en youtube.com y pega el "
+                                 "archivo entero (líneas separadas por tabuladores)."}), 400
+    if not any(dominio(l).endswith("youtube.com") for l in buenas):
+        return jsonify({"error": "Solo hay cookies de Google, ninguna de youtube.com: "
+                                 "expórtalas estando en youtube.com con la sesión iniciada."}), 400
+    contenido = "# Netscape HTTP Cookie File\n" + "\n".join(buenas) + "\n"
+    try:
+        almacen.escribir_texto(os.path.join(BASE_DIR, archivo), contenido, privado=True)
+    except OSError as exc:
+        return jsonify({"error": f"No se pudo escribir {archivo}: {exc}"}), 500
+    return jsonify({"ok": True, "nombre": nombre, "archivo": archivo, "cookies": len(buenas)})
+
+
 def _guardar_archivo_de_credenciales(nombre, archivo, texto):
     """Pegar el contenido de youtube_token.json o client_secret.json y que se
     escriba el archivo: para pasarlos del teléfono al PC (o al revés) sin
@@ -2906,6 +2941,8 @@ def _guardar_archivo_de_credenciales(nombre, archivo, texto):
     texto = (texto or "").strip()
     if not texto:
         return jsonify({"error": "Pega el contenido del archivo."}), 400
+    if archivo.endswith(".txt"):
+        return _guardar_cookies(nombre, archivo, texto)
     try:
         datos = json.loads(texto)
     except ValueError:

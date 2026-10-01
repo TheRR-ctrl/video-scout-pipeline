@@ -3551,7 +3551,7 @@ function enlazarApariencia(){
 function firmaAjustes(){
   const foco = document.activeElement;
   if(foco && foco.matches && foco.matches('[data-cx-input], [data-hr-mes], [data-hr-hora]')) return firmas.ajustes;
-  return [JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
+  return [E.youtube_cookies, JSON.stringify(horarioCache), JSON.stringify(horarioBorrador), JSON.stringify(conectarCache), [...cxAbierto].join(','), JSON.stringify(cxNota),JSON.stringify(E.material), JSON.stringify(E.credenciales),
           JSON.stringify(E.ajustes), E.solo_wifi, E.musica_auto, E.partir_auto, E.cadena_auto, JSON.stringify(E.bateria), E.dias_espera_tiktok, E.notificar_fallos,
           E.usar_chip_android, E.videos_a_la_vez, JSON.stringify(E.calibracion), JSON.stringify(E.rendimiento), E.carpeta_salida, E.es_android, E.youtube_hay_clave, JSON.stringify(E.fuentes),
           JSON.stringify(fuentesResultadosCanal),
@@ -4130,6 +4130,10 @@ function pintaAjustes(){
             </select>
             <button class="btn go sm" id="b-bajar-fondo">⬇ Bajar</button>
           </div>
+          <div class="muted" style="margin-top:7px">Sesión de YouTube: ${E.youtube_cookies
+              ? '<b style="color:var(--ok)">guardada</b>'
+              : `<b style="color:var(--warn)">falta</b> — si YouTube pide «no eres un robot»,
+                 <a href="#" onclick="irA('ajustes/servicios');return false">guárdala en Servicios</a>`}.</div>
           <div class="muted" style="margin-top:7px">Solo el video, hasta 1080p, a la carpeta de material; al acabar se
             re-enlaza solo. Es el motor de la app Seal (yt-dlp). Si prefieres la app, pon su carpeta de
             descarga en <code style="font:11.5px var(--mono)">Download/Reddicuentos</code> y pulsa «Re-enlazar».</div>
@@ -4481,7 +4485,11 @@ async function abrirSecreto(nombre, tipo){
   // puede pegar: se copia con «Ver / copiar» en el otro aparato (teléfono o
   // PC) y aquí se escribe el archivo. Si ya existe, se puede reemplazar.
   const esArchivo = tipo === 'archivo';
-  const archivoDe = {YOUTUBE_TOKEN: 'youtube_token.json', YOUTUBE_CLIENT_SECRET: 'client_secret.json'};
+  const archivoDe = {YOUTUBE_TOKEN: 'youtube_token.json', YOUTUBE_CLIENT_SECRET: 'client_secret.json',
+                     YOUTUBE_COOKIES: 'youtube_cookies.txt'};
+  // La sesión de YouTube no se copia de otro aparato la primera vez: se
+  // exporta del navegador. Por eso lleva sus propias instrucciones.
+  const esCookies = nombre === 'YOUTUBE_COOKIES';
   const caja = document.createElement('div');
   caja.className = 'modal';
   caja.innerHTML = `
@@ -4491,12 +4499,19 @@ async function abrirSecreto(nombre, tipo){
         ${editable ? 'Pégala aquí para guardarla en secretos.env, o cópiala para GitHub.'
           : valor ? 'Contenido del archivo. Cópialo para pegarlo en el Secret de GitHub o en el panel '
                   + 'del otro aparato (teléfono ↔ PC).'
+          : esCookies ? `Tu sesión de YouTube, para bajar fondos sin que YouTube pida «no eres un robot».
+            <ol style="margin:8px 0 0;padding-left:18px">
+              <li>En Chrome o Edge, instala la extensión <b>Get cookies.txt LOCALLY</b> (código abierto, no manda nada fuera).</li>
+              <li>Abre youtube.com con tu sesión iniciada, pulsa la extensión y luego <b>Copy</b>.</li>
+              <li>Pégalo aquí y Guardar. Solo se guardan las de YouTube y Google, y caduca cada cierto tiempo: si vuelve el aviso, repite.</li>
+            </ol>
+            <div style="margin-top:6px">Es tu sesión: quien tenga este archivo entra en tu cuenta. Mejor una cuenta secundaria, no la del canal.</div>`
           : `Falta ${esc(archivoDe[nombre] || 'el archivo')}. Pega aquí su contenido y se crea solo: `
             + 'cópialo con «Ver / copiar» en el panel del aparato donde sí está (teléfono o PC).'}</div>
       ${editable ? `<input type="text" id="s-val" value="${esc(valor)}" spellcheck="false"
                       placeholder="pega aquí la clave">`
                  : `<textarea id="s-val" ${valor ? 'readonly' : ''} spellcheck="false"
-                      placeholder='pega aquí el contenido entero, de { a }'>${esc(valor)}</textarea>`}
+                      placeholder='${esCookies ? "pega aquí lo que copió la extensión" : "pega aquí el contenido entero, de { a }"}'>${esc(valor)}</textarea>`}
       <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
         ${valor ? '<button class="btn go" id="s-copiar">Copiar</button>' : ''}
         ${editable || (esArchivo && !valor) ? '<button class="btn go" id="s-guardar">Guardar</button>' : ''}
