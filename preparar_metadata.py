@@ -46,7 +46,9 @@ def videos_renderizados():
     import generar_video_maestro as gvm
     cfg = gvm.cargar_config()
     lote = cargar_json(os.path.join(cfg["carpeta_salida"], "resultado_lote.json"), {})
-    return [v for v in lote.get("completados", []) if os.path.exists(v.get("ruta", ""))]
+    # Los «solo para mí» no se publican: no hay títulos que preparar.
+    return [v for v in lote.get("completados", [])
+            if os.path.exists(v.get("ruta", "")) and not v.get("privado")]
 
 
 def main():

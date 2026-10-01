@@ -907,6 +907,7 @@ def _ficha_historia(bloque, gvm, apodo_de):
         }
         # Las que no caben en un short, para ofrecer partirlas en la Cola.
         ficha["larga"], ficha["partes"] = _plan_de_corte(bloque)
+        ficha["privado"] = gvm.es_privado(bloque)
         _FICHAS_HISTORIA[bloque] = ficha
     return ficha
 
@@ -982,6 +983,7 @@ def videos_renderizados():
             "es_short": v.get("es_short", True),
             "musica": v.get("musica_archivo"),
             "fuente_url": v.get("fuente_url"),
+            "privado": bool(v.get("privado")),
             "archivo": os.path.basename(ruta),
             # Va a la URL de la miniatura. Sin esto, rehacer un video sin
             # cambiarle el nombre dejaría al navegador enseñando la miniatura
@@ -2074,9 +2076,76 @@ def guiones_fallidos():
                 "intentos": c.get("intentos", 0), "max": cola.MAX_INTENTOS,
                 "estado": "reintenta", "fallo": c["ultimo_fallo"]}))
     for d in cola.cargar_descartadas():
-        if not d.get("archivada"):
-            out.append(con_explicacion(dict(d, estado="descartada", max=cola.MAX_INTENTOS)))
+        if d.get("para_mi"):
+            continue        # ya está en guion.txt como «solo para mí»
+        fila = {k: v for k, v in d.items() if k != "texto_original"}   # pesa: va aparte
+        out.append(con_explicacion(dict(fila, max=cola.MAX_INTENTOS,
+                                        estado="archivada" if d.get("archivada") else "descartada")))
     return out
+
+
+def _original_de(cid):
+    """(candidato o descartada, está_en_cola) con ese id, o (None, False)."""
+    for c in cola.cargar_pendientes():
+        if c.get("id") == cid:
+            return c, True
+    for d in cola.cargar_descartadas():
+        if d.get("id") == cid:
+            return d, False
+    return None, False
+
+
+@app.get("/api/guiones/original")
+def api_guiones_original():
+    """El texto que trajo la fuente, para empezar a escribir a mano."""
+    c, _ = _original_de(request.args.get("id", ""))
+    if not c:
+        return jsonify({"error": "Esa historia ya no está."}), 404
+    return jsonify({"titulo": c.get("titulo_original") or c.get("titulo") or "",
+                    "texto": c.get("texto_original") or ""})
+
+
+@app.post("/api/guiones/para_mi")
+def api_guiones_para_mi():
+    """Una historia que Gemini no quiso escribir, escrita a mano, a la cola
+    de grabación con «# Privado: si»: se graba como las demás, pero el
+    publicador, TikTok y la metadata la saltan siempre."""
+    datos = request.json or {}
+    cid = datos.get("id")
+    titulo = " ".join(str(datos.get("titulo") or "").split())[:150]
+    texto = str(datos.get("texto") or "").strip()
+    genero = "Femenino" if datos.get("genero") == "Femenino" else "Masculino"
+    emocion = datos.get("emocion") if datos.get("emocion") in ("drama", "venganza", "suspenso", "comedia") else "drama"
+    if not titulo or len(texto.split()) < 20:
+        return jsonify({"error": "Falta el título o el texto es demasiado corto (mínimo 20 palabras)."}), 400
+    if "===NUEVA_HISTORIA===" in texto:
+        return jsonify({"error": "El texto no puede llevar «===NUEVA_HISTORIA===»."}), 400
+    if _candidatos_ocupados():
+        return jsonify({"error": "Ahora mismo se están escribiendo guiones: espera a que acabe."}), 409
+    c, en_cola = _original_de(cid)
+    if not c:
+        return jsonify({"error": "Esa historia ya no está."}), 404
+    # Ninguna línea del texto puede empezar por «#»: el render las toma por
+    # cabecera y no las narraría.
+    texto = "\n".join(l.lstrip("#").strip() if l.lstrip().startswith("#") else l
+                      for l in texto.splitlines())
+    bloque = (f"# Genero: {genero}\n# Emocion: {emocion}\n"
+              f"# Fuente: {c.get('url') or '[sin enlace]'}\n"
+              f"# Autor: {c.get('autor') or '[desconocido]'}\n"
+              f"# Privado: si\n{titulo}\n{texto}")
+    import script_writer
+    script_writer.escribir_guion([bloque])
+    if en_cola:
+        pendientes = cola.cargar_pendientes()
+        cola.guardar_pendientes([x for x in pendientes if x.get("id") != cid])
+        cola.marcar_vistos([cid])
+        cola.apuntar_descartadas([c])
+    descartadas = cola.cargar_descartadas()
+    for d in descartadas:
+        if d.get("id") == cid:
+            d["para_mi"] = True
+    guardar_json(cola.RUTA_DESCARTADAS, descartadas)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/guiones/archivar")

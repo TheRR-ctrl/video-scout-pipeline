@@ -845,6 +845,11 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .fallido .crudo{font:11.5px/1.5 var(--mono);color:var(--ink-faint);margin:8px 0;overflow-wrap:anywhere}
   .fallido .de{font-size:12.5px}
   @media (hover:hover) and (pointer:fine){ .fallido summary:hover{background:var(--surface-2)} }
+  .para-mi label{display:block;margin:8px 0 4px;font-size:12.5px}
+  .para-mi textarea{height:220px;font:14px/1.55 var(--body)}
+  .para-mi select{padding-right:32px}
+  .para-mi input[type=text]{font:14px var(--body)}
+  @media (pointer:coarse){ .para-mi textarea, .para-mi input{font-size:16px} }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -1571,7 +1576,7 @@ function pintaJob(){
   // «¡Trabajo terminado!»: cuando acaba lo último y no queda nada esperando.
   // Mientras hay cola no se dice, porque enseguida arranca lo siguiente.
   const todoAcabado = !corriendo && !((E.cola || []).length);
-  const pendientes = (E.videos || []).filter(v => !v.publicado).length;
+  const pendientes = (E.videos || []).filter(v => !v.publicado && !v.privado).length;
   const errores = (E.hechos || []).filter(h => h.estado === 'error').length;
   const fin = !todoAcabado ? '' : JSON.stringify([j.estado, pendientes, errores]);
   const cajaFin = $('#job-fin');
@@ -1698,7 +1703,7 @@ function leyendaSubidos(v){
   // quieres saber al abrir el panel, y el número lo dice antes de que te
   // pongas a contar miniaturas.
   const subidos = v.filter(x => x.subido).length;
-  const faltan = v.length - subidos;
+  const faltan = v.filter(x => !x.subido && !x.privado).length;
   return `<div class="leyenda">
     <span class="pt"><span class="mu sub">✓</span><b>${subidos}</b> subido${subidos===1?'':'s'}</span>
     <span class="pt"><span class="mu"></span><b>${faltan}</b> sin subir</span>
@@ -1783,7 +1788,8 @@ function pintaRevisar(){
             <span>Emoción <b>${esc(a.emocion)}</b></span>
             ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
               <button class="btn sm" data-oir="${esc(a.musica)}" title="Oír la pista" style="padding:2px 8px">▶</button>`:''}
-            ${a.subido ? '<span class="pill ok">✓ ya subido a YouTube</span>'
+            ${a.privado ? '<span class="pill acc">Solo para ti · no se publica</span>'
+              : a.subido ? '<span class="pill ok">✓ ya subido a YouTube</span>'
               : (a.publicado ? '<span class="pill warn">rechazado, no se subió</span>'
                              : '<span class="pill idle">sin subir</span>')}
           </div>
@@ -2016,6 +2022,13 @@ function bloqueIA(ia){
    instante de la subida: lo generaba el propio publisher justo antes de
    mandarlo, así que no había ningún momento en que pudieras verlo. */
 function bloqueMeta(a){
+  // Grabado «para mí»: no hay publicación que preparar.
+  if(a.privado) return `
+    <div class="card" style="background:var(--surface-2);padding:13px">
+      <b>Solo para ti</b>
+      <div class="muted" style="margin-top:5px">Lo escribiste a mano porque Gemini no quiso. No se sube a YouTube ni a
+        TikTok, y no se le piden títulos a Gemini. El archivo está en la carpeta de videos como cualquier otro.</div>
+    </div>`;
   const m = a.meta;
   if(!m) return `
     <div class="card" style="background:var(--surface-2);padding:13px">
@@ -2242,13 +2255,16 @@ async function esperaBateria(que){
    motivo); ⚠ = otro fallo. Al tocarla se despliega el porqué. Las que se
    reintentan siguen en la cola; las descartadas, hasta que se archivan. */
 const fallosAbiertos = new Set();
+let verArchivadas = false;
 function bloqueFallidos(){
-  const f = E.guiones_fallidos || [];
-  if(!f.length) return '';
+  const todas = E.guiones_fallidos || [];
+  const archivadas = todas.filter(x => x.estado === 'archivada');
+  const f = todas.filter(x => x.estado !== 'archivada').concat(verArchivadas ? archivadas : []);
+  if(!todas.length) return '';
   const fila = x => {
     const e = x.explicacion, fallo = x.fallo || {};
-    const estado = x.estado === 'descartada'
-      ? '<span class="pill crit">Descartada</span>'
+    const estado = x.estado === 'descartada' ? '<span class="pill crit">Descartada</span>'
+      : x.estado === 'archivada' ? '<span class="pill">Archivada</span>'
       : `<span class="pill warn">Intento ${x.intentos} de ${x.max}</span>`;
     return `<details class="fallido" data-fallido="${esc(x.id)}" ${fallosAbiertos.has(x.id) ? 'open' : ''}>
       <summary><span class="marca-fallo ${x.bloqueada ? 'bloq' : ''}" aria-hidden="true">${x.bloqueada ? '🚫' : '⚠'}</span>
@@ -2257,14 +2273,19 @@ function bloqueFallidos(){
         ${e ? `<b>${esc(e.titulo)}</b><p>${esc(e.que_pasa)}</p><p><b>Qué hacer:</b> ${esc(e.que_hacer)}</p>` : ''}
         <div class="crudo">${esc(fallo.texto || '')}</div>
         ${x.fuente ? `<p class="de">Viene de ${esc(x.fuente)}</p>` : ''}
-        <button class="btn sm" data-archivar-guion="${esc(x.id)}">📦 Archivar</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn sm" data-para-mi="${esc(x.id)}">✍ Grabar para mí</button>
+          ${x.estado === 'archivada' ? '' : `<button class="btn sm" data-archivar-guion="${esc(x.id)}">📦 Archivar</button>`}
+        </div>
       </div>
     </details>`;
   };
-  const bloq = f.filter(x => x.bloqueada).length;
+  const vivas = todas.length - archivadas.length;
+  const bloq = todas.filter(x => x.bloqueada && x.estado !== 'archivada').length;
   return `<div class="list fallidos">
     <div class="list-head"><div><b>Gemini no las escribió</b>
-      <div style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px">${f.length} historia${f.length>1?'s':''}${bloq ? ` · ${bloq} bloqueada${bloq>1?'s':''} por Google` : ''} · toca una para ver por qué</div></div></div>
+      <div style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px">${vivas} historia${vivas!==1?'s':''}${bloq ? ` · ${bloq} bloqueada${bloq>1?'s':''} por Google` : ''}${vivas ? ' · toca una para ver por qué' : ''}</div></div>
+      ${archivadas.length ? `<button class="btn sm" onclick="verArchivadas=${!verArchivadas};pintar()">${verArchivadas ? 'Ocultar archivadas' : `Archivadas (${archivadas.length})`}</button>` : ''}</div>
     ${f.map(fila).join('')}
   </div>`;
 }
@@ -2281,8 +2302,55 @@ document.addEventListener('click', async ev => {
   catch(e){ toast(e.message); b.disabled = false; }
 });
 
+/* «Grabar para mí»: Gemini no la escribe, así que el texto lo pones tú. Va
+   a la cola de grabación marcada «solo para ti»: se graba como las demás y
+   no se publica nunca (ni YouTube, ni TikTok, ni títulos de Gemini). */
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-para-mi]');
+  if(!b) return;
+  const id = b.dataset.paraMi;
+  let orig = {titulo: '', texto: ''};
+  try{ orig = await api('/api/guiones/original?id=' + encodeURIComponent(id)); }catch(e){ return toast(e.message); }
+  const caja = document.createElement('div');
+  caja.className = 'modal';
+  caja.innerHTML = `
+    <div class="caja para-mi">
+      <b>Grabar para mí</b>
+      <p class="muted" style="margin:6px 0 10px">Escríbela en español con tus palabras: se narra tal cual.
+        El video sale en Revisar como <b>Solo para ti</b> y no se publica nunca.</p>
+      <label class="muted">Título (lo primero que se dice)</label>
+      <input type="text" id="pm-tit" value="${esc(orig.titulo)}" maxlength="150">
+      <label class="muted">Texto</label>
+      <textarea id="pm-txt" spellcheck="true" placeholder="El texto que se narra…">${esc(orig.texto)}</textarea>
+      <div class="muted" id="pm-cuenta" style="font:11.5px var(--mono);margin-top:4px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+        <select class="btn sm" id="pm-gen"><option>Masculino</option><option>Femenino</option></select>
+        <select class="btn sm" id="pm-emo"><option>drama</option><option>venganza</option><option>suspenso</option><option>comedia</option></select>
+      </div>
+      <div style="display:flex;gap:7px;margin-top:12px;flex-wrap:wrap">
+        <button class="btn go" id="pm-ok">A la cola de grabación</button>
+        <button class="btn" id="pm-x" style="margin-left:auto">Cancelar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(caja);
+  const txt = caja.querySelector('#pm-txt'), cuenta = caja.querySelector('#pm-cuenta');
+  const contar = () => { const n = txt.value.trim().split(/\s+/).filter(Boolean).length;
+    cuenta.textContent = `${n} palabras · ~${Math.round(n / 2.6)} s narrado`; };
+  txt.oninput = contar; contar();
+  const cerrar = () => caja.remove();
+  caja.querySelector('#pm-x').onclick = cerrar;
+  caja.onclick = e => { if(e.target === caja) cerrar(); };
+  caja.querySelector('#pm-ok').onclick = async () => {
+    try{
+      await post('/api/guiones/para_mi', {id, titulo: caja.querySelector('#pm-tit').value,
+        texto: txt.value, genero: caja.querySelector('#pm-gen').value, emocion: caja.querySelector('#pm-emo').value});
+      cerrar(); toast('En la cola de grabación, solo para ti'); refrescar();
+    }catch(e){ toast(e.message); }
+  };
+});
+
 function firmaCola(){
-  return [filtroCola, JSON.stringify(E.guiones_fallidos || []), E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
+  return [filtroCola, verArchivadas, JSON.stringify(E.guiones_fallidos || []), E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
           E.historias.map(h=>h.larga?1:0).join(''), JSON.stringify(E.bateria && E.bateria.espera)].join('~');
@@ -2417,7 +2485,7 @@ function pintaCola(){
         <label class="row sel ${seleccion.has(x.n)?'on':''}" data-n="${x.n}">
           <input type="checkbox" ${seleccion.has(x.n)?'checked':''}>
           <span class="n">${String(x.n).padStart(2,'0')}</span>
-          <span class="t">${x.renderizada ? '🎬 ' : ''}${esc(x.titulo)}</span>
+          <span class="t">${x.renderizada ? '🎬 ' : ''}${esc(x.titulo)}${x.privado ? ' <span class="pill acc">solo para ti</span>' : ''}</span>
           <span class="m">${esc(x.emocion).slice(0,5)}</span>
           <span class="m" title="voz ${x.genero==='femenino'?'femenina (Dalia)':'masculina (Jorge)'}"
             >${x.genero==='femenino'?'♀':'♂'}</span>
@@ -4481,7 +4549,7 @@ function pintar(){
   olvidarLoQueSeRenumero();
   // Un contador en 0 no dice nada y ocupa sitio en la tira: se esconde.
   const contador = (id, n) => { const c = $(id); c.textContent = n; c.style.display = n ? '' : 'none'; };
-  contador('#c-rev', E.videos.filter(x=>!x.publicado).length);
+  contador('#c-rev', E.videos.filter(x=>!x.publicado && !x.privado).length);
   contador('#c-col', E.historias.filter(h=>!h.renderizada).length);
   contador('#c-pub', E.publicados.length);
   // En Canal el número que importa es lo que la revisión se llevaría.

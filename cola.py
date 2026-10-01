@@ -207,7 +207,11 @@ def apuntar_descartadas(candidatos):
     """Las más recientes primero, como el archivo."""
     nuevas = [{"id": c.get("id"), "titulo": c.get("titulo_original", ""),
                "fuente": c.get("subreddit") or c.get("canal") or c.get("fuente") or "",
-               "intentos": c.get("intentos", 0), "fallo": c.get("ultimo_fallo")}
+               "intentos": c.get("intentos", 0), "fallo": c.get("ultimo_fallo"),
+               # El texto original, para poder escribirla a mano y grabarla
+               # «para mí» aunque Gemini no quiera (Cola → Grabar para mí).
+               "texto_original": (c.get("texto_original") or "")[:20000], "url": c.get("url", ""),
+               "autor": c.get("autor", "")}
               for c in candidatos if c]
     if nuevas:
         _escribir_json(RUTA_DESCARTADAS, (nuevas + cargar_descartadas())[:TOPE_DESCARTADAS])
