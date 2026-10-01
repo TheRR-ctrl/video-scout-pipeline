@@ -151,6 +151,10 @@ def bajar(url, forma="auto", carpeta=None):
         else:
             print("   ✓ con tu sesión guardada", flush=True)
         error = error_ck
+    if error and RE_BOT.search(error) and not os.path.exists(RUTA_COOKIES):
+        # Lo primero que hay que saber: es lo que lo arregla.
+        probados.append("no tienes sesión de YouTube guardada (Ajustes → Servicios → "
+                        "YOUTUBE_COOKIES)")
     if error and RE_BOT.search(error) and not vincular_fondos.ES_TERMUX:
         # En el teléfono no hay navegador del que leer nada.
         print("YouTube pide demostrar que no eres un robot; pruebo con la sesión de "
