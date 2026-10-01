@@ -760,6 +760,7 @@ def main(argv=None):
             # una salga para dar el video por consumido: reintentarlo entero
             # volvería a escribir las que ya están en el guion.
             escritas = 0
+            ultimo_fallo = None
             for parte in partes:
                 if len(partes) > 1:
                     logger.info(f"  → Reescribiendo: {parte['titulo_original'][:60]}...")
@@ -794,12 +795,21 @@ def main(argv=None):
                     # reescribir" y le apuntaba un intento al candidato.
                     if motivo_error_gemini(exc) or es_sobrecarga(exc):
                         raise
-                    logger.warning(f"  Fallo en {parte['id']}: {exc}")
+                    # Sin «Fallo en» delante: el panel cuenta como fallo
+                    # cada línea así, y la historia salía dos veces (la
+                    # parte y luego el candidato). El motivo sube abajo.
+                    logger.warning(f"  Parte {parte['id']} sin escribir: {exc}")
+                    ultimo_fallo = exc
 
             if escritas:
                 usados.append(candidato["id"])
                 continue
-            raise RuntimeError("ninguna parte se pudo reescribir")
+            if ultimo_fallo is None:
+                raise RuntimeError("ninguna parte se pudo reescribir")
+            if len(partes) == 1:
+                raise ultimo_fallo      # el motivo tal cual, sin envoltorio
+            raise RuntimeError(f"ninguna de sus {len(partes)} anécdotas se pudo escribir; "
+                               f"la última: {ultimo_fallo}") from ultimo_fallo
         except Exception as exc:
             motivo = motivo_error_gemini(exc)
             if motivo and motivo[0] == "sin_cuota" and len(client.perdidos) > 1:
@@ -826,16 +836,27 @@ def main(argv=None):
                 quedan.append(candidato)
                 continue
             logger.warning(f"Fallo en candidato {candidato['id']}: {exc}")
+            prohibido = isinstance(exc, genai.Bloqueo) and exc.definitivo
+            # Viaja con el candidato: el panel lo enseña en la cola (🚫 y
+            # por qué) mientras espera el siguiente intento.
+            candidato["ultimo_fallo"] = cola.fallo_de(exc)
 
         # Un fallo NO quema la historia: vuelve a la cola. Solo se descarta
         # después de varios intentos, para que un texto que Gemini siempre
         # rechaza no bloquee la cola para siempre.
         candidato["intentos"] = int(candidato.get("intentos", 0)) + 1
+        if prohibido:
+            # Lo prohibido lo es siempre: reintentarlo gasta dos llamadas
+            # más a Gemini para acabar igual.
+            candidato["intentos"] = cola.MAX_INTENTOS
         if candidato["intentos"] >= cola.MAX_INTENTOS:
             logger.warning(
+                f"Candidato {candidato['id']} descartado: Google no permite ese tema."
+                if prohibido else
                 f"Candidato {candidato['id']} descartado tras {candidato['intentos']} intentos."
             )
             descartados.append(candidato["id"])
+            cola.apuntar_descartadas([candidato])
         else:
             quedan.append(candidato)
 

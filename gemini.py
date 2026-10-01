@@ -64,8 +64,66 @@ class APIError(Exception):
         super().__init__(f"{codigo} {cuerpo}")
 
 
+# Por qué Google corta una respuesta, en palabras. Las claves son las de la
+# API (promptFeedback.blockReason y candidates[].finishReason) y van también
+# en el mensaje: errores.py casa con ellas para dar el «qué hacer».
+MOTIVOS_BLOQUEO = {
+    "PROHIBITED_CONTENT": "el tema está prohibido por las normas de Google (casi siempre "
+                          "algo sexual con menores o abuso). No hay ajuste que lo permita",
+    "SAFETY": "su filtro de seguridad lo vio delicado",
+    "BLOCKLIST": "lleva palabras de la lista de términos bloqueados de Google",
+    "RECITATION": "se parece demasiado a un texto ya publicado y Gemini no copia textos",
+    "SPII": "lleva datos personales sensibles (nombres completos, teléfonos, direcciones…)",
+    "IMAGE_SAFETY": "la imagen no pasó su filtro de seguridad",
+    "LANGUAGE": "el idioma no está admitido",
+    "OTHER": "Google no dice el motivo",
+}
+CATEGORIAS_DANO = {
+    "HARM_CATEGORY_SEXUALLY_EXPLICIT": "contenido sexual",
+    "HARM_CATEGORY_HATE_SPEECH": "discurso de odio",
+    "HARM_CATEGORY_HARASSMENT": "acoso",
+    "HARM_CATEGORY_DANGEROUS_CONTENT": "contenido peligroso",
+    "HARM_CATEGORY_CIVIC_INTEGRITY": "política o elecciones",
+}
+
+
+class Bloqueo(APIError):
+    """Google contestó 200 pero se negó: bloqueó la pregunta (la historia
+    que se le mandó) o cortó su propia respuesta.
+
+    Antes salía como APIError con el JSON crudo, y el panel enseñaba
+    «200 {"promptFeedback": …}». El mensaje ahora dice el motivo en
+    palabras; el cuerpo crudo sigue en `.cuerpo` y la clave de la API
+    (PROHIBITED_CONTENT, SAFETY…) en `.motivo` y dentro del texto.
+    """
+
+    def __init__(self, motivo, donde, categorias, cuerpo):
+        self.code = 200
+        self.cuerpo = cuerpo
+        self.motivo = motivo
+        self.donde = donde
+        self.categorias = categorias
+        que = "la historia que se le mandó" if donde == "pregunta" else "su propia respuesta"
+        porque = MOTIVOS_BLOQUEO.get(motivo, "Google no dice el motivo")
+        if categorias:
+            porque += " (" + ", ".join(categorias) + ")"
+        Exception.__init__(self, f"Gemini bloqueó {que} [{motivo}]: {porque}.")
+
+    @property
+    def definitivo(self):
+        """Si reintentar no cambiará nada: lo prohibido lo es siempre."""
+        return self.motivo in ("PROHIBITED_CONTENT", "BLOCKLIST")
+
+
+def _categorias(valoraciones):
+    return [CATEGORIAS_DANO.get(v.get("category"), v.get("category", "").lower())
+            for v in valoraciones or [] if v.get("blocked")
+            or v.get("probability") in ("HIGH", "MEDIUM")]
+
+
 class _Errores:
     APIError = APIError
+    Bloqueo = Bloqueo
 
 
 errors = _Errores()
@@ -131,12 +189,20 @@ class _Respuesta:
     def text(self):
         """El texto de la primera respuesta, que es lo único que se lee aquí."""
         candidatos = self._datos.get("candidates") or []
+        crudo = json.dumps(self._datos)[:2000]
         if not candidatos:
-            # Pasa cuando el filtro de seguridad corta la respuesta entera.
-            # Se levanta como APIError para que caiga donde ya se atrapa.
-            raise APIError(200, json.dumps(self._datos)[:2000])
+            # Pasa cuando el filtro corta la pregunta entera. Es un APIError
+            # (Bloqueo hereda de él) para que caiga donde ya se atrapa.
+            fb = self._datos.get("promptFeedback") or {}
+            raise Bloqueo(fb.get("blockReason") or "OTHER", "pregunta",
+                          _categorias(fb.get("safetyRatings")), crudo)
         partes = ((candidatos[0].get("content") or {}).get("parts")) or []
-        return "".join(p.get("text", "") for p in partes)
+        texto = "".join(p.get("text", "") for p in partes)
+        motivo = candidatos[0].get("finishReason")
+        if not texto and motivo in MOTIVOS_BLOQUEO:
+            raise Bloqueo(motivo, "respuesta",
+                          _categorias(candidatos[0].get("safetyRatings")), crudo)
+        return texto
 
 
 # =========================================================

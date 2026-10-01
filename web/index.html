@@ -830,6 +830,21 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
        control quedaba a un metro de su nombre. */
     .view:not(#v-revisar){max-width:1500px}
   }
+  /* Historias que Gemini no escribió (Cola). */
+  .fallidos{margin-bottom:14px}
+  .fallido{border-top:1px solid var(--line)}
+  .fallido summary{display:flex;align-items:center;gap:10px;padding:10px 13px;cursor:pointer;list-style:none;min-height:44px}
+  .fallido summary::-webkit-details-marker{display:none}
+  .fallido summary .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .fallido[open] summary .t{white-space:normal}
+  .marca-fallo{flex:none;width:22px;text-align:center;font-size:18px;line-height:1;color:var(--warn)}
+  .marca-fallo.bloq{color:var(--crit)}
+  .fallido .porque{padding:0 13px 13px 41px;font-size:13.5px;color:var(--ink-dim)}
+  .fallido .porque b{color:var(--ink)}
+  .fallido .porque p{margin:6px 0}
+  .fallido .crudo{font:11.5px/1.5 var(--mono);color:var(--ink-faint);margin:8px 0;overflow-wrap:anywhere}
+  .fallido .de{font-size:12.5px}
+  @media (hover:hover) and (pointer:fine){ .fallido summary:hover{background:var(--surface-2)} }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -2223,8 +2238,51 @@ async function esperaBateria(que){
   }catch(e){ toast(e.message); }
 }
 
+/* Las historias que Gemini no escribió. 🚫 = Google la bloqueó (con el
+   motivo); ⚠ = otro fallo. Al tocarla se despliega el porqué. Las que se
+   reintentan siguen en la cola; las descartadas, hasta que se archivan. */
+const fallosAbiertos = new Set();
+function bloqueFallidos(){
+  const f = E.guiones_fallidos || [];
+  if(!f.length) return '';
+  const fila = x => {
+    const e = x.explicacion, fallo = x.fallo || {};
+    const estado = x.estado === 'descartada'
+      ? '<span class="pill crit">Descartada</span>'
+      : `<span class="pill warn">Intento ${x.intentos} de ${x.max}</span>`;
+    return `<details class="fallido" data-fallido="${esc(x.id)}" ${fallosAbiertos.has(x.id) ? 'open' : ''}>
+      <summary><span class="marca-fallo ${x.bloqueada ? 'bloq' : ''}" aria-hidden="true">${x.bloqueada ? '🚫' : '⚠'}</span>
+        <span class="t">${esc(x.titulo || x.id)}</span>${estado}</summary>
+      <div class="porque">
+        ${e ? `<b>${esc(e.titulo)}</b><p>${esc(e.que_pasa)}</p><p><b>Qué hacer:</b> ${esc(e.que_hacer)}</p>` : ''}
+        <div class="crudo">${esc(fallo.texto || '')}</div>
+        ${x.fuente ? `<p class="de">Viene de ${esc(x.fuente)}</p>` : ''}
+        <button class="btn sm" data-archivar-guion="${esc(x.id)}">📦 Archivar</button>
+      </div>
+    </details>`;
+  };
+  const bloq = f.filter(x => x.bloqueada).length;
+  return `<div class="list fallidos">
+    <div class="list-head"><div><b>Gemini no las escribió</b>
+      <div style="font:11.5px var(--mono);color:var(--ink-dim);margin-top:2px">${f.length} historia${f.length>1?'s':''}${bloq ? ` · ${bloq} bloqueada${bloq>1?'s':''} por Google` : ''} · toca una para ver por qué</div></div></div>
+    ${f.map(fila).join('')}
+  </div>`;
+}
+document.addEventListener('toggle', ev => {
+  const d = ev.target.closest && ev.target.closest('[data-fallido]');
+  if(!d) return;
+  d.open ? fallosAbiertos.add(d.dataset.fallido) : fallosAbiertos.delete(d.dataset.fallido);
+}, true);
+document.addEventListener('click', async ev => {
+  const b = ev.target.closest('[data-archivar-guion]');
+  if(!b) return;
+  b.disabled = true;
+  try{ await post('/api/guiones/archivar', {id: b.dataset.archivarGuion}); toast('Archivada'); refrescar(); }
+  catch(e){ toast(e.message); b.disabled = false; }
+});
+
 function firmaCola(){
-  return [filtroCola, E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
+  return [filtroCola, JSON.stringify(E.guiones_fallidos || []), E.historias.length, E.historias.map(h=>h.n+h.titulo+(h.renderizada?'✓':'')).join('|'),
           [...seleccion].sort().join(','), JSON.stringify(musicaElegida),
           (E.musica||[]).length, E.candidatos || 0, verGrabadas, E.archivadas || 0,
           E.historias.map(h=>h.larga?1:0).join(''), JSON.stringify(E.bateria && E.bateria.espera)].join('~');
@@ -2338,6 +2396,7 @@ function pintaCola(){
       YouTube no entra aquí hasta que Gemini los escribe. Va por tandas —los más
       recientes primero— para no gastar la cuota del día de una sentada.
       <div style="margin-top:7px;display:flex;gap:6px;flex-wrap:wrap">${botonesGuiones(true)}</div></div></div>`}
+    ${bloqueFallidos()}
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin:4px 0 10px">
       ${pestana('todo', 'Todo', h.length)}${pestana('shorts', 'Shorts', cortas.length)}${pestana('videos', 'Videos', largasH.length)}
     </div>
