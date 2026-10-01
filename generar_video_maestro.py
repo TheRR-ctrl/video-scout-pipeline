@@ -832,6 +832,22 @@ def _peso_archivo(ruta):
         return 0
 
 
+# Qué tramos de qué fondo usó cada video, por número de historia. Va al
+# registro del video (resultado_lote → publicados.json): si YouTube lo quita
+# por un clip, diagnosticar_youtube.py sabe cuál fue y lo excluye al rehacer.
+# Un dict y no el valor de retorno para no tocar a quien llama; con varios
+# videos a la vez cada hilo escribe en su número.
+CORTES_FONDO = {}
+
+
+def _nombre_original(fondo):
+    """El nombre del archivo de verdad detrás de fondo_vertical_3.mp4: los
+    enlaces se renumeran en cada «Re-enlazar», el original no."""
+    nombres = almacen.leer(os.path.join(BASE_DIR, "pipeline_state", "fondos_nombres.json"), {}) or {}
+    base = os.path.basename(fondo)
+    return nombres.get(base) or os.path.basename(os.path.realpath(fondo))
+
+
 def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_index=1,
                              w_res=None, h_res=None):
     exts = ('.webm', '.mp4', '.mkv', '.mov')
@@ -894,6 +910,7 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
 
     acumulado = 0.0
     archivos_clips = []
+    cortes = []
     
     anch = max(10, shutil.get_terminal_size((40, 24)).columns - 35)
     txt_base = " ├─ 🎞️ [2/4] Cortes:"
@@ -940,6 +957,9 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
 
         fallos_consecutivos = 0
         archivos_clips.append(nom_clip)
+        cortes.append({"archivo": os.path.basename(vid_elegido),
+                       "original": _nombre_original(vid_elegido),
+                       "desde": round(ss, 2), "segundos": round(clip_dur, 2)})
         acumulado += clip_dur
         
         pct = min(100.0, (acumulado/duracion_requerida_sec)*100.0)
@@ -970,6 +990,7 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
 
     if archivo_valido(salida_fondo):
         actualizar_hud([f"{txt_base} [100.0%] [{'█'*anch}]"], True)
+        CORTES_FONDO[num_index] = cortes
         return salida_fondo
     else:
         actualizar_hud([f"{txt_base} [ Fallo] [{'❌'*anch}]"], True)
@@ -1280,6 +1301,13 @@ def decidir_genero_narrador(texto_raw):
               f"({', '.join(marcas)}…); se narra en {contrario}.")
         return contrario
     return cabecera
+
+
+def rehace_de(texto_raw):
+    """«# Rehace: <id>»: esta historia sustituye a un video que YouTube
+    quitó (diagnosticar_youtube.py --rehacer). None si no."""
+    m = re.search(r'#\s*Rehace:\s*([\w-]{6,20})', texto_raw)
+    return m.group(1) if m else None
 
 
 def es_privado(texto_raw):
@@ -2448,6 +2476,10 @@ def renderizar_una_historia(contenido, num=1):
             "autor_original": autor_original,
             "musica_archivo": os.path.basename(musica) if musica else None,
             "privado": es_privado(contenido),
+            # De dónde salió el fondo, tramo a tramo (vacío si lo hizo
+            # HyperFrames o fue el respaldo de un solo archivo).
+            "fondos": CORTES_FONDO.pop(num, []),
+            "rehace": rehace_de(contenido),
         }
     finally:
         gestor.limpiar()

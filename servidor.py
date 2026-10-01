@@ -432,7 +432,7 @@ PUERTO = [None]   # lo pone main(): el enlace de la notificación abre el panel
 # en todas, como antes.
 VISTA_POR_SCRIPT = {
     "trend_scout.py": "cola", "youtube_scout.py": "cola", "script_writer.py": "cola",
-    "bajar_fondo.py": "ajustes",
+    "bajar_fondo.py": "ajustes", "diagnosticar_youtube.py": "canal",
     "generar_video_maestro.py": "cola", "partir_historias.py": "cola",
     "limpiar_cola.py": "cola", "archivar_largas.py": "cola",
     "calidad.py": "revisar", "calidad_ia.py": "revisar", "preparar_metadata.py": "revisar",
@@ -986,6 +986,7 @@ def videos_renderizados():
             "musica": v.get("musica_archivo"),
             "fuente_url": v.get("fuente_url"),
             "privado": bool(v.get("privado")),
+            "rehace": v.get("rehace"),
             "archivo": os.path.basename(ruta),
             # Va a la URL de la miniatura. Sin esto, rehacer un video sin
             # cambiarle el nombre dejaría al navegador enseñando la miniatura
@@ -1567,6 +1568,8 @@ def _resumen_canal():
         # miró (relanzar.py --problemas, también en la revisión del 1 y 15).
         "problemas": problemas,
         "problemas_cuando": problemas_cuando,
+        # Por qué los quitó y qué corregir (diagnosticar_youtube.py), por id.
+        "diagnosticos": leer_json(os.path.join(CARPETA_ESTADO, "diagnosticos_youtube.json"), {}),
     }
 
 
@@ -1975,6 +1978,27 @@ def api_ejecutar(accion):
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando",
                                   cmd, luego="musica_rotar")
+    elif accion in ("diagnosticar_quitado", "rehacer_quitado"):
+        # Un video que YouTube quitó: analizar por qué (con el motivo del
+        # correo si se pega) o rehacerlo corregido. El id va validado y como
+        # argumento suelto; el texto del motivo también, sin shell.
+        d = request.json or {}
+        vid = str(d.get("video_id") or "")
+        if not re.match(r"^[\w-]{6,20}$", vid):
+            return jsonify({"error": "Falta el video"}), 400
+        if accion == "diagnosticar_quitado":
+            cmd = [sys.executable, "diagnosticar_youtube.py", "--video", vid]
+            motivo = str(d.get("motivo") or "").strip()[:2000]
+            if motivo:
+                cmd += ["--motivo", motivo]
+            t, encolado, err = lanzar("Analizando por qué lo quitó YouTube", cmd)
+        else:
+            cmd = [sys.executable, "diagnosticar_youtube.py", "--rehacer", vid, "--grabar"]
+            if d.get("subir"):
+                cmd.append("--subir")
+            if d.get("aun_asi"):
+                cmd.append("--aun-asi")
+            t, encolado, err = lanzar("Rehaciendo el video que quitó YouTube", cmd)
     elif accion == "bajar_fondo":
         # Un enlace pegado en Ajustes → Fondos. Va como argumento suelto, sin
         # shell: lo que haya en el texto no se ejecuta. Al acabar bien se

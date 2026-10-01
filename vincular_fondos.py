@@ -43,6 +43,8 @@ import shutil
 import argparse
 import subprocess
 
+import almacen
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 EXTENSIONES = (".mp4", ".webm", ".mkv", ".mov")
 ES_TERMUX = "PREFIX" in os.environ and "com.termux" in os.environ.get("PREFIX", "")
@@ -62,6 +64,10 @@ CARPETA_POR_DEFECTO = _carpeta_por_defecto()
 # corrida no sabría distinguirlo de un video que pusiste tú a mano, y no lo
 # podría quitar.
 RUTA_HECHOS = os.path.join(BASE_DIR, "pipeline_state", "fondos_enlazados.json")
+# fondo_vertical_3.mp4 → el archivo de verdad. Los enlaces se renumeran en
+# cada corrida; el render apunta el original en cada video para que, si
+# YouTube lo quita por un clip, se sepa cuál fue (diagnosticar_youtube.py).
+RUTA_NOMBRES = os.path.join(BASE_DIR, "pipeline_state", "fondos_nombres.json")
 
 
 def _hechos():
@@ -294,6 +300,7 @@ def main():
         print(f"\n  Se quitaron {quitados} enlace(s) de una corrida anterior.")
 
     creados, no_simbolicos, copiados = 0, [], 0
+    nombres = {}
     for prefijo, lista in (("fondo_vertical", verticales), ("fondo_horizontal", horizontales)):
         for i, origen in enumerate(lista, 1):
             ext = os.path.splitext(origen)[1].lower()
@@ -303,6 +310,7 @@ def main():
                 continue
             try:
                 como = poner(origen, destino, args.copiar)
+                nombres[os.path.basename(destino)] = os.path.basename(origen)
                 creados += 1
                 copiados += como == "copiado"
                 if not os.path.islink(destino):
@@ -311,6 +319,7 @@ def main():
                 print(f"  ❌ {os.path.basename(origen)}: {exc}")
     if no_simbolicos:
         _apuntar_hechos(no_simbolicos)
+    almacen.guardar(RUTA_NOMBRES, nombres)
 
     verbo = "copiado(s)" if args.copiar or copiados else "enlazado(s)"
     print(f"\n✅ {creados} video(s) {verbo} en la carpeta del repo.")

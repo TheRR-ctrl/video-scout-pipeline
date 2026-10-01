@@ -884,7 +884,7 @@ def limpiar_videos_locales_vencidos():
 # ---------------------------------------------------------
 # ORQUESTACIÓN
 # ---------------------------------------------------------
-def main(forzar_datos=False):
+def main(forzar_datos=False, solo=None):
     limpiar_videos_locales_vencidos()
 
     cfg = cargar_config()
@@ -945,7 +945,8 @@ def main(forzar_datos=False):
         logger.info(f"{len(privados)} video(s) solo para ti: no se publican.")
     pendientes = en_orden_de_serie(
         [v for v in completados
-         if v["ruta"] not in rutas_ya_procesadas and not v.get("privado")])
+         if v["ruta"] not in rutas_ya_procesadas and not v.get("privado")
+         and (not solo or os.path.basename(v["ruta"]) == solo)])
     if not pendientes:
         logger.info("Todos los videos completados ya fueron procesados anteriormente.")
         return
@@ -1040,6 +1041,12 @@ def main(forzar_datos=False):
             "publish_at_real": (real or {}).get("publish_at"),
             "programado_ok": programado,
             "url_revision": f"https://studio.youtube.com/video/{video_id}/edit",
+            # Con qué se hizo: si YouTube lo quita, diagnosticar_youtube.py
+            # mira aquí qué música y qué tramos de fondo llevaba.
+            "musica_archivo": video.get("musica_archivo"),
+            "fondos": video.get("fondos") or [],
+            "fuente_url": video.get("fuente_url"),
+            **({"rehace": video["rehace"]} if video.get("rehace") else {}),
             # Para el borrado retrasado (ver limpiar_videos_locales_vencidos):
             # se conserva el archivo local unos días para poder subirlo a
             # mano a TikTok antes de que se borre solo.
@@ -1113,8 +1120,12 @@ if __name__ == "__main__":
         "--revisar-programados", action="store_true",
         help="No sube nada: enseña el estado real en YouTube de los ya subidos.",
     )
+    parser.add_argument(
+        "--solo", metavar="ARCHIVO",
+        help="Sube solo ese video (nombre del .mp4), aunque haya más pendientes.",
+    )
     args = parser.parse_args()
     if args.revisar_programados:
         revisar_programados()
     else:
-        main(forzar_datos=args.con_datos)
+        main(forzar_datos=args.con_datos, solo=args.solo)

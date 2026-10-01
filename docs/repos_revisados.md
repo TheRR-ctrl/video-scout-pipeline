@@ -897,3 +897,29 @@ Pedido: «implementar Seal downloader para bajar nuevos videos para fondo».
 - **Derechos:** un fondo bajado de un canal ajeno puede llevar reclamación
   de Content ID al publicarse. Lo seguro es material propio, libre o de
   stock (`descargar_fondos.py`).
+
+## 20. Por qué YouTube quitó un video, y rehacerlo — NO HAY NADA, se escribió
+
+Pedido: analizar qué salió mal en los videos que YouTube quitó y rehacerlos
+corregidos para volver a subirlos.
+
+- **Búsqueda en GitHub:** «youtube removed video reason», «content id claim
+  checker», «youtube policy compliance checker», «youtube copyright checker».
+  Solo salieron repos vacíos o sin relación (el único con nombre parecido,
+  `Maco1800/YoutubeCopyrightChecker`, no tiene ni descripción ni licencia).
+- **Lo que da YouTube:** la Data API dice `uploadStatus: rejected` con un
+  `rejectionReason` de una palabra (copyright, claim, duplicate,
+  termsOfUse…), o nada si lo quitó del todo. El motivo completo solo llega
+  por correo y en Studio; por eso el panel deja pegarlo.
+- **Lo que se escribió** (`diagnosticar_youtube.py`): junta esa señal con
+  cómo se hizo el video —guion, título, música y su licencia, tramos de
+  fondo y si alguno vino de un enlace ajeno (`bajar_fondo.py`)— y le pide
+  a Gemini la causa probable, qué corregir y el riesgo de volver a subirlo.
+  Sin Gemini cae a reglas. Rehacer aplica lo corregible: reescribe el guion,
+  excluye tramos o fondos enteros (`fondos_excluidos`), aparta la canción a
+  `musica_reclamada/`, graba solo esa historia y la sube con
+  `publisher.py --solo`.
+- **Para que funcione,** el render apunta ahora en cada video qué tramos de
+  qué fondo original usó (`vincular_fondos` guarda el nombre real detrás de
+  cada enlace) y el publicador lo copia a `publicados.json`. Los videos
+  subidos antes de esto no lo tienen: su fondo hay que quitarlo a mano.
