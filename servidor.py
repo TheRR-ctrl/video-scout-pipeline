@@ -431,6 +431,7 @@ PUERTO = [None]   # lo pone main(): el enlace de la notificación abre el panel
 # en todas, como antes.
 VISTA_POR_SCRIPT = {
     "trend_scout.py": "cola", "youtube_scout.py": "cola", "script_writer.py": "cola",
+    "bajar_fondo.py": "ajustes",
     "generar_video_maestro.py": "cola", "partir_historias.py": "cola",
     "limpiar_cola.py": "cola", "archivar_largas.py": "cola",
     "calidad.py": "revisar", "calidad_ia.py": "revisar", "preparar_metadata.py": "revisar",
@@ -1972,6 +1973,17 @@ def api_ejecutar(accion):
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando",
                                   cmd, luego="musica_rotar")
+    elif accion == "bajar_fondo":
+        # Un enlace pegado en Ajustes → Fondos. Va como argumento suelto, sin
+        # shell: lo que haya en el texto no se ejecuta. Al acabar bien se
+        # encadena «Re-enlazar material» para que el render ya lo vea.
+        d = request.json or {}
+        url = str(d.get("url") or "").strip()
+        forma = d.get("forma") if d.get("forma") in ("vertical", "horizontal") else "auto"
+        if not re.match(r"^https?://\S+$", url) or len(url) > 2000:
+            return jsonify({"error": "Pega un enlace que empiece por http:// o https://"}), 400
+        t, encolado, err = lanzar("Bajando fondo", [sys.executable, "bajar_fondo.py", url,
+                                                    "--forma", forma], luego="fondos")
     elif accion == "partir_una":
         n = (request.json or {}).get("numero")
         if not isinstance(n, int) or n < 1:
