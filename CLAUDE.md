@@ -48,7 +48,12 @@ suponga una pantalla grande, y el panel tiene que leerse a 412px de ancho.
 
 Nunca en el código, nunca en el chat, nunca en la línea de comandos (acaban en
 `~/.bash_history`). Viven solo en `secretos.env` y `tiktok_token.json`, ambos
-en `.gitignore` y con permisos 600.
+en `.gitignore` y con permisos 600. La única excepción, pedida por el dueño
+del proyecto, es `youtube_cookies.txt`: la sesión de YouTube que
+`bajar_fondo.py` necesita cuando YouTube pide «confirma que no eres un
+robot». Se pega en el panel (Ajustes → Servicios → YOUTUBE_COOKIES), que la
+escribe en 600 y guarda solo las cookies de YouTube y Google; está en
+`.gitignore` y viaja en el respaldo como las demás.
 
 ## Escritura de estado
 
