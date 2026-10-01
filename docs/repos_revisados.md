@@ -866,3 +866,34 @@ paquete `lucide-static`), el juego de iconos SVG de trazo más usado.
 
 Descartado: Font Awesome y Material Symbols (fuente de iconos que hay que
 servir entera o bajar de internet) y dibujar los iconos a mano.
+
+## 19. Bajar fondos desde un enlace — SE ADOPTÓ EL MOTOR DE SEAL (yt-dlp), no la app
+
+Pedido: «implementar Seal downloader para bajar nuevos videos para fondo».
+
+- **Qué es Seal** (`JunkFood02/Seal`, ~29 000 estrellas, activo, GPL-3.0):
+  una app de Android en Kotlin que es una interfaz para yt-dlp. Baja video
+  y audio de YouTube, TikTok, Instagram y cientos de sitios más.
+- **Por qué no la app dentro del pipeline:** es Kotlin y vive en su propio
+  APK. No hay forma de llamarla desde Python ni desde el panel, y copiar su
+  código (GPL-3.0) a un proyecto Python no tiene sentido.
+- **Lo que se adoptó: su motor, `yt-dlp`** (`yt-dlp/yt-dlp`, Unlicense,
+  Python puro). Corre igual en Termux (`pip install yt-dlp`) y en Windows
+  (va en `requirements.txt`, así que `iniciar_windows.bat` lo instala solo).
+  `bajar_fondo.py` lo usa como librería:
+  - solo el video, hasta 1080p (el resto del material del proyecto nace en
+    1080p, ver CLAUDE.md), como mucho 800 MB;
+  - a la carpeta de material de siempre (`Download/Reddicuentos`), con
+    `fondo_vertical_`/`fondo_horizontal_` delante si se elige la forma;
+  - al acabar bien, el panel encadena «Re-enlazar material».
+  En el panel: Ajustes → Música y video → Fondos y plantilla → «Bajar un
+  fondo desde un enlace». El enlace va como argumento suelto, sin shell.
+- **La app Seal sigue sirviendo** sin código: basta con poner su carpeta
+  de descarga en `Download/Reddicuentos` y pulsar «Re-enlazar material».
+- **Mantenimiento:** los sitios cambian y yt-dlp saca versión casi cada
+  semana. Si un enlace que antes bajaba empieza a fallar, lo primero es
+  `pip install -U yt-dlp`. Desde servidores en la nube YouTube responde 403
+  (bloquea las IP de centros de datos); desde el teléfono o el PC, no.
+- **Derechos:** un fondo bajado de un canal ajeno puede llevar reclamación
+  de Content ID al publicarse. Lo seguro es material propio, libre o de
+  stock (`descargar_fondos.py`).

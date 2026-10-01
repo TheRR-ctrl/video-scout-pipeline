@@ -184,6 +184,39 @@ def marcar_vistos(ids):
     return len(nuevos)
 
 
+# Las que Gemini no escribió y salieron de la cola (prohibidas, o tres
+# fallos seguidos). Solo para que el panel diga cuáles y por qué: sin esto,
+# una historia descartada desaparecía sin dejar rastro.
+RUTA_DESCARTADAS = os.path.join(CARPETA_ESTADO, "guiones_descartados.json")
+TOPE_DESCARTADAS = 40
+
+
+def fallo_de(exc):
+    """Lo que se guarda del último fallo de un candidato: el motivo de
+    bloqueo de Google si lo hubo (PROHIBITED_CONTENT, SAFETY…) y el texto."""
+    motivo = getattr(exc, "motivo", None) or getattr(exc.__cause__, "motivo", None)
+    return {"motivo": motivo, "texto": str(exc)[:400], "fecha": _ahora().isoformat()}
+
+
+def cargar_descartadas():
+    datos = _leer_json(RUTA_DESCARTADAS, [])
+    return datos if isinstance(datos, list) else []
+
+
+def apuntar_descartadas(candidatos):
+    """Las más recientes primero, como el archivo."""
+    nuevas = [{"id": c.get("id"), "titulo": c.get("titulo_original", ""),
+               "fuente": c.get("subreddit") or c.get("canal") or c.get("fuente") or "",
+               "intentos": c.get("intentos", 0), "fallo": c.get("ultimo_fallo"),
+               # El texto original, para poder escribirla a mano y grabarla
+               # «para mí» aunque Gemini no quiera (Cola → Grabar para mí).
+               "texto_original": (c.get("texto_original") or "")[:20000], "url": c.get("url", ""),
+               "autor": c.get("autor", "")}
+              for c in candidatos if c]
+    if nuevas:
+        _escribir_json(RUTA_DESCARTADAS, (nuevas + cargar_descartadas())[:TOPE_DESCARTADAS])
+
+
 def cargar_archivados():
     datos = _leer_json(RUTA_ARCHIVO, [])
     return datos if isinstance(datos, list) else []

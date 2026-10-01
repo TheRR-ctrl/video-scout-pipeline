@@ -237,7 +237,14 @@ Dos cosas de `gemini.py` que parecen detalles y no lo son. **El texto de
 errores del proyecto lo lee así: `motivo_error_gemini` busca
 `API_KEY_INVALID`, y `hyperframes_broll` busca `RESOURCE_EXHAUSTED` y el
 `retryDelay`. "Limpiar" ese mensaje rompe el reintento por cuota y la
-detección de clave inválida a la vez, y sin ruido. **Y los `type` de los
+detección de clave inválida a la vez, y sin ruido. La excepción es
+`gemini.Bloqueo` (hereda de `APIError`): cuando Google contesta 200 pero se
+niega —`promptFeedback.blockReason` o un `finishReason` de bloqueo sin
+texto— el mensaje dice el motivo en palabras con la clave entre corchetes
+(`[PROHIBITED_CONTENT]`, `[SAFETY]`…), que es con lo que casa `errores.py`;
+el JSON crudo queda en `.cuerpo`. `PROHIBITED_CONTENT` no tiene ajuste que
+lo desbloquee, así que `script_writer` descarta esa historia a la primera.
+**Y los `type` de los
 `SCHEMA_*` se pasan a mayúsculas** antes de mandarlos: los esquemas están
 escritos en minúsculas, el REST los quiere en mayúsculas, y si no se
 convierten Google responde 400 sin decir qué campo le molesta.

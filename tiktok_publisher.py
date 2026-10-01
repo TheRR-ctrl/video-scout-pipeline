@@ -380,7 +380,7 @@ def videos_pendientes():
 
     pendientes = []
     for v in completados:
-        if v["ruta"] in ya_en_tiktok or v["ruta"] in rechazados:
+        if v["ruta"] in ya_en_tiktok or v["ruta"] in rechazados or v.get("privado"):
             continue
         if not os.path.exists(v["ruta"]):
             # El video se subió a YouTube y luego se borró del teléfono para

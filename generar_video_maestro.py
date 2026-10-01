@@ -1282,6 +1282,12 @@ def decidir_genero_narrador(texto_raw):
     return cabecera
 
 
+def es_privado(texto_raw):
+    """«# Privado: si» en la cabecera: una historia grabada solo para quien
+    maneja el canal (Cola → «Grabar para mí»), que no se publica nunca."""
+    return bool(re.search(r'#\s*Privado:\s*s[ií]\b', texto_raw, re.IGNORECASE))
+
+
 def extraer_titulo_y_cuerpo(texto_raw):
     # VOZ_FORZADA la pone --voz: sirve para rehacer un video con la otra voz
     # sin tener que editar el "# Genero:" del guion a mano.
@@ -2441,6 +2447,7 @@ def renderizar_una_historia(contenido, num=1):
             "fuente_url": fuente_url,
             "autor_original": autor_original,
             "musica_archivo": os.path.basename(musica) if musica else None,
+            "privado": es_privado(contenido),
         }
     finally:
         gestor.limpiar()

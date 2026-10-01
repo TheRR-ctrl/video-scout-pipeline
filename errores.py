@@ -64,12 +64,40 @@ CATALOGO = [
      "que_pasa": "Sin ella no se pueden escribir guiones ni títulos.",
      "que_hacer": "Ajustes → Servicios → Gemini. Es gratis y lleva un minuto.",
      "ir": "ajustes/servicios"},
+    # Los motivos de bloqueo los nombra gemini.Bloqueo entre corchetes
+    # ([PROHIBITED_CONTENT], [SAFETY]…); lo concreto va antes que lo genérico.
+    {"id": "gemini_prohibido", "tema": "Gemini",
+     "patrones": [r"PROHIBITED_CONTENT"],
+     "titulo": "Google no permite ese tema",
+     "que_pasa": "La historia toca algo que Google prohíbe siempre, casi siempre algo sexual "
+                 "con menores o un abuso, aunque salga solo de pasada. No es un filtro que se "
+                 "pueda bajar: ningún modelo de Gemini la va a escribir.",
+     "que_hacer": "Nada: esa historia se descarta a la primera, sin gastar más intentos, y "
+                  "siguen las demás. Si pasa a menudo con un mismo subreddit o canal, "
+                  "quítalo en Ajustes → Fuentes.",
+     "ir": "ajustes/fuentes"},
+    {"id": "gemini_recitacion", "tema": "Gemini",
+     "patrones": [r"\[RECITATION\]", r"finish_?reason.*RECITATION"],
+     "titulo": "Gemini no quiso copiar un texto ya publicado",
+     "que_pasa": "Su respuesta se parecía demasiado a un texto que existe en internet "
+                 "(pasa con historias muy famosas, o videos que leen un post palabra por palabra).",
+     "que_hacer": "Nada: vuelve a la cola y suele salir al reintentar, porque cada vez "
+                  "lo cuenta distinto."},
+    {"id": "gemini_datos_personales", "tema": "Gemini",
+     "patrones": [r"\[SPII\]"],
+     "titulo": "La historia lleva datos personales",
+     "que_pasa": "Gemini vio nombres completos, teléfonos o direcciones de gente real y no "
+                 "quiso repetirlos.",
+     "que_hacer": "Nada: vuelve a la cola para otro intento; si no sale, se descarta sola."},
     {"id": "gemini_bloqueo", "tema": "Gemini",
-     "patrones": [r"finish_?reason.*SAFETY", r"blocked.*safety", r"PROHIBITED_CONTENT", r"blockReason"],
+     "patrones": [r"\[(SAFETY|BLOCKLIST|OTHER|IMAGE_SAFETY|LANGUAGE)\]",
+                  r"finish_?reason.*SAFETY", r"blocked.*safety", r"blockReason"],
      "titulo": "Gemini se negó a escribir esa historia",
-     "que_pasa": "Su filtro de contenido consideró la historia delicada (violencia, menores, etc.).",
-     "que_hacer": "Nada: esa historia se salta y siguen las demás. Si pasa con muchas, "
-                  "quita de las fuentes el subreddit o canal que las trae."},
+     "que_pasa": "Su filtro de contenido la vio delicada; entre paréntesis va qué le "
+                 "molestó (acoso, odio, contenido sexual, peligroso…).",
+     "que_hacer": "Nada: vuelve a la cola y, si tres veces no sale, se descarta sola. Si "
+                  "pasa con muchas, quita de las fuentes el subreddit o canal que las trae.",
+     "ir": "ajustes/fuentes"},
 
     # ---- Búsqueda: Reddit y YouTube ---------------------------------------
     {"id": "reddit_bloqueo", "tema": "Búsqueda",

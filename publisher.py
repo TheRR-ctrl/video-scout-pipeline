@@ -938,8 +938,14 @@ def main(forzar_datos=False):
             logger.warning(f"No se pudieron revisar las subidas recientes ({exc}).")
     rutas_ya_procesadas = {p["ruta"] for p in publicados} | {r["ruta"] for r in rechazados}
 
+    # Los grabados «solo para mí» (historias que Gemini bloqueó, escritas a
+    # mano en el panel) no se suben nunca, ni se le piden títulos a Gemini.
+    privados = [v for v in completados if v.get("privado")]
+    if privados:
+        logger.info(f"{len(privados)} video(s) solo para ti: no se publican.")
     pendientes = en_orden_de_serie(
-        [v for v in completados if v["ruta"] not in rutas_ya_procesadas])
+        [v for v in completados
+         if v["ruta"] not in rutas_ya_procesadas and not v.get("privado")])
     if not pendientes:
         logger.info("Todos los videos completados ya fueron procesados anteriormente.")
         return

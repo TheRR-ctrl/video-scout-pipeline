@@ -431,6 +431,7 @@ PUERTO = [None]   # lo pone main(): el enlace de la notificación abre el panel
 # en todas, como antes.
 VISTA_POR_SCRIPT = {
     "trend_scout.py": "cola", "youtube_scout.py": "cola", "script_writer.py": "cola",
+    "bajar_fondo.py": "ajustes",
     "generar_video_maestro.py": "cola", "partir_historias.py": "cola",
     "limpiar_cola.py": "cola", "archivar_largas.py": "cola",
     "calidad.py": "revisar", "calidad_ia.py": "revisar", "preparar_metadata.py": "revisar",
@@ -907,6 +908,7 @@ def _ficha_historia(bloque, gvm, apodo_de):
         }
         # Las que no caben en un short, para ofrecer partirlas en la Cola.
         ficha["larga"], ficha["partes"] = _plan_de_corte(bloque)
+        ficha["privado"] = gvm.es_privado(bloque)
         _FICHAS_HISTORIA[bloque] = ficha
     return ficha
 
@@ -982,6 +984,7 @@ def videos_renderizados():
             "es_short": v.get("es_short", True),
             "musica": v.get("musica_archivo"),
             "fuente_url": v.get("fuente_url"),
+            "privado": bool(v.get("privado")),
             "archivo": os.path.basename(ruta),
             # Va a la URL de la miniatura. Sin esto, rehacer un video sin
             # cambiarle el nombre dejaría al navegador enseñando la miniatura
@@ -1742,6 +1745,7 @@ def api_estado():
         # enseña las historias de guion.txt y nada más: los candidatos que
         # trajo Reddit se quedan en candidatos.json sin que se note.
         "candidatos": candidatos,
+        "guiones_fallidos": guiones_fallidos(),
         "siguiente": siguiente_paso(cr, historias, videos, candidatos, TRABAJO["actual"]),
         "hechos": list(TRABAJO["hechos"]),
         "fuentes": fuentes_actuales(),
@@ -1969,6 +1973,17 @@ def api_ejecutar(accion):
             cmd += ["--volumen-musica", str(d["volumen_musica"])]
         t, encolado, err = lanzar("Rehaciendo" if d.get("rehacer") else "Renderizando",
                                   cmd, luego="musica_rotar")
+    elif accion == "bajar_fondo":
+        # Un enlace pegado en Ajustes → Fondos. Va como argumento suelto, sin
+        # shell: lo que haya en el texto no se ejecuta. Al acabar bien se
+        # encadena «Re-enlazar material» para que el render ya lo vea.
+        d = request.json or {}
+        url = str(d.get("url") or "").strip()
+        forma = d.get("forma") if d.get("forma") in ("vertical", "horizontal") else "auto"
+        if not re.match(r"^https?://\S+$", url) or len(url) > 2000:
+            return jsonify({"error": "Pega un enlace que empiece por http:// o https://"}), 400
+        t, encolado, err = lanzar("Bajando fondo", [sys.executable, "bajar_fondo.py", url,
+                                                    "--forma", forma], luego="fondos")
     elif accion == "partir_una":
         n = (request.json or {}).get("numero")
         if not isinstance(n, int) or n < 1:
@@ -2040,6 +2055,139 @@ def api_mantenimiento():
     for x in no_cupieron:
         saltados.append({"accion": por_nombre.get(x["nombre"], ""), "motivo": x["motivo"]})
     return jsonify({"ok": True, "encolados": encolados, "saltados": saltados})
+
+
+# Scripts que leen candidatos.json al empezar y lo escriben al acabar: si se
+# toca la cola mientras corren, su escritura final deshace el cambio.
+_TOCAN_CANDIDATOS = ("script_writer.py", "trend_scout.py", "youtube_scout.py",
+                     "buscar_diario.py", "limpiar_cola.py")
+
+
+def _candidatos_ocupados():
+    actual = TRABAJO["actual"]
+    return bool(actual and actual.estado in ("corriendo", "pausado")
+                and any(x in " ".join(map(str, actual.cmd)) for x in _TOCAN_CANDIDATOS))
+
+
+def guiones_fallidos():
+    """Las historias que Gemini no escribió: las que siguen en la cola con un
+    fallo apuntado (se reintentan) y las descartadas que no se archivaron.
+    Cada una con la explicación del diccionario de errores."""
+    def con_explicacion(fila):
+        fallo = fila.get("fallo") or {}
+        exp = errores.explicar([fallo.get("texto", "")], maximo=1)
+        fila["explicacion"] = exp[0] if exp else None
+        fila["bloqueada"] = bool(fallo.get("motivo"))
+        return fila
+    out = []
+    for c in cola.cargar_pendientes():
+        if c.get("ultimo_fallo"):
+            out.append(con_explicacion({
+                "id": c.get("id"), "titulo": c.get("titulo_original", ""),
+                "fuente": c.get("subreddit") or c.get("canal") or c.get("fuente") or "",
+                "intentos": c.get("intentos", 0), "max": cola.MAX_INTENTOS,
+                "estado": "reintenta", "fallo": c["ultimo_fallo"]}))
+    for d in cola.cargar_descartadas():
+        if d.get("para_mi"):
+            continue        # ya está en guion.txt como «solo para mí»
+        fila = {k: v for k, v in d.items() if k != "texto_original"}   # pesa: va aparte
+        out.append(con_explicacion(dict(fila, max=cola.MAX_INTENTOS,
+                                        estado="archivada" if d.get("archivada") else "descartada")))
+    return out
+
+
+def _original_de(cid):
+    """(candidato o descartada, está_en_cola) con ese id, o (None, False)."""
+    for c in cola.cargar_pendientes():
+        if c.get("id") == cid:
+            return c, True
+    for d in cola.cargar_descartadas():
+        if d.get("id") == cid:
+            return d, False
+    return None, False
+
+
+@app.get("/api/guiones/original")
+def api_guiones_original():
+    """El texto que trajo la fuente, para empezar a escribir a mano."""
+    c, _ = _original_de(request.args.get("id", ""))
+    if not c:
+        return jsonify({"error": "Esa historia ya no está."}), 404
+    return jsonify({"titulo": c.get("titulo_original") or c.get("titulo") or "",
+                    "texto": c.get("texto_original") or ""})
+
+
+@app.post("/api/guiones/para_mi")
+def api_guiones_para_mi():
+    """Una historia que Gemini no quiso escribir, escrita a mano, a la cola
+    de grabación con «# Privado: si»: se graba como las demás, pero el
+    publicador, TikTok y la metadata la saltan siempre."""
+    datos = request.json or {}
+    cid = datos.get("id")
+    titulo = " ".join(str(datos.get("titulo") or "").split())[:150]
+    texto = str(datos.get("texto") or "").strip()
+    genero = "Femenino" if datos.get("genero") == "Femenino" else "Masculino"
+    emocion = datos.get("emocion") if datos.get("emocion") in ("drama", "venganza", "suspenso", "comedia") else "drama"
+    if not titulo or len(texto.split()) < 20:
+        return jsonify({"error": "Falta el título o el texto es demasiado corto (mínimo 20 palabras)."}), 400
+    if "===NUEVA_HISTORIA===" in texto:
+        return jsonify({"error": "El texto no puede llevar «===NUEVA_HISTORIA===»."}), 400
+    if _candidatos_ocupados():
+        return jsonify({"error": "Ahora mismo se están escribiendo guiones: espera a que acabe."}), 409
+    c, en_cola = _original_de(cid)
+    if not c:
+        return jsonify({"error": "Esa historia ya no está."}), 404
+    # Ninguna línea del texto puede empezar por «#»: el render las toma por
+    # cabecera y no las narraría.
+    texto = "\n".join(l.lstrip("#").strip() if l.lstrip().startswith("#") else l
+                      for l in texto.splitlines())
+    bloque = (f"# Genero: {genero}\n# Emocion: {emocion}\n"
+              f"# Fuente: {c.get('url') or '[sin enlace]'}\n"
+              f"# Autor: {c.get('autor') or '[desconocido]'}\n"
+              f"# Privado: si\n{titulo}\n{texto}")
+    import script_writer
+    script_writer.escribir_guion([bloque])
+    if en_cola:
+        pendientes = cola.cargar_pendientes()
+        cola.guardar_pendientes([x for x in pendientes if x.get("id") != cid])
+        cola.marcar_vistos([cid])
+        cola.apuntar_descartadas([c])
+    descartadas = cola.cargar_descartadas()
+    for d in descartadas:
+        if d.get("id") == cid:
+            d["para_mi"] = True
+    guardar_json(cola.RUTA_DESCARTADAS, descartadas)
+    return jsonify({"ok": True})
+
+
+@app.post("/api/guiones/archivar")
+def api_guiones_archivar():
+    """Archiva una historia que Gemini no escribió: deja de enseñarse en la
+    cola y, si aún esperaba otro intento, sale de candidatos.json (al
+    archivo de siempre, con su texto) para no gastar más llamadas."""
+    cid = (request.json or {}).get("id")
+    if not cid:
+        return jsonify({"error": "Falta el id"}), 400
+    if _candidatos_ocupados():
+        return jsonify({"error": "Ahora mismo se está escribiendo o buscando: archívala "
+                                 "cuando acabe, o se desharía al terminar."}), 409
+    pendientes = cola.cargar_pendientes()
+    sale = [c for c in pendientes if c.get("id") == cid]
+    if sale:
+        cola.guardar_pendientes([c for c in pendientes if c.get("id") != cid])
+        cola.archivar(sale)
+        cola.marcar_vistos([cid])
+        cola.apuntar_descartadas(sale)
+    descartadas = cola.cargar_descartadas()
+    tocada = False
+    for d in descartadas:
+        if d.get("id") == cid and not d.get("archivada"):
+            d["archivada"] = True
+            tocada = True
+    if not (sale or tocada):
+        return jsonify({"error": "Esa historia ya no está."}), 404
+    guardar_json(cola.RUTA_DESCARTADAS, descartadas)
+    return jsonify({"ok": True})
 
 
 @app.post("/api/cola/<que>")
