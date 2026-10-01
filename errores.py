@@ -136,6 +136,15 @@ CATALOGO = [
      "que_hacer": "Nada urgente: esos videos se saltan. Si son todos, espera unas horas "
                   "o prueba con otra red (WiFi en vez de datos o al revés)."},
 
+    {"id": "ytdlp_robot", "tema": "Búsqueda",
+     "patrones": [r"no deja bajar este video sin una sesión", r"not a bot"],
+     "titulo": "YouTube pide confirmar que no eres un robot",
+     "que_pasa": "Para descargas sin sesión iniciada YouTube a veces exige entrar con una "
+                 "cuenta. Se probó con la sesión de tus navegadores y ninguna sirvió.",
+     "que_hacer": "En el PC: entra en youtube.com con Firefox, ciérralo y vuelve a pulsar "
+                  "«Bajar». En el teléfono: usa la app Seal con tu cuenta y guarda en "
+                  "Download/Reddicuentos. Si falla con todo, pip install -U yt-dlp."},
+
     # ---- Subir a YouTube --------------------------------------------------
     {"id": "youtube_limite_subidas", "tema": "Subida",
      "patrones": [r"uploadLimitExceeded", r"límite diario de subidas"],

@@ -29,6 +29,16 @@ import vincular_fondos
 TOPE_MB = 800
 PREFIJOS = {"vertical": "fondo_vertical_", "horizontal": "fondo_horizontal_", "auto": ""}
 
+# YouTube corta las descargas sin sesión con «Sign in to confirm you're not
+# a bot». La salida de yt-dlp es usar la sesión de un navegador donde ya
+# estés dentro: lee sus cookies en el momento y no las guarda en ningún
+# archivo (las credenciales solo viven en secretos.env, ver CLAUDE.md).
+# Firefox primero: Chrome y Edge cifran sus cookies desde 2024 de una forma
+# que yt-dlp a menudo no puede abrir, y con el navegador abierto el archivo
+# está bloqueado.
+NAVEGADORES = ("firefox", "edge", "chrome", "brave", "opera", "vivaldi", "chromium")
+RE_BOT = re.compile(r"not a bot|Sign in to confirm|confirm your age|cookies-from-browser", re.I)
+
 
 def _avance(d):
     # Una línea por cada 10 %: la tarjeta del trabajo enseña la última, y
@@ -42,6 +52,29 @@ def _avance(d):
                 print(f"⬇️  Bajando {pct}% de {total / 1e6:.0f} MB", flush=True)
     elif d.get("status") == "finished":
         print("✓ Descargado", flush=True)
+
+
+class _Callado:
+    """yt-dlp escribe sus «ERROR:» por su cuenta aunque vaya en quiet; con
+    varios reintentos llenarían la tarjeta. Aquí se dice lo que pasó una vez."""
+    def debug(self, msg): pass
+    def info(self, msg): pass
+    def warning(self, msg): pass
+    def error(self, msg): pass
+
+
+def _corto(texto):
+    return texto.splitlines()[0][:140] if texto else ""
+
+
+def _intentar(yt_dlp, opciones, url):
+    """(info, ruta, None) si bajó; (None, None, texto del error) si no."""
+    try:
+        with yt_dlp.YoutubeDL(opciones) as ydl:
+            info = ydl.extract_info(url, download=True)
+            return info, ydl.prepare_filename(info), None
+    except Exception as exc:          # DownloadError, y los de leer cookies
+        return None, None, re.sub(r"^ERROR:\s*", "", str(exc))
 
 
 def bajar(url, forma="auto", carpeta=None):
@@ -70,15 +103,34 @@ def bajar(url, forma="auto", carpeta=None):
         "quiet": True,
         "noprogress": True,
         "no_warnings": True,
+        "logger": _Callado(),
     }
     print(f"Enlace: {url}", flush=True)
-    with yt_dlp.YoutubeDL(opciones) as ydl:
-        try:
-            info = ydl.extract_info(url, download=True)
-        except yt_dlp.utils.DownloadError as exc:
-            texto = re.sub(r"^ERROR:\s*", "", str(exc))
-            raise SystemExit(f"❌ No se pudo bajar: {texto}")
-        ruta = ydl.prepare_filename(info)
+    info, ruta, error = _intentar(yt_dlp, opciones, url)
+    if error and RE_BOT.search(error) and not vincular_fondos.ES_TERMUX:
+        # En el teléfono no hay navegador del que leer nada.
+        print("YouTube pide demostrar que no eres un robot; pruebo con la sesión de "
+              "tus navegadores…", flush=True)
+        for nav in NAVEGADORES:
+            info, ruta, error_nav = _intentar(yt_dlp, dict(opciones, cookiesfrombrowser=(nav,)), url)
+            if not error_nav:
+                print(f"   ✓ con la sesión de {nav}", flush=True)
+                error = None
+                break
+            print(f"   · {nav}: {_corto(error_nav)}", flush=True)
+    if error:
+        if RE_BOT.search(error):
+            raise SystemExit(
+                "❌ YouTube no deja bajar este video sin una sesión iniciada (pide confirmar "
+                "que no eres un robot).\n"
+                + ("   En el PC: entra en youtube.com con Firefox (con tu cuenta), ciérralo y "
+                   "vuelve a pulsar «Bajar»; se usa esa sesión sin guardarla. Chrome y Edge "
+                   "también sirven si están cerrados, aunque a veces no se dejan leer.\n"
+                   if not vincular_fondos.ES_TERMUX else
+                   "   En el teléfono: prueba desde el PC, o baja el video con la app Seal "
+                   "(con tu cuenta) a Download/Reddicuentos y pulsa «Re-enlazar material».\n")
+                + "   Si pasa con todos los videos, pon al día yt-dlp: pip install -U yt-dlp")
+        raise SystemExit(f"❌ No se pudo bajar: {error}")
 
     if not os.path.exists(ruta):
         raise SystemExit(f"❌ No se bajó nada: el video pasa de {TOPE_MB} MB, o el sitio no "

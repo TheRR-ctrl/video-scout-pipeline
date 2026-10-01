@@ -126,6 +126,7 @@ _RE_CONTEXTO = [
     (re.compile(r"\[INFO\] \[(\d+)/(\d+)\] (.+?)(?:\.\.\.)?$"),
      lambda m: f"Historia {m[1]} de {m[2]} · {m[3]}"),
     (re.compile(r"Procesando: (.+)$"), lambda m: m[1]),
+    (re.compile(r"^Enlace: (\S+)"), lambda m: f"Fondo · {m[1][:80]}"),
 ]
 # Una línea que dice que algo salió mal de verdad: errores del log, los ❌
 # del render, «Fallo en candidato…» del escritor, «Fallo al subir…» del
