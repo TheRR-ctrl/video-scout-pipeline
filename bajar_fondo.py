@@ -56,25 +56,54 @@ def _avance(d):
 
 class _Callado:
     """yt-dlp escribe sus «ERROR:» por su cuenta aunque vaya en quiet; con
-    varios reintentos llenarían la tarjeta. Aquí se dice lo que pasó una vez."""
-    def debug(self, msg): pass
+    varios reintentos llenarían la tarjeta. Aquí se guardan los avisos —el
+    de «no pude descifrar las cookies» llega como aviso, no como error— y
+    se dice lo que pasó una vez."""
+    def __init__(self):
+        self.avisos = []
+    def debug(self, msg):
+        if "cookie" in str(msg).lower():
+            self.avisos.append(str(msg))
     def info(self, msg): pass
-    def warning(self, msg): pass
+    def warning(self, msg): self.avisos.append(str(msg))
     def error(self, msg): pass
+
+
+def _por_que(nav, error, avisos):
+    """Una frase de por qué no sirvió la sesión de ese navegador."""
+    t = (error + " " + " ".join(avisos)).lower()
+    if re.search(r"could not find .*(cookie|profile)|no such file|not installed|unsupported", t):
+        return "no está instalado (o nunca se abrió)"
+    if re.search(r"could not copy|database is locked|permission denied|being used by another", t):
+        return ("estaba abierto (y cerrado chocaría con el mismo cifrado que Edge)"
+                if nav in ("chrome", "edge", "brave") else "estaba abierto: ciérralo y vuelve a probar")
+    if re.search(r"dpapi|app.?bound|failed to decrypt|unable to decrypt|cannot decrypt", t):
+        return "cifra su sesión y ningún programa la puede leer (Chrome y Edge desde 2024)"
+    if re.search(r"extracted 0 cookies|0 cookies", t):
+        return "no tiene ninguna sesión guardada"
+    if RE_BOT.search(t):
+        return "se leyó, pero sin sesión de YouTube (o YouTube la rechazó)"
+    return _corto(error)
 
 
 def _corto(texto):
     return texto.splitlines()[0][:140] if texto else ""
 
 
-def _intentar(yt_dlp, opciones, url):
-    """(info, ruta, None) si bajó; (None, None, texto del error) si no."""
+def _intentar(yt_dlp, opciones, url, avisos=None):
+    """(info, ruta, None) si bajó; (None, None, texto del error) si no.
+    Los avisos de yt-dlp se dejan en `avisos` si se pasa una lista."""
+    callado = _Callado()
+    opciones = dict(opciones, logger=callado)
     try:
         with yt_dlp.YoutubeDL(opciones) as ydl:
             info = ydl.extract_info(url, download=True)
             return info, ydl.prepare_filename(info), None
     except Exception as exc:          # DownloadError, y los de leer cookies
         return None, None, re.sub(r"^ERROR:\s*", "", str(exc))
+    finally:
+        if avisos is not None:
+            avisos.extend(callado.avisos)
 
 
 def bajar(url, forma="auto", carpeta=None):
@@ -103,29 +132,37 @@ def bajar(url, forma="auto", carpeta=None):
         "quiet": True,
         "noprogress": True,
         "no_warnings": True,
-        "logger": _Callado(),
     }
     print(f"Enlace: {url}", flush=True)
     info, ruta, error = _intentar(yt_dlp, opciones, url)
+    probados = []
     if error and RE_BOT.search(error) and not vincular_fondos.ES_TERMUX:
         # En el teléfono no hay navegador del que leer nada.
         print("YouTube pide demostrar que no eres un robot; pruebo con la sesión de "
               "tus navegadores…", flush=True)
         for nav in NAVEGADORES:
-            info, ruta, error_nav = _intentar(yt_dlp, dict(opciones, cookiesfrombrowser=(nav,)), url)
+            avisos = []
+            info, ruta, error_nav = _intentar(
+                yt_dlp, dict(opciones, cookiesfrombrowser=(nav,)), url, avisos)
             if not error_nav:
                 print(f"   ✓ con la sesión de {nav}", flush=True)
                 error = None
                 break
-            print(f"   · {nav}: {_corto(error_nav)}", flush=True)
+            motivo = _por_que(nav, error_nav, avisos)
+            if "no está instalado" not in motivo:
+                probados.append(f"{nav}: {motivo}")
+            print(f"   · {nav}: {motivo}", flush=True)
     if error:
         if RE_BOT.search(error):
             raise SystemExit(
-                "❌ YouTube no deja bajar este video sin una sesión iniciada (pide confirmar "
-                "que no eres un robot).\n"
-                + ("   En el PC: entra en youtube.com con Firefox (con tu cuenta), ciérralo y "
-                   "vuelve a pulsar «Bajar»; se usa esa sesión sin guardarla. Chrome y Edge "
-                   "también sirven si están cerrados, aunque a veces no se dejan leer.\n"
+                "❌ YouTube no deja bajar este video sin una sesión iniciada"
+                + ((" — " + "; ".join(probados) + ".\n") if probados
+                   else (" — no encontré ningún navegador instalado del que leer la sesión.\n"
+                         if not vincular_fondos.ES_TERMUX else ".\n"))
+                + ("   Lo que funciona en el PC: instalar Firefox (si no lo tienes), entrar en "
+                   "youtube.com con tu cuenta, cerrarlo y volver a pulsar «Bajar». Su sesión sí "
+                   "se deja leer y no se guarda en ningún archivo. Chrome y Edge cifran la suya "
+                   "desde 2024 y no hay forma de usarla.\n"
                    if not vincular_fondos.ES_TERMUX else
                    "   En el teléfono: prueba desde el PC, o baja el video con la app Seal "
                    "(con tu cuenta) a Download/Reddicuentos y pulsa «Re-enlazar material».\n")
