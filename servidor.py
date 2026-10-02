@@ -369,6 +369,7 @@ class Trabajo:
                 else lineas[-15:]),
             "modelos": resumen_modelos(self.modelos),
             "vista": vista_del_trabajo(self.nombre, self.cmd),
+            **dict(zip(("al_aire", "rotulo"), rotulo_del_trabajo(self.cmd, lineas))),
             "codificador": self.codificador,
             "uso_procesador": self.uso_procesador,
             "inicio": self.inicio,
@@ -449,6 +450,49 @@ VISTA_POR_SCRIPT = {
     "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
     "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes", "calibrar_render.py": "ajustes",
 }
+
+
+# Qué dice la lámpara de la cabecera mientras corre cada script. «Al aire»
+# queda solo para publicar, que es lo que emite de verdad; lo demás dice lo
+# que está haciendo, en azul y no en rojo.
+ROTULO_POR_SCRIPT = {
+    "generar_video_maestro.py": "Grabando", "previsualizar_estilos.py": "Grabando muestras",
+    "script_writer.py": "Escribiendo guiones", "rehacer_guiones.py": "Escribiendo guiones",
+    "preparar_metadata.py": "Preparando títulos",
+    "trend_scout.py": "Buscando historias", "youtube_scout.py": "Buscando historias",
+    "buscar_diario.py": "Tanda automática", "pipeline.py": "Tanda automática",
+    "partir_historias.py": "Ordenando la cola", "limpiar_cola.py": "Ordenando la cola",
+    "archivar_largas.py": "Ordenando la cola",
+    "actualizar_musica.py": "Bajando música", "vincular_fondos.py": "Preparando material",
+    "bajar_fondo.py": "Bajando fondo", "descargar_fondos.py": "Bajando fondos",
+    "hyperframes_broll.py": "Fabricando fondos",
+    "calidad.py": "Revisando videos", "calidad_ia.py": "Revisando videos",
+    "relanzar.py": "Revisando el canal", "revision_quincenal.py": "Revisando el canal",
+    "revision_quincenal.sh": "Revisando el canal", "formato.py": "Revisando el canal",
+    "diagnosticar_youtube.py": "Rehaciendo", "recomprimir.py": "Recomprimiendo",
+    "respaldo.py": "Respaldando", "calibrar_render.py": "Midiendo",
+}
+# Opciones con las que los publicadores solo miran, no suben.
+_SOLO_MIRAN = ("--revisar-programados", "--estado", "--simular")
+# Las cadenas (pipeline, rehacer y subir) solo están al aire mientras suben:
+# es lo que imprime publisher.py ("Subiendo X: 40%") y diagnosticar_youtube.
+_RE_SUBIENDO = re.compile(r"Subiendo \S")
+
+
+def rotulo_del_trabajo(cmd, lineas):
+    """(al_aire, rótulo) de lo que está haciendo el trabajo ahora."""
+    scripts = [os.path.basename(str(p)) for p in cmd]
+    if (any(s in ("publisher.py", "tiktok_publisher.py") for s in scripts)
+            and not any(o in cmd for o in _SOLO_MIRAN)):
+        return True, "Al aire"
+    if any(_RE_SUBIENDO.search(l) for l in lineas[-3:]):
+        return True, "Al aire"
+    if any(s in ("publisher.py", "tiktok_publisher.py") for s in scripts):
+        return False, "Revisando el canal"
+    for s in scripts:
+        if s in ROTULO_POR_SCRIPT:
+            return False, ROTULO_POR_SCRIPT[s]
+    return False, "Trabajando"
 
 
 def vista_del_trabajo(nombre, cmd):
@@ -1320,6 +1364,80 @@ def api_borrar_subidos():
     marcar_borrados_localmente(borrados)
     return jsonify({"ok": True, "borrados": len(borrados), "kb": kb_total,
                     "fallos": len(fallos)})
+
+
+@app.post("/api/borrar-todos")
+def api_borrar_todos():
+    """Borra todos los videos de la carpeta de salida.
+
+    Los que están en YouTube solo pierden la copia local, como con
+    «Borrar los subidos». Los que no se subieron vuelven a la Cola para
+    grabarlos de nuevo: se quita también su rastro en resultado_lote.json
+    (sin eso limpiar_cola los seguiría dando por grabados) y, si su guion ya
+    había salido de guion.txt, se recupera del historial o de las copias.
+    Los rechazados salen de rechazados.json, para que el publicador vuelva a
+    mirarlos cuando estén regrabados.
+    """
+    actual = TRABAJO["actual"]
+    if actual and actual.estado in ("corriendo", "pausado") and any(
+            "generar_video_maestro.py" in str(p) or "publisher.py" in str(p) for p in actual.cmd):
+        return jsonify({"error": "Ahora mismo se está grabando o subiendo: borra cuando acabe."}), 409
+    import relanzar
+    import limpiar_cola
+    videos = videos_renderizados()
+    if not videos:
+        return jsonify({"error": "No hay videos en la carpeta"}), 404
+
+    carpeta = cfg_actual()["carpeta_salida"]
+    subidos = [v["archivo"] for v in videos if v["subido"]]
+    otros = [v["archivo"] for v in videos if not v["subido"]]
+    borrados, kb_total, fallos = [], 0, []
+    for nombre in subidos:
+        kb, error = borrar_de_salida(nombre)
+        if error:
+            fallos.append(nombre)
+            continue
+        borrados.append(nombre)
+        kb_total += kb
+    marcar_borrados_localmente(borrados)
+
+    bloques = limpiar_cola.bloques_del_guion()
+    en_cola = {limpiar_cola.apodo(b) for b in bloques}
+    recuperados, a_cola, sin_guion = [], 0, []
+    for nombre in otros:
+        ruta = os.path.join(carpeta, nombre)
+        kb = os.path.getsize(ruta) // 1024 if os.path.isfile(ruta) else 0
+        # Quita el .mp4 y su anotación en el lote; la miniatura, aparte.
+        relanzar.olvidar_el_render({"ruta": ruta})
+        borrar_de_salida(nombre)
+        kb_total += kb
+        apodo = limpiar_cola._apodo_de_archivo(nombre)
+        if apodo in en_cola:
+            a_cola += 1
+            continue
+        bloque = next((b for b in limpiar_cola.bloques_del_guion(limpiar_cola.RUTA_HISTORIAL_GUION)
+                       if limpiar_cola.apodo(b) == apodo), None) or relanzar.buscar_en_respaldos(apodo)[0]
+        if bloque:
+            recuperados.append(bloque)
+            en_cola.add(apodo)
+            a_cola += 1
+        else:
+            sin_guion.append(nombre)
+    relanzar.devolver_a_la_cola(recuperados)
+
+    ruta_rech = os.path.join(CARPETA_ESTADO, "rechazados.json")
+    rechazados = leer_json(ruta_rech, [])
+    quedan = [r for r in rechazados if os.path.basename(r.get("ruta", "")) not in otros]
+    if len(quedan) != len(rechazados):
+        guardar_json(ruta_rech, quedan)
+    revisiones = leer_json(os.path.join(CARPETA_ESTADO, "calidad.json"), {})
+    if any(n in revisiones for n in otros):
+        guardar_json(os.path.join(CARPETA_ESTADO, "calidad.json"),
+                     {k: v for k, v in revisiones.items() if k not in otros})
+
+    return jsonify({"ok": True, "borrados": len(borrados) + len(otros), "kb": kb_total,
+                    "subidos": len(borrados), "a_cola": a_cola, "fallos": len(fallos),
+                    "sin_guion": sin_guion})
 
 
 def borrar_de_salida(nombre):
