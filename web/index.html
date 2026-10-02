@@ -855,6 +855,20 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .bajar-fondo input{width:100%;background:var(--surface-2);color:var(--ink);border:1px solid var(--line);
     border-radius:4px;padding:9px 10px;font:13px var(--mono)}
   @media (pointer:coarse){ .bajar-fondo input{font-size:16px} }
+  /* Diagnóstico de un video que YouTube quitó (Canal). */
+  .diag-yt{margin:9px 0 2px;padding:10px 12px;border:1px solid var(--line);border-radius:4px;
+    background:var(--surface);font-size:13.5px;color:var(--ink-dim)}
+  .diag-yt b{color:var(--ink)}
+  .diag-yt p{margin:6px 0}
+  .diag-yt .cita{font-style:italic;color:var(--ink);border-left:1px solid var(--line);padding-left:8px}
+  .diag-yt ul{margin:6px 0;padding-left:18px}
+  .diag-yt .que-cambia{color:var(--ink)}
+  .motivo-yt{margin:8px 0}
+  @media (max-width:560px){ .aviso .row:has(.diag-yt){grid-template-columns:1fr} }
+  .motivo-yt summary{cursor:pointer;font-size:12.5px}
+  .motivo-yt textarea{width:100%;margin-top:6px;background:var(--surface-2);color:var(--ink);
+    border:1px solid var(--line);border-radius:4px;padding:8px;font:13px/1.45 var(--body);resize:vertical}
+  @media (pointer:coarse){ .motivo-yt textarea{font-size:16px} }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style>
 </head>
@@ -1803,6 +1817,7 @@ function pintaRevisar(){
             <span>Emoción <b>${esc(a.emocion)}</b></span>
             ${a.musica?`<span>Música <b>${esc(a.musica.replace(/^musica_|\.mp3$/g,''))}</b></span>
               <button class="btn sm" data-oir="${esc(a.musica)}" title="Oír la pista" style="padding:2px 8px">▶</button>`:''}
+            ${a.rehace ? '<span class="pill warn">Rehace uno que quitó YouTube</span>' : ''}
             ${a.privado ? '<span class="pill acc">Solo para ti · no se publica</span>'
               : a.subido ? '<span class="pill ok">✓ ya subido a YouTube</span>'
               : (a.publicado ? '<span class="pill warn">rechazado, no se subió</span>'
@@ -2944,7 +2959,12 @@ function pintaPublicados(){
    la API de YouTube tiene cuota diaria. Por eso se ve la fecha de la última
    lectura y hay un botón para releerlas.
    ========================================================= */
-function firmaCanal(){ return JSON.stringify(E.canal || null); }
+function firmaCanal(){
+  // Mientras escribes el motivo del correo no se repinta: te lo borraría.
+  const foco = document.activeElement;
+  if(foco && foco.matches && foco.matches('[data-motivo-yt]')) return firmas.canal;
+  return JSON.stringify(E.canal || null);
+}
 
 function haceCuanto(iso){
   if(!iso) return null;
@@ -2983,6 +3003,7 @@ function bloqueProblemasYoutube(c){
         <div style="min-width:0"><div class="t dos">${ico} ${esc(x.titulo)}</div>
           <div class="meta"><span class="pill ${tono}">${esc(txt)}</span>
             <span class="m">${esc(x.detalle)}</span></div>
+          ${bloqueDiagnostico(x, (c.diagnosticos || {})[x.video_id])}
           <div class="acciones-aviso">
             <a class="btn sm" href="${esc(x.url)}" target="_blank" rel="noopener">Abrir en Studio ↗</a>
             <button class="btn sm" onclick="irA('ajustes/material'); abrirFondos()">✂ Tramos de fondo</button>
@@ -2992,6 +3013,63 @@ function bloqueProblemasYoutube(c){
     ${pie}
   </div></div>`;
 }
+/* Por qué lo quitó y qué corregir (diagnosticar_youtube.py). Sin
+   diagnóstico: el botón para pedirlo, con un hueco para pegar el motivo del
+   correo de YouTube, que es lo único que lo dice con certeza. */
+const CAUSA_YT = {
+  derechos_musica: 'La música tiene dueño', derechos_fondo: 'Un clip del fondo tiene dueño',
+  contenido_reutilizado: 'Contenido reutilizado o repetido', contenido_sensible: 'Algo de la historia incumple sus normas',
+  metadatos_enganosos: 'El título o la descripción engañan', desconocida: 'No se sabe con certeza'};
+const motivosYT = {};
+function bloqueDiagnostico(x, d){
+  if(!['quitado','rechazado','restringido','bloqueado'].includes(x.tipo)) return '';
+  const id = esc(x.video_id);
+  const pegar = `<details class="motivo-yt"><summary>¿Te llegó un correo o un aviso en Studio? Pega el motivo</summary>
+      <textarea data-motivo-yt="${id}" rows="3" placeholder="Pega aquí lo que dice YouTube (opcional, pero afina mucho el diagnóstico)">${esc(motivosYT[x.video_id] || (d && d.motivo_usuario) || '')}</textarea></details>`;
+  if(!d) return `<div class="diag-yt">${pegar}
+      <button class="btn go sm" data-analizar-yt="${id}">🩺 Analizar por qué</button></div>`;
+  const tono = {alto:'crit', medio:'warn', bajo:'ok'}[d.riesgo_resubir] || 'idle';
+  return `<div class="diag-yt">
+    <div><b>${esc(CAUSA_YT[d.causa] || d.causa)}</b>
+      <span class="pill idle">confianza ${esc(d.confianza)}</span>${d.con_gemini ? '' : ' <span class="pill warn">sin Gemini</span>'}</div>
+    <p>${esc(d.explicacion)}</p>
+    ${(d.partes_problema || []).map(t => `<p class="cita">«${esc(t)}»</p>`).join('')}
+    ${(d.correcciones || []).length ? `<ul>${d.correcciones.map(t => `<li>${esc(t)}</li>`).join('')}</ul>` : ''}
+    <p class="que-cambia">Al rehacerlo: ${[d.reescribir_guion && 'se reescribe el guion', d.cambiar_musica && 'otra canción',
+       d.cambiar_fondo && 'fuera esos tramos de fondo'].filter(Boolean).join(' · ') || 'se vuelve a grabar igual'}.</p>
+    <div><span class="pill ${tono}">riesgo ${esc(d.riesgo_resubir)}</span> <span class="m">${esc(d.por_que_riesgo)}</span></div>
+    ${pegar}
+    <div class="acciones-aviso">
+      <button class="btn go sm" data-rehacer-yt="${id}" data-riesgo="${esc(d.riesgo_resubir)}" data-subir="1">↺ Rehacer corregido y subir</button>
+      <button class="btn sm" data-rehacer-yt="${id}" data-riesgo="${esc(d.riesgo_resubir)}">Rehacer sin subir</button>
+      <button class="btn sm" data-analizar-yt="${id}">🩺 Analizar otra vez</button>
+    </div></div>`;
+}
+document.addEventListener('input', ev => {
+  const t = ev.target.closest && ev.target.closest('[data-motivo-yt]');
+  if(t) motivosYT[t.dataset.motivoYt] = t.value;
+});
+document.addEventListener('click', ev => {
+  const a = ev.target.closest('[data-analizar-yt]');
+  if(a){
+    const vid = a.dataset.analizarYt;
+    ejecutar('diagnosticar_quitado', {video_id: vid, motivo: motivosYT[vid] || ''});
+    return;
+  }
+  const b = ev.target.closest('[data-rehacer-yt]');
+  if(!b) return;
+  const subir = !!b.dataset.subir, alto = b.dataset.riesgo === 'alto';
+  const aviso = (alto
+    ? '⚠ RIESGO ALTO: volver a subir algo que YouTube quitó por sus normas puede costar otra advertencia, '
+      + 'y tres en 90 días cierran el canal.\n\n'
+    : '')
+    + 'Se aplican las correcciones, se graba de nuevo'
+    + (subir ? ' y se sube (como privado, con la ventana de revisión de siempre).' : ' y queda en Revisar.')
+    + '\n\n¿Seguir?';
+  if(!confirm(aviso)) return;
+  ejecutar('rehacer_quitado', {video_id: b.dataset.rehacerYt, subir, aun_asi: alto});
+});
+
 async function problemaVisto(vid){
   try{ await post('/api/canal/problema/visto', {video_id: vid}); toast('Quitado del aviso'); refrescar(); }
   catch(e){ toast(e.message); }

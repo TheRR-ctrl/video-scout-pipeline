@@ -335,6 +335,20 @@ viaje redondo y pasa a ser el transporte, y con `PULL_FROM_URL` el móvil ni
 siquiera sube nada. Si se llega a eso, los permisos son `user.info.basic` y
 `video.upload` — `video.publish` no se pide nunca.
 
+## Rehacer lo que YouTube quitó: el riesgo es el canal
+
+`diagnosticar_youtube.py` (Canal → «🩺 Analizar por qué» y «↺ Rehacer»)
+vuelve a subir algo que YouTube quitó. Si lo quitó por sus normas, otra
+subida igual puede costar otra advertencia, y **tres en 90 días cierran el
+canal**. Por eso con riesgo alto se niega salvo con `--aun-asi`, que el
+panel solo manda tras un aviso explícito. No quitar esa guarda.
+
+El diagnóstico depende de que cada video lleve apuntados sus tramos de
+fondo (`fondos` en `resultado_lote.json` y `publicados.json`) con el nombre
+**original** del archivo: los enlaces `fondo_vertical_N` se renumeran en
+cada «Re-enlazar», así que excluir por el nombre de enlace guardado
+excluiría otro video. `_enlace_actual` lo traduce al de hoy.
+
 ## Imports que parecen sobrar
 
 `import secretos` e `import ruido` se importan por su efecto, no por su

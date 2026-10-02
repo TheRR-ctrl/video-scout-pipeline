@@ -22,7 +22,14 @@ import re
 import sys
 import argparse
 
+import almacen
 import vincular_fondos
+
+# De qué enlace salió cada fondo bajado, por nombre de archivo. Un fondo de
+# un canal ajeno es el sospechoso número uno si YouTube quita un video por
+# derechos (diagnosticar_youtube.py lo mira aquí).
+RUTA_ORIGEN = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                           "pipeline_state", "fondos_origen.json")
 
 # Más de esto no es un fondo, es una película: en el teléfono llenaría el
 # almacenamiento por un clip del que se usan unos minutos.
@@ -187,6 +194,10 @@ def bajar(url, forma="auto", carpeta=None):
     if not os.path.exists(ruta):
         raise SystemExit(f"❌ No se bajó nada: el video pasa de {TOPE_MB} MB, o el sitio no "
                          f"dejó descargarlo. Prueba con otro enlace.")
+    origen = almacen.leer(RUTA_ORIGEN, {}) or {}
+    origen[os.path.basename(ruta)] = {"url": url, "canal": info.get("channel") or info.get("uploader"),
+                                      "sitio": info.get("extractor_key")}
+    almacen.guardar(RUTA_ORIGEN, origen)
     alto, ancho = info.get("height"), info.get("width")
     print(f"✅ {os.path.basename(ruta)}"
           + (f" ({ancho}x{alto})" if alto and ancho else "")
