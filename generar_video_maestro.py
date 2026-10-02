@@ -565,6 +565,18 @@ def videos_a_la_vez():
                                                    1 if ES_ANDROID else 2)
 
 
+def cortes_a_la_vez():
+    """Cuántos trozos de fondo corta a la vez cada video. En el teléfono, 1:
+    ya va justo y varios videos a la vez lo llenan. En un PC, según los
+    hilos del procesador (entre 2 y 6). config.json → video.cortes_a_la_vez
+    lo fija a mano."""
+    valor = (CONFIG.get("video") or {}).get("cortes_a_la_vez", "auto")
+    try:
+        return max(1, min(12, int(valor)))
+    except (TypeError, ValueError):
+        return 1 if ES_ANDROID else max(2, min(6, (os.cpu_count() or 4) // 4))
+
+
 def tope_a_la_vez():
     """8 en un PC, 4 en el teléfono (calibrar_render.py mide hasta ahí)."""
     return 4 if ES_ANDROID else 8
@@ -908,24 +920,29 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
         w_res, h_res = (1080, 1920) if es_short else (1920, 1080)
     filtro = f"scale={w_res}:{h_res}:force_original_aspect_ratio=increase,crop={w_res}:{h_res},fps=30"
 
-    acumulado = 0.0
-    archivos_clips = []
-    cortes = []
-    
     anch = max(10, shutil.get_terminal_size((40, 24)).columns - 35)
     txt_base = " ├─ 🎞️ [2/4] Cortes:"
     actualizar_hud([f"{txt_base} [  0.0%] [{' ' * anch}]"])
 
-    fallos_consecutivos = 0
-    while acumulado < duracion_requerida_sec:
-        if fallos_consecutivos >= 8:
-            logger.error("Demasiados cortes fallidos seguidos, abortando ensamblado de fondo.")
-            break
-        clip_dur = min(random.uniform(6.0, 12.0), duracion_requerida_sec - acumulado)
-        vid_elegido = random.choice(vids_base)
-        dur_total_vid = medir_duracion_media(vid_elegido)
+    # La duración de cada archivo se mide una vez, no en cada corte.
+    duraciones = {}
 
-        if os.path.basename(vid_elegido) in excluidos:
+    def duracion_de(vid):
+        if vid not in duraciones:
+            duraciones[vid] = medir_duracion_media(vid)
+        return duraciones[vid]
+
+    def planear(falta):
+        """(fondo, inicio, segundos) del siguiente corte, o None si ya no
+        queda ningún fondo utilizable."""
+        nonlocal vids_base
+        while vids_base:
+            clip_dur = min(random.uniform(6.0, 12.0), falta)
+            vid_elegido = random.choice(vids_base)
+            dur_total_vid = duracion_de(vid_elegido)
+            if os.path.basename(vid_elegido) not in excluidos:
+                ss = random.uniform(0.5, dur_total_vid - clip_dur - 1.0) if dur_total_vid > (clip_dur + 2.0) else 0.0
+                return vid_elegido, ss, clip_dur
             # Tiene tramos que no se usan: el inicio sale solo de los huecos
             # libres. Si ninguno llega a clip_dur se prueba un corte más
             # corto; si ni así, ese fondo sale de la lista para este video.
@@ -934,37 +951,66 @@ def crear_fondo_multi_corte(duracion_requerida_sec, es_short, gestor_temp, num_i
                 hueco = max((b - a for a, b in fondos_excluidos.permitidos(
                     vid_elegido, dur_total_vid, datos=excluidos)), default=0.0)
                 if hueco >= 2.0:
-                    clip_dur = hueco
+                    clip_dur = min(hueco, falta)
                     ss = fondos_excluidos.elegir_inicio(vid_elegido, dur_total_vid, clip_dur, excluidos)
-            if ss is None:
-                vids_base = [v for v in vids_base if v != vid_elegido]
-                print(f" ├─ ✂️  {vid_elegido}: sin hueco libre tras quitar sus tramos excluidos; se salta.")
-                if not vids_base:
-                    logger.error("Todos los fondos quedaron fuera por sus tramos excluidos.")
-                    break
-                continue
-        else:
-            ss = random.uniform(0.5, dur_total_vid - clip_dur - 1.0) if dur_total_vid > (clip_dur + 2.0) else 0.0
-        nom_clip = gestor_temp.registrar(f"temp_clip_{num_index}_{len(archivos_clips)}.mp4")
-        
+            if ss is not None:
+                return vid_elegido, ss, clip_dur
+            vids_base = [v for v in vids_base if v != vid_elegido]
+            print(f" ├─ ✂️  {vid_elegido}: sin hueco libre tras quitar sus tramos excluidos; se salta.")
+        logger.error("Todos los fondos quedaron fuera por sus tramos excluidos.")
+        return None
+
+    def cortar(orden, vid_elegido, ss, clip_dur):
+        nom_clip = gestor_temp.registrar(f"temp_clip_{num_index}_{orden}.mp4")
         cmd = ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y", "-ss", f"{ss:.2f}", "-i", vid_elegido, "-t", f"{clip_dur:.2f}", "-vf", filtro, "-c:v", "libx264", "-preset", "ultrafast", "-an", nom_clip]
         res_clip = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-
         if res_clip.returncode != 0 or not archivo_valido(nom_clip):
             logger.warning(f"Corte descartado ({vid_elegido} @ {ss:.2f}s): {(res_clip.stderr or '').strip()[-300:]}")
-            fallos_consecutivos += 1
-            continue
+            return None
+        return nom_clip
 
-        fallos_consecutivos = 0
-        archivos_clips.append(nom_clip)
-        cortes.append({"archivo": os.path.basename(vid_elegido),
-                       "original": _nombre_original(vid_elegido),
-                       "desde": round(ss, 2), "segundos": round(clip_dur, 2)})
-        acumulado += clip_dur
-        
-        pct = min(100.0, (acumulado/duracion_requerida_sec)*100.0)
-        bl = int(anch * pct / 100)
-        actualizar_hud([f"{txt_base} [{pct:5.1f}%] [{'█'*bl}{' '*(anch-bl)}]"])
+    # Varios cortes a la vez (cortes_a_la_vez): cada uno es un ffmpeg que en
+    # un PC acaba en menos de un segundo, y uno tras otro el procesador se
+    # pasaba la fase esperando a que arrancara el siguiente. El orden del
+    # fondo final es el del plan, no el de quién acaba antes.
+    hechos = {}            # orden → (clip, corte)
+    acumulado = 0.0
+    fallos_consecutivos = 0
+    siguiente = 0
+    en_marcha = {}
+    n_cortes = cortes_a_la_vez()
+    with ThreadPoolExecutor(max_workers=n_cortes) as pool:
+        while True:
+            planeado = acumulado + sum(c[3] for c in en_marcha.values())
+            while (len(en_marcha) < n_cortes and fallos_consecutivos < 8
+                   and planeado < duracion_requerida_sec - 0.01):
+                plan = planear(duracion_requerida_sec - planeado)
+                if not plan:
+                    break
+                en_marcha[pool.submit(cortar, siguiente, *plan)] = (siguiente, *plan)
+                siguiente += 1
+                planeado += plan[2]
+            if not en_marcha:
+                break
+            listos, _ = wait(en_marcha, return_when=FIRST_COMPLETED)
+            for fut in listos:
+                orden, vid_elegido, ss, clip_dur = en_marcha.pop(fut)
+                nom_clip = fut.result()
+                if not nom_clip:
+                    fallos_consecutivos += 1
+                    continue
+                fallos_consecutivos = 0
+                acumulado += clip_dur
+                hechos[orden] = (nom_clip, {"archivo": os.path.basename(vid_elegido),
+                                            "original": _nombre_original(vid_elegido),
+                                            "desde": round(ss, 2), "segundos": round(clip_dur, 2)})
+            pct = min(100.0, (acumulado/duracion_requerida_sec)*100.0)
+            bl = int(anch * pct / 100)
+            actualizar_hud([f"{txt_base} [{pct:5.1f}%] [{'█'*bl}{' '*(anch-bl)}]"])
+    if fallos_consecutivos >= 8:
+        logger.error("Demasiados cortes fallidos seguidos, abortando ensamblado de fondo.")
+    archivos_clips = [hechos[k][0] for k in sorted(hechos)]
+    cortes = [hechos[k][1] for k in sorted(hechos)]
 
     if not archivos_clips: 
         actualizar_hud([f"{txt_base} [ Fallo] [{'❌'*anch}]"], True)

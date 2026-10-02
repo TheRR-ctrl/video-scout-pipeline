@@ -152,6 +152,12 @@ después nunca ve los huecos llenos y no sube nunca.
 En Android no hay regulador: `/proc/stat` está cerrado y no hay con qué
 medir. Allí se usa el historial o lo medido, sin explorar hacia arriba.
 
+Dentro de cada video, los trozos de fondo también se cortan varios a la vez
+(`cortes_a_la_vez`: 1 en el teléfono; en un PC, hilos/4 entre 2 y 6). Cada
+corte es un ffmpeg de menos de un segundo, y de uno en uno un PC grande se
+quedaba al 12 % durante toda la fase «Cortes». Se suma al regulador: si el
+procesador se llena, ese abre menos videos.
+
 ## Resolución adaptativa: 2K si el fondo lo aguanta
 
 El render ya no está clavado en 1080x1920/1920x1080: si el fondo que le toca
