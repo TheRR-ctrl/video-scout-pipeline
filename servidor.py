@@ -369,6 +369,7 @@ class Trabajo:
                 else lineas[-15:]),
             "modelos": resumen_modelos(self.modelos),
             "vista": vista_del_trabajo(self.nombre, self.cmd),
+            **dict(zip(("al_aire", "rotulo"), rotulo_del_trabajo(self.cmd, lineas))),
             "codificador": self.codificador,
             "uso_procesador": self.uso_procesador,
             "inicio": self.inicio,
@@ -449,6 +450,49 @@ VISTA_POR_SCRIPT = {
     "actualizar_musica.py": "ajustes", "vincular_fondos.py": "ajustes",
     "descargar_fondos.py": "ajustes", "recomprimir.py": "ajustes", "respaldo.py": "ajustes", "calibrar_render.py": "ajustes",
 }
+
+
+# Qué dice la lámpara de la cabecera mientras corre cada script. «Al aire»
+# queda solo para publicar, que es lo que emite de verdad; lo demás dice lo
+# que está haciendo, en azul y no en rojo.
+ROTULO_POR_SCRIPT = {
+    "generar_video_maestro.py": "Grabando", "previsualizar_estilos.py": "Grabando muestras",
+    "script_writer.py": "Escribiendo guiones", "rehacer_guiones.py": "Escribiendo guiones",
+    "preparar_metadata.py": "Preparando títulos",
+    "trend_scout.py": "Buscando historias", "youtube_scout.py": "Buscando historias",
+    "buscar_diario.py": "Tanda automática", "pipeline.py": "Tanda automática",
+    "partir_historias.py": "Ordenando la cola", "limpiar_cola.py": "Ordenando la cola",
+    "archivar_largas.py": "Ordenando la cola",
+    "actualizar_musica.py": "Bajando música", "vincular_fondos.py": "Preparando material",
+    "bajar_fondo.py": "Bajando fondo", "descargar_fondos.py": "Bajando fondos",
+    "hyperframes_broll.py": "Fabricando fondos",
+    "calidad.py": "Revisando videos", "calidad_ia.py": "Revisando videos",
+    "relanzar.py": "Revisando el canal", "revision_quincenal.py": "Revisando el canal",
+    "revision_quincenal.sh": "Revisando el canal", "formato.py": "Revisando el canal",
+    "diagnosticar_youtube.py": "Rehaciendo", "recomprimir.py": "Recomprimiendo",
+    "respaldo.py": "Respaldando", "calibrar_render.py": "Midiendo",
+}
+# Opciones con las que los publicadores solo miran, no suben.
+_SOLO_MIRAN = ("--revisar-programados", "--estado", "--simular")
+# Las cadenas (pipeline, rehacer y subir) solo están al aire mientras suben:
+# es lo que imprime publisher.py ("Subiendo X: 40%") y diagnosticar_youtube.
+_RE_SUBIENDO = re.compile(r"Subiendo \S")
+
+
+def rotulo_del_trabajo(cmd, lineas):
+    """(al_aire, rótulo) de lo que está haciendo el trabajo ahora."""
+    scripts = [os.path.basename(str(p)) for p in cmd]
+    if (any(s in ("publisher.py", "tiktok_publisher.py") for s in scripts)
+            and not any(o in cmd for o in _SOLO_MIRAN)):
+        return True, "Al aire"
+    if any(_RE_SUBIENDO.search(l) for l in lineas[-3:]):
+        return True, "Al aire"
+    if any(s in ("publisher.py", "tiktok_publisher.py") for s in scripts):
+        return False, "Revisando el canal"
+    for s in scripts:
+        if s in ROTULO_POR_SCRIPT:
+            return False, ROTULO_POR_SCRIPT[s]
+    return False, "Trabajando"
 
 
 def vista_del_trabajo(nombre, cmd):

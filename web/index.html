@@ -588,6 +588,9 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   :root[data-aire="aire"] .estado-aire .lamp-txt{color:var(--aire)}
   :root[data-aire="aire"] .estado-aire .lamp-txt::before{opacity:1;
     box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
+  :root[data-aire="trabajo"] .marca .glifo{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  :root[data-aire="trabajo"] .estado-aire .lamp-txt{color:var(--accent)}
+  :root[data-aire="trabajo"] .estado-aire .lamp-txt::before{opacity:1}
   :root[data-aire="pausa"] .marca .glifo{background:var(--espera);color:#1a1000;border-color:var(--espera)}
   :root[data-aire="pausa"] .estado-aire .lamp-txt{color:var(--espera)}
   :root[data-aire="fallo"] .marca .glifo{border-color:var(--crit);color:var(--crit)}
@@ -699,6 +702,11 @@ try { matchMedia('(prefers-color-scheme: light)').addEventListener('change', apl
   .job .umd .luz{display:inline-flex;align-items:center;gap:6px}
   .job .umd .luz::before{content:"";width:8px;height:8px;border-radius:50%;background:#2a2f36}
   .job.aire{border-color:var(--aire);box-shadow:0 0 0 1px var(--aire)}
+  /* Trabajando sin emitir: la misma tarjeta, en el azul de la tecla. */
+  .job.trabaja{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .job.trabaja .umd .luz{color:var(--accent)}
+  .job.trabaja .umd .luz::before{background:var(--accent);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
+  .job.trabaja .barra i,.mini.trabaja .barra i{background:color-mix(in srgb,var(--accent) 55%,#101216)}
   .job.aire .umd .luz{color:var(--aire)}
   .job.aire .umd .luz::before{background:var(--aire);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
   .job.pausa{border-color:var(--espera)}
@@ -1550,10 +1558,13 @@ function pintaJob(){
 
   const corriendo = j.estado==='corriendo' || j.estado==='pausado';
   const mins = Math.floor(j.segundos/60), segs = j.segundos%60;
-  $('#job-caja').className = 'job' + ({error:' err', ok:' fin', corriendo:' aire', pausado:' pausa'}[j.estado] || '');
+  // «Al aire» (rojo) solo al publicar; trabajando en otra cosa, azul y con
+  // lo que está haciendo («Grabando», «Escribiendo guiones»…).
+  const enMarcha = j.al_aire ? ' aire' : ' trabaja';
+  $('#job-caja').className = 'job' + ({error:' err', ok:' fin', corriendo:enMarcha, pausado:' pausa'}[j.estado] || '');
   // El rótulo del monitor y su timecode: lo que dice la luz y cuánto lleva.
-  $('#job-luz').textContent = {corriendo:'Al aire', pausado:'En pausa', ok:'Terminado',
-    error:'Fallo', abortado:'Abortado'}[j.estado] || 'Programa';
+  $('#job-luz').textContent = {corriendo: j.al_aire ? 'Al aire' : (j.rotulo || 'Trabajando'),
+    pausado:'En pausa', ok:'Terminado', error:'Fallo', abortado:'Abortado'}[j.estado] || 'Programa';
   $('#job-tc').textContent = [Math.floor(j.segundos/3600), Math.floor(j.segundos/60)%60, j.segundos%60]
     .map(n => String(n).padStart(2,'0')).join(':');
   $('#job-nom').textContent = j.nombre;
@@ -1627,7 +1638,8 @@ function pintaJob(){
   // La mini habla como la lámpara de la cabecera: «Al aire» en rojo, no
   // el nombre interno del estado.
   $('#mini-estado').textContent = $('#job-luz').textContent;
-  $('#mini-estado').className = 'pill ' + ({corriendo:'aire', pausado:'warn', ok:'ok', error:'crit'}[j.estado] || 'idle');
+  $('#mini-estado').className = 'pill ' + ({corriendo: j.al_aire ? 'aire' : 'acc', pausado:'warn', ok:'ok', error:'crit'}[j.estado] || 'idle');
+  $('#mini-job').classList.toggle('trabaja', j.estado === 'corriendo' && !j.al_aire);
   $('#mini-paso').textContent = ultima;
   $('#mini-t').textContent = $('#job-t').textContent;
   $('#mini-barra').style.width = $('#job-barra').style.width;
@@ -4733,13 +4745,15 @@ function pintaDesactivado(){
    está al aire. */
 function pintaTally(){
   const j = E && E.trabajo, est = j ? j.estado : null;
-  const modo = est === 'corriendo' ? 'aire' : est === 'pausado' ? 'pausa'
+  const modo = est === 'corriendo' ? (j.al_aire ? 'aire' : 'trabajo') : est === 'pausado' ? 'pausa'
     : est === 'error' ? 'fallo' : (E && E.desactivado) ? 'fuera' : 'espera';
-  if(document.documentElement.dataset.aire === modo) return;
-  document.documentElement.dataset.aire = modo;
-  $('#tally-txt').textContent = {aire:'Al aire', pausa:'En pausa', fallo:'Falló',
+  const txt = {aire:'Al aire', trabajo: j && j.rotulo || 'Trabajando', pausa:'En pausa', fallo:'Falló',
     fuera:'Desactivado', espera:'En espera'}[modo];
-  $('#tally-lamp').title = modo === 'aire' ? 'Hay algo grabándose ahora mismo' : '';
+  if(document.documentElement.dataset.aire === modo && $('#tally-txt').textContent === txt) return;
+  document.documentElement.dataset.aire = modo;
+  $('#tally-txt').textContent = txt;
+  $('#tally-lamp').title = modo === 'aire' ? 'Publicando en YouTube o TikTok ahora mismo'
+    : modo === 'trabajo' ? txt : '';
 }
 // El reloj de estudio: la hora de este aparato, al segundo. Solo con la
 // pestaña a la vista; escondida no hay nadie mirándolo.

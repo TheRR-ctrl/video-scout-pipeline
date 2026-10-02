@@ -141,7 +141,7 @@ Neutros fríos casi sin croma; el color está reservado a los tallies y a la tec
 - **Negro Monitor** (#060708): el video y el monitor de programa, en los dos temas.
 
 ### Named Rules
-**The Tally Rule.** Rojo, verde y ámbar solo dicen «al aire», «previo» y «en espera». Nunca se usan como decoración ni como acento.
+**The Tally Rule.** Rojo, verde y ámbar solo dicen «al aire», «previo» y «en espera». Nunca se usan como decoración ni como acento. «Al aire» es publicar (subir a YouTube o TikTok) y nada más; cualquier otro trabajo en marcha enciende la lámpara en el azul de la tecla con lo que hace («Grabando», «Escribiendo guiones»…).
 
 **The Sin Halo Rule.** Las luces encendidas son planas con un filo interior claro (`inset 0 0 0 1px rgba(255,255,255,.35)`), nunca un resplandor difuso de color.
 
