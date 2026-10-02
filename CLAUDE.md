@@ -272,7 +272,9 @@ El teléfono sigue siendo el sitio de verdad; Windows es un extra
 (`iniciar_windows.bat` → `iniciar_windows.py`). Tres cosas que se rompen en
 silencio si se olvidan:
 
-- **Los trabajos corren con `PYTHONUTF8=1`** (`servidor.ENTORNO_HIJOS`). Sin
+- **Los trabajos corren con `PYTHONUTF8=1`** (`servidor.entorno_hijos()`,
+  que se arma en cada trabajo: una copia fija hecha al arrancar dejaba a
+  los trabajos con la clave vieja después de guardar una nueva en el panel). Sin
   eso, en Windows Python escribe en cp1252 y el primer emoji o acento de un
   script revienta la tanda. Un `open()` nuevo sin `encoding=` pasa lo mismo.
 - **Pausar y abortar van por `psutil`** en Windows (no hay `killpg` ni

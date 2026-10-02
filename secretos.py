@@ -49,8 +49,13 @@ NOMBRE_VALIDO = re.compile(r"^[A-Z][A-Z0-9_]{2,63}$")
 _DESDE_ARCHIVO = set()
 
 
-def cargar(ruta=RUTA_SECRETOS):
-    """Mete en os.environ lo que falte. Devuelve las claves que cargó."""
+def cargar(ruta=RUTA_SECRETOS, pisar=False):
+    """Mete en os.environ lo que falte. Devuelve las claves que cargó.
+
+    pisar=True hace que el archivo gane al entorno. Lo usa el panel: ahí la
+    clave que pegaste en Ajustes es la que vale, y una variable de Windows
+    vieja (puesta a mano hace meses) no puede seguir ganándole en silencio.
+    Los scripts sueltos siguen dejando mandar al entorno."""
     if not os.path.exists(ruta):
         return []
 
@@ -67,7 +72,7 @@ def cargar(ruta=RUTA_SECRETOS):
                 if not clave or not valor:
                     continue
                 # El entorno manda: si ya está definida, no se pisa.
-                if not os.environ.get(clave):
+                if pisar or not os.environ.get(clave):
                     os.environ[clave] = valor
                     _DESDE_ARCHIVO.add(clave)
                     cargadas.append(clave)

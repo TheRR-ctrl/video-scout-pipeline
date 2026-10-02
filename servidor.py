@@ -64,8 +64,14 @@ ES_WINDOWS = os.name == "nt"
 # acentos; sin esto fallan con UnicodeEncodeError a mitad de una tanda. En
 # Linux y Termux ya es UTF-8, así que no cambia nada. PYTHONUNBUFFERED: que
 # cada línea llegue al panel en cuanto se escribe.
-ENTORNO_HIJOS = {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
-                 "PYTHONUNBUFFERED": "1"}
+#
+# Se arma en cada trabajo y no una vez al arrancar: era una copia fija del
+# entorno, así que una clave guardada desde el panel (que cambia os.environ
+# de este proceso) no llegaba a los trabajos hasta reiniciar, y el panel
+# probaba la clave nueva mientras «Rellenar» seguía usando la vieja.
+def entorno_hijos():
+    return {**os.environ, "PYTHONUTF8": "1", "PYTHONIOENCODING": "utf-8",
+            "PYTHONUNBUFFERED": "1"}
 
 app = Flask(__name__, static_folder=None)
 
@@ -208,7 +214,7 @@ class Trabajo:
         self.proc = subprocess.Popen(
             self.cmd, cwd=BASE_DIR, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", bufsize=1,
-            env=ENTORNO_HIJOS, **grupo,
+            env=entorno_hijos(), **grupo,
         )
         threading.Thread(target=self._leer, daemon=True).start()
 
@@ -1847,7 +1853,14 @@ def _recargar_secretos_si_cambiaron():
         return
     if _SECRETOS_MTIME[0] != m:
         _SECRETOS_MTIME[0] = m
-        secretos.cargar()
+        # pisar: en el panel manda lo guardado en secretos.env, no una
+        # variable de entorno vieja de Windows (ver secretos.cargar).
+        secretos.cargar(pisar=True)
+
+
+# Al arrancar, no en el primer refresco: un trabajo lanzado antes (el cron
+# que pega al panel, un atajo) saldría con la clave vieja.
+_recargar_secretos_si_cambiaron()
 
 
 def _carpeta_material():
