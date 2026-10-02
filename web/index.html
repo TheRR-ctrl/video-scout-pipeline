@@ -1846,6 +1846,7 @@ function pintaRevisar(){
           <button class="btn" id="b-rehacer">↺ Rehacer este</button>
           <button class="btn danger" id="b-borrar">🗑 Borrar del ${equipo()}</button>
           ${subidos ? `<button class="btn danger" id="b-borrar-subidos">🗑 Borrar los ${subidos} subidos</button>` : ''}
+          ${v.length > 1 ? `<button class="btn danger" id="b-borrar-todos">🗑 Borrar los ${v.length}</button>` : ''}
         </div>
         <div class="muted">Publicar sube como privado con la ventana de revisión, y comprueba en tu canal que no exista ya.</div>
 
@@ -1963,6 +1964,26 @@ function pintaRevisar(){
       const j = await post('/api/borrar-subidos', {});
       const sitio = j.kb >= 1024 ? (j.kb/1024).toFixed(1) + ' MB' : j.kb + ' KB';
       toast(`${j.borrados} borrados · ${sitio} libres` + (j.fallos ? ` · ${j.fallos} no se pudo` : ''));
+      elegido = 0;
+      await refrescar();
+    }catch(e){ toast(e.message); }
+  };
+
+  // Todos de golpe. Los subidos solo pierden la copia; los que no se
+  // subieron vuelven a la Cola para regrabarlos (ver /api/borrar-todos).
+  const bTodos = $('#b-borrar-todos');
+  if(bTodos) bTodos.onclick = async ()=>{
+    const sinSubir = v.length - subidos;
+    if(!confirm(`¿Borrar del ${equipo()} los ${v.length} videos?\n\n`
+      + (subidos ? `· ${subidos} ya están en YouTube: solo se tira la copia local.\n` : '')
+      + (sinSubir ? `· ${sinSubir} no se han subido: se borran y su historia vuelve a la Cola `
+        + 'para grabarla otra vez (con los ajustes de ahora).\n' : ''))) return;
+    try{
+      const j = await post('/api/borrar-todos', {});
+      const sitio = j.kb >= 1024 ? (j.kb/1024).toFixed(1) + ' MB' : j.kb + ' KB';
+      toast(`${j.borrados} borrados · ${sitio} libres` + (j.a_cola ? ` · ${j.a_cola} a la Cola` : '')
+        + (j.sin_guion && j.sin_guion.length ? ` · ${j.sin_guion.length} sin guion para regrabar` : '')
+        + (j.fallos ? ` · ${j.fallos} no se pudo` : ''));
       elegido = 0;
       await refrescar();
     }catch(e){ toast(e.message); }

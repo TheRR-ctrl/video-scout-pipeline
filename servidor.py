@@ -1366,6 +1366,80 @@ def api_borrar_subidos():
                     "fallos": len(fallos)})
 
 
+@app.post("/api/borrar-todos")
+def api_borrar_todos():
+    """Borra todos los videos de la carpeta de salida.
+
+    Los que están en YouTube solo pierden la copia local, como con
+    «Borrar los subidos». Los que no se subieron vuelven a la Cola para
+    grabarlos de nuevo: se quita también su rastro en resultado_lote.json
+    (sin eso limpiar_cola los seguiría dando por grabados) y, si su guion ya
+    había salido de guion.txt, se recupera del historial o de las copias.
+    Los rechazados salen de rechazados.json, para que el publicador vuelva a
+    mirarlos cuando estén regrabados.
+    """
+    actual = TRABAJO["actual"]
+    if actual and actual.estado in ("corriendo", "pausado") and any(
+            "generar_video_maestro.py" in str(p) or "publisher.py" in str(p) for p in actual.cmd):
+        return jsonify({"error": "Ahora mismo se está grabando o subiendo: borra cuando acabe."}), 409
+    import relanzar
+    import limpiar_cola
+    videos = videos_renderizados()
+    if not videos:
+        return jsonify({"error": "No hay videos en la carpeta"}), 404
+
+    carpeta = cfg_actual()["carpeta_salida"]
+    subidos = [v["archivo"] for v in videos if v["subido"]]
+    otros = [v["archivo"] for v in videos if not v["subido"]]
+    borrados, kb_total, fallos = [], 0, []
+    for nombre in subidos:
+        kb, error = borrar_de_salida(nombre)
+        if error:
+            fallos.append(nombre)
+            continue
+        borrados.append(nombre)
+        kb_total += kb
+    marcar_borrados_localmente(borrados)
+
+    bloques = limpiar_cola.bloques_del_guion()
+    en_cola = {limpiar_cola.apodo(b) for b in bloques}
+    recuperados, a_cola, sin_guion = [], 0, []
+    for nombre in otros:
+        ruta = os.path.join(carpeta, nombre)
+        kb = os.path.getsize(ruta) // 1024 if os.path.isfile(ruta) else 0
+        # Quita el .mp4 y su anotación en el lote; la miniatura, aparte.
+        relanzar.olvidar_el_render({"ruta": ruta})
+        borrar_de_salida(nombre)
+        kb_total += kb
+        apodo = limpiar_cola._apodo_de_archivo(nombre)
+        if apodo in en_cola:
+            a_cola += 1
+            continue
+        bloque = next((b for b in limpiar_cola.bloques_del_guion(limpiar_cola.RUTA_HISTORIAL_GUION)
+                       if limpiar_cola.apodo(b) == apodo), None) or relanzar.buscar_en_respaldos(apodo)[0]
+        if bloque:
+            recuperados.append(bloque)
+            en_cola.add(apodo)
+            a_cola += 1
+        else:
+            sin_guion.append(nombre)
+    relanzar.devolver_a_la_cola(recuperados)
+
+    ruta_rech = os.path.join(CARPETA_ESTADO, "rechazados.json")
+    rechazados = leer_json(ruta_rech, [])
+    quedan = [r for r in rechazados if os.path.basename(r.get("ruta", "")) not in otros]
+    if len(quedan) != len(rechazados):
+        guardar_json(ruta_rech, quedan)
+    revisiones = leer_json(os.path.join(CARPETA_ESTADO, "calidad.json"), {})
+    if any(n in revisiones for n in otros):
+        guardar_json(os.path.join(CARPETA_ESTADO, "calidad.json"),
+                     {k: v for k, v in revisiones.items() if k not in otros})
+
+    return jsonify({"ok": True, "borrados": len(borrados) + len(otros), "kb": kb_total,
+                    "subidos": len(borrados), "a_cola": a_cola, "fallos": len(fallos),
+                    "sin_guion": sin_guion})
+
+
 def borrar_de_salida(nombre):
     """Borra un .mp4 de la carpeta de salida y su miniatura.
 
